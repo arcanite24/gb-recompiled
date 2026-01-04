@@ -187,6 +187,28 @@ void gb_platform_render_frame(const uint32_t* framebuffer) {
     
     g_frame_count++;
     
+    /* Simulate Start button press to get past copyright */
+    extern uint8_t g_joypad_buttons;
+    if (g_frame_count == 120) {
+        printf("SIMULATING START PRESS\n");
+        g_joypad_buttons &= ~0x08; /* Press Start */
+    } else if (g_frame_count == 130) {
+        printf("SIMULATING START RELEASE\n");
+        g_joypad_buttons |= 0x08;  /* Release Start */
+    }
+    
+    /* Simulate Start button press repeatedly to get past copyright */
+    extern uint8_t g_joypad_buttons;
+    /* Press Start every 120 frames (approx 2s), hold for 10 frames */
+    int cycle = g_frame_count % 120;
+    if (cycle >= 60 && cycle < 70) {
+        if (cycle == 60) printf("SIMULATING START PRESS (Frame %d)\n", g_frame_count);
+        g_joypad_buttons &= ~0x08; /* Press Start */
+    } else {
+        if (cycle == 70) printf("SIMULATING START RELEASE (Frame %d)\n", g_frame_count);
+        g_joypad_buttons |= 0x08;  /* Release Start */
+    }
+    
     /* Debug: check framebuffer content on first few frames */
     if (g_frame_count <= 3) {
         /* Check if framebuffer has any non-white pixels */

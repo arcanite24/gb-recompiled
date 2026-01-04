@@ -118,6 +118,7 @@ typedef struct GBContext {
     void* timer;          /**< Timer unit */
     void* serial;         /**< Serial port */
     void* joypad;         /**< Joypad input */
+    uint8_t last_joypad;  /**< Last joypad state for interrupt generation */
     
     /* Platform interface */
     void* platform;       /**< Platform-specific data */
