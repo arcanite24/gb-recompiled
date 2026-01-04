@@ -4,8 +4,12 @@
  */
 
 #include "gbrt.h"
+#include "ppu.h"
+#include "gbrt_debug.h"
+#include "platform_sdl.h"
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 
 /* ============================================================================
  * Memory Map Constants
@@ -63,6 +67,15 @@ GBContext* gb_context_create(const GBConfig* config) {
         return NULL;
     }
     
+    /* Allocate and initialize PPU */
+    GBPPU* ppu = (GBPPU*)calloc(1, sizeof(GBPPU));
+    if (!ppu) {
+        gb_context_destroy(ctx);
+        return NULL;
+    }
+    ppu_init(ppu);
+    ctx->ppu = ppu;
+    
     /* Initialize to post-bootrom state */
     gb_context_reset(ctx, true);
     
@@ -79,13 +92,14 @@ void gb_context_destroy(GBContext* ctx) {
     free(ctx->hram);
     free(ctx->io);
     free(ctx->eram);
+    free(ctx->ppu);
     free(ctx);
 }
 
 void gb_context_reset(GBContext* ctx, bool skip_bootrom) {
     if (skip_bootrom) {
         /* DMG post-bootrom state */
-        ctx->af = 0x01B0;
+        ctx->af = 0x01B0;  /* A=0x01 indicates DMG */
         ctx->bc = 0x0013;
         ctx->de = 0x00D8;
         ctx->hl = 0x014D;
@@ -187,6 +201,16 @@ bool gb_context_load_rom(GBContext* ctx, const uint8_t* data, size_t size) {
         }
     }
     
+    DBG_GENERAL("ROM loaded: size=%zu, MBC=0x%02X, RAM size=%zu",
+                size, ctx->mbc_type, ctx->eram_size);
+    
+    /* Debug: dump first few bytes of ROM at offset 0x1000 (common tile data location) */
+    if (size > 0x1050) {
+        DBG_GENERAL("ROM[0x1000..0x1010]: %02X %02X %02X %02X %02X %02X %02X %02X...",
+                    data[0x1000], data[0x1001], data[0x1002], data[0x1003],
+                    data[0x1004], data[0x1005], data[0x1006], data[0x1007]);
+    }
+    
     return true;
 }
 
@@ -202,6 +226,10 @@ uint8_t gb_read8(GBContext* ctx, uint16_t addr) {
     else if (addr <= ROM_BANKN_END) {
         /* ROM Bank N */
         size_t offset = (size_t)(ctx->rom_bank) * ROM_BANK_SIZE + (addr - ROM_BANKN_START);
+        if (addr == 0x4A07) {
+            DBG_GENERAL("READ 0x4A07! Bank=%d, Offset=0x%zX, Value=0x%02X", 
+                        ctx->rom_bank, offset, (ctx->rom && offset < ctx->rom_size) ? ctx->rom[offset] : 0xFF);
+        }
         return (ctx->rom && offset < ctx->rom_size) ? ctx->rom[offset] : 0xFF;
     }
     else if (addr <= VRAM_END) {
@@ -238,6 +266,37 @@ uint8_t gb_read8(GBContext* ctx, uint16_t addr) {
     }
     else if (addr <= IO_END) {
         /* I/O Registers */
+        /* LCD registers 0xFF40-0xFF4B are handled by PPU */
+        if (addr >= 0xFF40 && addr <= 0xFF4B && ctx->ppu) {
+            return ppu_read_register((GBPPU*)ctx->ppu, addr);
+        }
+        /* Joypad register - return SELECT bits plus input state */
+        if (addr == 0xFF00) {
+            uint8_t joyp = ctx->io[0x00];
+            uint8_t result = joyp | 0x0F;  /* Start with all buttons released */
+            
+#ifdef GB_HAS_SDL2
+            /* Get actual joypad state from platform */
+            uint8_t dpad = 0x0F;
+            uint8_t buttons = 0x0F;
+            extern uint8_t g_joypad_dpad;
+            extern uint8_t g_joypad_buttons;
+            dpad = g_joypad_dpad;
+            buttons = g_joypad_buttons;
+            
+            /* P14 (bit 4) = select direction keys */
+            /* P15 (bit 5) = select button keys */
+            if (!(joyp & 0x10)) {
+                /* Direction keys selected */
+                result = (result & 0xF0) | (dpad & 0x0F);
+            }
+            if (!(joyp & 0x20)) {
+                /* Button keys selected */
+                result = (result & 0xF0) | (buttons & 0x0F);
+            }
+#endif
+            return result;
+        }
         return ctx->io[addr - IO_START];
     }
     else if (addr <= HRAM_END) {
@@ -271,7 +330,16 @@ void gb_write8(GBContext* ctx, uint16_t addr, uint8_t value) {
     }
     else if (addr <= VRAM_END) {
         /* VRAM */
-        ctx->vram[addr - VRAM_START + ctx->vram_bank * VRAM_SIZE] = value;
+        uint16_t offset = addr - VRAM_START + ctx->vram_bank * VRAM_SIZE;
+        ctx->vram[offset] = value;
+        
+        /* Debug: log significant VRAM writes (TEMPORARY: log all VRAM writes) */
+        //static int vram_write_count = 0;
+        //vram_write_count++;
+        //if (vram_write_count <= 10 || (addr == 0x8000) || (addr == 0x9800)) {
+            DBG_VRAM("Write 0x%04X = 0x%02X (offset=0x%04X, A=0x%02X)", 
+                     addr, value, offset, ctx->a);
+        //}
     }
     else if (addr <= ERAM_END) {
         /* External RAM */
@@ -303,7 +371,12 @@ void gb_write8(GBContext* ctx, uint16_t addr, uint8_t value) {
     }
     else if (addr <= IO_END) {
         /* I/O Registers */
-        /* TODO: Handle special I/O behavior */
+        /* LCD registers 0xFF40-0xFF4B are handled by PPU */
+        if (addr >= 0xFF40 && addr <= 0xFF4B && ctx->ppu) {
+            ppu_write_register((GBPPU*)ctx->ppu, ctx, addr, value);
+            return;
+        }
+        /* Also store in io array for other code to read */
         ctx->io[addr - IO_START] = value;
     }
     else if (addr <= HRAM_END) {
@@ -670,17 +743,68 @@ void gb_rst(GBContext* ctx, uint8_t vector) {
     gb_dispatch(ctx, vector);
 }
 
+/* These are weak symbols - overridden by the generated dispatch table */
+__attribute__((weak))
 void gb_dispatch(GBContext* ctx, uint16_t addr) {
     /* This will be overridden by the generated dispatch table */
     ctx->pc = addr;
     gb_interpret(ctx, addr);
 }
 
+__attribute__((weak))
+void gb_dispatch_call(GBContext* ctx, uint16_t addr) {
+    /* For calls to unanalyzed code (e.g., HRAM routines) */
+    /* The return address should already be pushed by the caller's recompiled code */
+    /* or we push it here if called directly */
+    gb_push16(ctx, ctx->pc);
+    ctx->pc = addr;
+    gb_interpret(ctx, addr);
+}
+
 void gb_interpret(GBContext* ctx, uint16_t addr) {
-    /* Fallback interpreter - not implemented in this file */
-    /* Should be provided by a full interpreter implementation */
-    (void)ctx;
-    (void)addr;
+    /* Set PC to the address we want to execute */
+    ctx->pc = addr;
+
+    /* Handle HRAM OAM DMA routine specifically */
+    /* Tetris calls a routine in HRAM (usually around 0xFFB6) to start DMA */
+    /* Routine starts with: LDH (0xFF46), A */
+    if (addr >= 0xFF80 && addr <= 0xFFFE) {
+        uint8_t opcode = ctx->hram[addr - 0xFF80];
+        
+        /* Check for LDH (n),A instruction (0xE0) */
+        if (opcode == 0xE0) {
+            uint8_t operand = ctx->hram[addr - 0xFF80 + 1];
+            if (operand == 0x46) {
+                /* Generic OAM DMA: LDH (0xFF46), A */
+                DBG_GENERAL("Intercepted HRAM DMA routine at 0x%04X (Generic)", addr);
+                gb_write8(ctx, 0xFF46, ctx->a);
+                gb_ret(ctx);
+                return;
+            }
+        }
+        /* Check for Tetris pattern: LD A, n (0x3E) then LDH (0xFF46), A */
+        else if (opcode == 0x3E) {
+            uint8_t op2 = ctx->hram[addr - 0xFF80 + 2];
+            uint8_t operand2 = ctx->hram[addr - 0xFF80 + 3];
+            if (op2 == 0xE0 && operand2 == 0x46) {
+                uint8_t dma_src = ctx->hram[addr - 0xFF80 + 1];
+                /* Tetris OAM DMA: LD A, n; LDH (0xFF46), A */
+                /* DBG_GENERAL("Intercepted HRAM DMA routine at 0x%04X (Tetris variant, src=0x%02X)", addr, dma_src); */
+                ctx->a = dma_src; /* Execute LD A, n */
+                gb_write8(ctx, 0xFF46, ctx->a);
+                gb_ret(ctx);
+                return;
+            }
+        }
+    }
+
+    /* Fallback: trace execution of uncompiled code (basic logging) */
+    static int missing_log_count = 0;
+    if (missing_log_count < 20) {
+        missing_log_count++;
+        DBG_GENERAL("Executing uncompiled code at 0x%04X (Bank %d) - Implementation missing using interpreter stub", 
+                    addr, ctx->rom_bank);
+    }
 }
 
 /* ============================================================================
@@ -689,7 +813,45 @@ void gb_interpret(GBContext* ctx, uint16_t addr) {
 
 void gb_halt(GBContext* ctx) {
     ctx->halted = 1;
-    /* CPU will wake on interrupt */
+    
+    /* Spin until an interrupt is pending */
+    /* This runs the PPU to advance time without CPU execution */
+    int max_cycles = 70224;  /* One full frame maximum */
+    while (ctx->halted && max_cycles > 0) {
+        /* Tick PPU for 4 cycles (one M-cycle) */
+        gb_tick(ctx, 4);
+        max_cycles -= 4;
+        
+        /* Check for interrupts (IE & IF) */
+        uint8_t ie = ctx->io[IO_SIZE];  /* IE register at 0xFFFF stored in io[0x80] */
+        uint8_t if_reg = ctx->io[0x0F];
+        if (ie & if_reg) {
+            /* An interrupt is pending, wake up */
+            ctx->halted = 0;
+            break;
+        }
+        
+        /* If frame is ready, render it (inline to avoid longjmp issues) */
+        if (ctx->ppu && ppu_frame_ready((GBPPU*)ctx->ppu)) {
+#ifdef GB_HAS_SDL2
+            /* Poll events to keep system responsive */
+            if (!gb_platform_poll_events(ctx)) {
+                /* User requested quit */
+                ctx->stopped = 1;
+                ctx->halted = 0;
+                break;
+            }
+            
+            /* Render the frame */
+            const uint32_t* fb = ppu_get_framebuffer((GBPPU*)ctx->ppu);
+            if (fb) {
+                gb_platform_render_frame(fb);
+            }
+            gb_platform_vsync();
+#endif
+            ppu_clear_frame_ready((GBPPU*)ctx->ppu);
+        }
+    }
 }
 
 void gb_stop(GBContext* ctx) {
@@ -709,17 +871,125 @@ void gb_add_cycles(GBContext* ctx, uint32_t cycles) {
 }
 
 bool gb_frame_complete(GBContext* ctx) {
-    if (ctx->frame_cycles >= CYCLES_PER_FRAME) {
-        ctx->frame_cycles -= CYCLES_PER_FRAME;
+    if (ctx->ppu && ppu_frame_ready((GBPPU*)ctx->ppu)) {
         return true;
     }
     return false;
 }
 
+const uint32_t* gb_get_framebuffer(GBContext* ctx) {
+    if (ctx->ppu) {
+        return ppu_get_framebuffer((GBPPU*)ctx->ppu);
+    }
+    return NULL;
+}
+
+void gb_reset_frame(GBContext* ctx) {
+    if (ctx->ppu) {
+        ppu_clear_frame_ready((GBPPU*)ctx->ppu);
+    }
+}
+
 void gb_tick(GBContext* ctx, uint32_t cycles) {
-    /* Update timer, PPU, APU, etc */
-    /* TODO: Implement hardware components */
+    static uint32_t poll_counter = 0;
+    static int frame_count = 0;
+    static uint32_t int_check_count = 0;
+    
     gb_add_cycles(ctx, cycles);
+    
+    /* Handle pending IME enable (from EI instruction) */
+    if (ctx->ime_pending) {
+        DBG_GENERAL("[INT] IME enabled via EI instruction");
+        ctx->ime = 1;
+        ctx->ime_pending = 0;
+    }
+    
+    /* Debug: periodically check interrupt state */
+    int_check_count++;
+    if (int_check_count % 10000 == 1) {
+        uint8_t if_reg = ctx->io[0x0F];
+        uint8_t ie_reg = ctx->io[0x80];
+        DBG_GENERAL("[INT] Check #%u: IME=%d IF=0x%02X IE=0x%02X pending=0x%02X",
+                    int_check_count, ctx->ime, if_reg, ie_reg, if_reg & ie_reg & 0x1F);
+    }
+    
+    /* Check and dispatch interrupts */
+    if (ctx->ime) {
+        uint8_t if_reg = ctx->io[0x0F];  /* Interrupt Flag */
+        uint8_t ie_reg = ctx->io[0x80];  /* Interrupt Enable (stored at offset 0x80) */
+        uint8_t pending = if_reg & ie_reg & 0x1F;
+        
+        if (pending) {
+            ctx->ime = 0;  /* Disable further interrupts */
+            ctx->halted = 0;  /* Wake from HALT */
+            
+            /* Priority: VBlank > LCD STAT > Timer > Serial > Joypad */
+            uint16_t vector = 0;
+            uint8_t bit = 0;
+            
+            if (pending & 0x01) { vector = 0x0040; bit = 0x01; }      /* VBlank */
+            else if (pending & 0x02) { vector = 0x0048; bit = 0x02; } /* LCD STAT */
+            else if (pending & 0x04) { vector = 0x0050; bit = 0x04; } /* Timer */
+            else if (pending & 0x08) { vector = 0x0058; bit = 0x08; } /* Serial */
+            else if (pending & 0x10) { vector = 0x0060; bit = 0x10; } /* Joypad */
+            
+            if (vector) {
+                DBG_GENERAL("[INT] Dispatching interrupt to 0x%04X (IF=0x%02X, bit=0x%02X)", 
+                            vector, if_reg, bit);
+                
+                /* Clear the interrupt flag */
+                ctx->io[0x0F] &= ~bit;
+                
+                /* Push PC and jump to handler */
+                /* Note: For recompiled code, we call the dispatch function */
+                gb_dispatch(ctx, vector);
+            }
+        }
+    }
+    
+    /* Update PPU */
+    if (ctx->ppu) {
+        ppu_tick((GBPPU*)ctx->ppu, ctx, cycles);
+        
+        /* If frame is ready, render it */
+        if (ppu_frame_ready((GBPPU*)ctx->ppu)) {
+            frame_count++;
+            
+            if (frame_count <= 3 || (frame_count % 60 == 0)) {
+                DBG_FRAME("Frame %d ready, total_cycles=%u", frame_count, ctx->cycles);
+                
+                /* Check if VRAM has tile data */
+                if (ctx->vram) {
+                    bool has_tiles = dbg_has_tile_data(ctx->vram, 0x1800);
+                    DBG_FRAME("VRAM has tile data: %s", has_tiles ? "YES" : "NO");
+                }
+            }
+            
+#ifdef GB_HAS_SDL2
+            /* Render the frame */
+            const uint32_t* fb = ppu_get_framebuffer((GBPPU*)ctx->ppu);
+            if (fb) {
+                gb_platform_render_frame(fb);
+            }
+            gb_platform_vsync();
+#endif
+            ppu_clear_frame_ready((GBPPU*)ctx->ppu);
+            poll_counter = 0;
+        }
+    }
+    
+#ifdef GB_HAS_SDL2
+    /* Poll events frequently to keep system responsive */
+    poll_counter += cycles;
+    if (poll_counter >= 4096) {  /* Every ~1ms of emulated time */
+        poll_counter = 0;
+        if (!gb_platform_poll_events(ctx)) {
+            ctx->stopped = 1;
+        }
+    }
+#endif
+    
+    /* TODO: Update timer, APU, etc */
 }
 
 /* ============================================================================

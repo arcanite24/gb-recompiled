@@ -350,6 +350,9 @@ Program IRBuilder::build(const AnalysisResult& analysis, const std::string& rom_
             ir_func.block_ids.push_back(block_id);
             ir::BasicBlock& dst_block = program.blocks[block_id];
             
+            // Copy end_address from source block for correct fallthrough handling
+            dst_block.end_address = src_block.end_address;
+            
             // Lower each instruction in the block
             for (size_t idx : src_block.instruction_indices) {
                 if (idx < analysis.instructions.size()) {
@@ -500,7 +503,6 @@ void IRBuilder::lower_instruction(const Instruction& instr, ir::BasicBlock& bloc
             
         case InstructionType::JP_NN:
         case InstructionType::JP_CC_NN:
-        case InstructionType::JP_HL:
             {
                 IRInstruction ir;
                 ir.opcode = instr.is_conditional ? Opcode::JUMP_CC : Opcode::JUMP;
@@ -510,6 +512,17 @@ void IRBuilder::lower_instruction(const Instruction& instr, ir::BasicBlock& bloc
                 }
                 ir.cycles = instr.cycles;
                 ir.cycles_branch_taken = instr.cycles_branch;
+                emit(block, ir, instr);
+            }
+            break;
+            
+        case InstructionType::JP_HL:
+            {
+                // JP HL is an indirect jump - target is in HL register
+                IRInstruction ir;
+                ir.opcode = Opcode::JUMP;
+                ir.dst = Operand::reg16(2);  // HL = register index 2
+                ir.cycles = instr.cycles;
                 emit(block, ir, instr);
             }
             break;
@@ -606,8 +619,60 @@ void IRBuilder::lower_load_mem(const Instruction& instr, ir::BasicBlock& block) 
     IRInstruction ir;
     ir.opcode = Opcode::LOAD8;
     ir.dst = Operand::reg8(7);  // A register
+    
+    // Set source address based on instruction type
+    switch (instr.type) {
+        case InstructionType::LD_A_NN:
+            ir.src = Operand::imm16(instr.imm16);
+            break;
+        case InstructionType::LD_A_BC:
+            ir.src = Operand::reg16(static_cast<uint8_t>(Reg16::BC));
+            break;
+        case InstructionType::LD_A_DE:
+            ir.src = Operand::reg16(static_cast<uint8_t>(Reg16::DE));
+            break;
+        case InstructionType::LD_R_HL:
+        case InstructionType::LD_A_HLI:
+        case InstructionType::LD_A_HLD:
+            ir.src = Operand::reg16(static_cast<uint8_t>(Reg16::HL));
+            // For LD r,(HL), set the destination register properly
+            if (instr.type == InstructionType::LD_R_HL) {
+                ir.dst = Operand::reg8(static_cast<uint8_t>(instr.reg8_dst));
+            }
+            break;
+        case InstructionType::LDH_A_N:
+            ir.src = Operand::imm16(0xFF00 + instr.imm8);
+            break;
+        case InstructionType::LDH_A_C:
+            // 0xFF00 + C - use special IO_READ_C opcode
+            ir.opcode = Opcode::IO_READ_C;
+            ir.dst = Operand::reg8(7);  // A register
+            ir.cycles = instr.cycles;
+            emit(block, ir, instr);
+            return;  // Early return - already emitted
+        default:
+            break;
+    }
+    
     ir.cycles = instr.cycles;
     emit(block, ir, instr);
+    
+    // Handle HL increment/decrement for LDI/LDD instructions
+    if (instr.type == InstructionType::LD_A_HLI) {
+        // LD A,(HL+) - increment HL after load
+        IRInstruction inc_ir;
+        inc_ir.opcode = Opcode::INC16;
+        inc_ir.dst = Operand::reg16(static_cast<uint8_t>(Reg16::HL));
+        inc_ir.cycles = 0;  // Included in the original instruction's cycles
+        emit(block, inc_ir, instr);
+    } else if (instr.type == InstructionType::LD_A_HLD) {
+        // LD A,(HL-) - decrement HL after load
+        IRInstruction dec_ir;
+        dec_ir.opcode = Opcode::DEC16;
+        dec_ir.dst = Operand::reg16(static_cast<uint8_t>(Reg16::HL));
+        dec_ir.cycles = 0;  // Included in the original instruction's cycles
+        emit(block, dec_ir, instr);
+    }
 }
 
 void IRBuilder::lower_store_mem(const Instruction& instr, ir::BasicBlock& block) {
@@ -641,15 +706,35 @@ void IRBuilder::lower_store_mem(const Instruction& instr, ir::BasicBlock& block)
             ir.dst = Operand::imm16(0xFF00 + instr.imm8);
             break;
         case InstructionType::LDH_C_A:
-            // 0xFF00 + C - handled specially in emitter
-            ir.dst = Operand::reg8(static_cast<uint8_t>(Reg8::C));
-            break;
+            // 0xFF00 + C - use special IO_WRITE_C opcode
+            ir.opcode = Opcode::IO_WRITE_C;
+            ir.src = Operand::reg8(7);  // A register
+            ir.cycles = instr.cycles;
+            emit(block, ir, instr);
+            return;  // Early return - already emitted
         default:
             break;
     }
     
     ir.cycles = instr.cycles;
     emit(block, ir, instr);
+    
+    // Handle HL increment/decrement for LDI/LDD instructions
+    if (instr.type == InstructionType::LD_HLI_A) {
+        // LD (HL+),A - increment HL after store
+        IRInstruction inc_ir;
+        inc_ir.opcode = Opcode::INC16;
+        inc_ir.dst = Operand::reg16(static_cast<uint8_t>(Reg16::HL));
+        inc_ir.cycles = 0;  // Included in the original instruction's cycles
+        emit(block, inc_ir, instr);
+    } else if (instr.type == InstructionType::LD_HLD_A) {
+        // LD (HL-),A - decrement HL after store
+        IRInstruction dec_ir;
+        dec_ir.opcode = Opcode::DEC16;
+        dec_ir.dst = Operand::reg16(static_cast<uint8_t>(Reg16::HL));
+        dec_ir.cycles = 0;  // Included in the original instruction's cycles
+        emit(block, dec_ir, instr);
+    }
 }
 
 void IRBuilder::lower_alu_r(const Instruction& instr, ir::BasicBlock& block) {
@@ -724,14 +809,93 @@ void IRBuilder::lower_inc_dec(const Instruction& instr, ir::BasicBlock& block) {
         case InstructionType::DEC_RR: ir.opcode = Opcode::DEC16; break;
         default: ir.opcode = Opcode::NOP;
     }
-    ir.dst = Operand::reg8(static_cast<uint8_t>(instr.reg8_dst));
+    
+    /* Use correct register type based on instruction */
+    if (instr.type == InstructionType::INC_RR || instr.type == InstructionType::DEC_RR) {
+        ir.dst = Operand::reg16(static_cast<uint8_t>(instr.reg16));
+    } else if (instr.type == InstructionType::INC_HL_IND || instr.type == InstructionType::DEC_HL_IND) {
+        // INC (HL) / DEC (HL) - use reg8 index 6 to indicate memory at (HL)
+        ir.dst = Operand::reg8(6);  // 6 = HL_IND, signals memory operation to emitter
+    } else {
+        ir.dst = Operand::reg8(static_cast<uint8_t>(instr.reg8_dst));
+    }
     ir.cycles = instr.cycles;
     emit(block, ir, instr);
 }
 
 void IRBuilder::lower_rotate_shift(const Instruction& instr, ir::BasicBlock& block) {
     IRInstruction ir;
-    ir.opcode = Opcode::NOP;  // Stub
+    
+    // Determine opcode based on instruction type
+    switch (instr.type) {
+        // Non-CB prefixed rotate instructions (always on A register)
+        case InstructionType::RLCA:
+            ir.opcode = Opcode::RLC;
+            ir.dst = Operand::reg8(7);  // A register
+            ir.extra = Operand::imm8(1);  // Flag to indicate RLCA variant (Z=0)
+            break;
+        case InstructionType::RRCA:
+            ir.opcode = Opcode::RRC;
+            ir.dst = Operand::reg8(7);
+            ir.extra = Operand::imm8(1);
+            break;
+        case InstructionType::RLA:
+            ir.opcode = Opcode::RL;
+            ir.dst = Operand::reg8(7);
+            ir.extra = Operand::imm8(1);
+            break;
+        case InstructionType::RRA:
+            ir.opcode = Opcode::RR;
+            ir.dst = Operand::reg8(7);
+            ir.extra = Operand::imm8(1);
+            break;
+            
+        // CB-prefixed rotate/shift instructions
+        case InstructionType::RLC_R:
+        case InstructionType::RLC_HL:
+            ir.opcode = Opcode::RLC;
+            ir.dst = Operand::reg8(static_cast<uint8_t>(instr.reg8_dst));
+            break;
+        case InstructionType::RRC_R:
+        case InstructionType::RRC_HL:
+            ir.opcode = Opcode::RRC;
+            ir.dst = Operand::reg8(static_cast<uint8_t>(instr.reg8_dst));
+            break;
+        case InstructionType::RL_R:
+        case InstructionType::RL_HL:
+            ir.opcode = Opcode::RL;
+            ir.dst = Operand::reg8(static_cast<uint8_t>(instr.reg8_dst));
+            break;
+        case InstructionType::RR_R:
+        case InstructionType::RR_HL:
+            ir.opcode = Opcode::RR;
+            ir.dst = Operand::reg8(static_cast<uint8_t>(instr.reg8_dst));
+            break;
+        case InstructionType::SLA_R:
+        case InstructionType::SLA_HL:
+            ir.opcode = Opcode::SLA;
+            ir.dst = Operand::reg8(static_cast<uint8_t>(instr.reg8_dst));
+            break;
+        case InstructionType::SRA_R:
+        case InstructionType::SRA_HL:
+            ir.opcode = Opcode::SRA;
+            ir.dst = Operand::reg8(static_cast<uint8_t>(instr.reg8_dst));
+            break;
+        case InstructionType::SRL_R:
+        case InstructionType::SRL_HL:
+            ir.opcode = Opcode::SRL;
+            ir.dst = Operand::reg8(static_cast<uint8_t>(instr.reg8_dst));
+            break;
+        case InstructionType::SWAP_R:
+        case InstructionType::SWAP_HL:
+            ir.opcode = Opcode::SWAP;
+            ir.dst = Operand::reg8(static_cast<uint8_t>(instr.reg8_dst));
+            break;
+        default:
+            ir.opcode = Opcode::NOP;
+            break;
+    }
+    
     ir.cycles = instr.cycles;
     emit(block, ir, instr);
 }

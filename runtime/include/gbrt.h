@@ -17,7 +17,6 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-
 /* ============================================================================
  * Configuration
  * ========================================================================== */
@@ -281,6 +280,11 @@ void gb_rst(GBContext* ctx, uint8_t vector);
 void gb_dispatch(GBContext* ctx, uint16_t addr);
 
 /**
+ * @brief Dispatch a CALL to unanalyzed code (pushes return address first)
+ */
+void gb_dispatch_call(GBContext* ctx, uint16_t addr);
+
+/**
  * @brief Fallback interpreter for uncompiled code
  */
 void gb_interpret(GBContext* ctx, uint16_t addr);
@@ -336,6 +340,19 @@ void gb_add_cycles(GBContext* ctx, uint32_t cycles);
  * @brief Check if a frame worth of cycles has elapsed
  */
 bool gb_frame_complete(GBContext* ctx);
+
+/**
+ * @brief Get the current framebuffer
+ * @param ctx CPU context
+ * @return Pointer to 160x144 ARGB8888 framebuffer, or NULL if not ready
+ */
+const uint32_t* gb_get_framebuffer(GBContext* ctx);
+
+/**
+ * @brief Reset the frame ready flag for the next frame
+ * @param ctx CPU context
+ */
+void gb_reset_frame(GBContext* ctx);
 
 /**
  * @brief Process hardware for the given number of cycles

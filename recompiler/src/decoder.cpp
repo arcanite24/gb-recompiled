@@ -936,6 +936,7 @@ const char* condition_name(Condition c) {
 const char* instruction_type_name(InstructionType type) {
     switch (type) {
         case InstructionType::NOP: return "NOP";
+        // Load instructions
         case InstructionType::LD_R_R: return "LD r,r";
         case InstructionType::LD_R_N: return "LD r,n";
         case InstructionType::LD_R_HL: return "LD r,(HL)";
@@ -961,11 +962,68 @@ const char* instruction_type_name(InstructionType type) {
         case InstructionType::LD_HL_SP_N: return "LD HL,SP+n";
         case InstructionType::PUSH: return "PUSH";
         case InstructionType::POP: return "POP";
+        // ALU instructions
         case InstructionType::ADD_A_R: return "ADD A,r";
         case InstructionType::ADD_A_N: return "ADD A,n";
         case InstructionType::ADD_A_HL: return "ADD A,(HL)";
+        case InstructionType::ADC_A_R: return "ADC A,r";
+        case InstructionType::ADC_A_N: return "ADC A,n";
+        case InstructionType::ADC_A_HL: return "ADC A,(HL)";
+        case InstructionType::SUB_A_R: return "SUB r";
+        case InstructionType::SUB_A_N: return "SUB n";
+        case InstructionType::SUB_A_HL: return "SUB (HL)";
+        case InstructionType::SBC_A_R: return "SBC A,r";
+        case InstructionType::SBC_A_N: return "SBC A,n";
+        case InstructionType::SBC_A_HL: return "SBC A,(HL)";
+        case InstructionType::AND_A_R: return "AND r";
+        case InstructionType::AND_A_N: return "AND n";
+        case InstructionType::AND_A_HL: return "AND (HL)";
+        case InstructionType::OR_A_R: return "OR r";
+        case InstructionType::OR_A_N: return "OR n";
+        case InstructionType::OR_A_HL: return "OR (HL)";
+        case InstructionType::XOR_A_R: return "XOR r";
+        case InstructionType::XOR_A_N: return "XOR n";
+        case InstructionType::XOR_A_HL: return "XOR (HL)";
+        case InstructionType::CP_A_R: return "CP r";
+        case InstructionType::CP_A_N: return "CP n";
+        case InstructionType::CP_A_HL: return "CP (HL)";
+        case InstructionType::INC_R: return "INC r";
+        case InstructionType::INC_HL_IND: return "INC (HL)";
+        case InstructionType::DEC_R: return "DEC r";
+        case InstructionType::DEC_HL_IND: return "DEC (HL)";
         case InstructionType::ADD_HL_RR: return "ADD HL,rr";
         case InstructionType::ADD_SP_N: return "ADD SP,n";
+        case InstructionType::INC_RR: return "INC rr";
+        case InstructionType::DEC_RR: return "DEC rr";
+        // Rotate/shift instructions
+        case InstructionType::RLCA: return "RLCA";
+        case InstructionType::RRCA: return "RRCA";
+        case InstructionType::RLA: return "RLA";
+        case InstructionType::RRA: return "RRA";
+        case InstructionType::RLC_R: return "RLC r";
+        case InstructionType::RLC_HL: return "RLC (HL)";
+        case InstructionType::RRC_R: return "RRC r";
+        case InstructionType::RRC_HL: return "RRC (HL)";
+        case InstructionType::RL_R: return "RL r";
+        case InstructionType::RL_HL: return "RL (HL)";
+        case InstructionType::RR_R: return "RR r";
+        case InstructionType::RR_HL: return "RR (HL)";
+        case InstructionType::SLA_R: return "SLA r";
+        case InstructionType::SLA_HL: return "SLA (HL)";
+        case InstructionType::SRA_R: return "SRA r";
+        case InstructionType::SRA_HL: return "SRA (HL)";
+        case InstructionType::SRL_R: return "SRL r";
+        case InstructionType::SRL_HL: return "SRL (HL)";
+        case InstructionType::SWAP_R: return "SWAP r";
+        case InstructionType::SWAP_HL: return "SWAP (HL)";
+        // Bit operations
+        case InstructionType::BIT_N_R: return "BIT n,r";
+        case InstructionType::BIT_N_HL: return "BIT n,(HL)";
+        case InstructionType::SET_N_R: return "SET n,r";
+        case InstructionType::SET_N_HL: return "SET n,(HL)";
+        case InstructionType::RES_N_R: return "RES n,r";
+        case InstructionType::RES_N_HL: return "RES n,(HL)";
+        // Control flow
         case InstructionType::JP_NN: return "JP nn";
         case InstructionType::JP_CC_NN: return "JP cc,nn";
         case InstructionType::JP_HL: return "JP HL";
@@ -977,10 +1035,15 @@ const char* instruction_type_name(InstructionType type) {
         case InstructionType::RET_CC: return "RET cc";
         case InstructionType::RETI: return "RETI";
         case InstructionType::RST: return "RST";
+        // Misc
         case InstructionType::HALT: return "HALT";
         case InstructionType::STOP: return "STOP";
         case InstructionType::DI: return "DI";
         case InstructionType::EI: return "EI";
+        case InstructionType::DAA: return "DAA";
+        case InstructionType::CPL: return "CPL";
+        case InstructionType::CCF: return "CCF";
+        case InstructionType::SCF: return "SCF";
         default: return "???";
     }
 }
