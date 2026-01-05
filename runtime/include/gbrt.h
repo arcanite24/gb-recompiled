@@ -230,6 +230,7 @@ uint8_t gb_dec8(GBContext* ctx, uint8_t value);
 
 void gb_add16(GBContext* ctx, uint16_t value);
 void gb_add_sp(GBContext* ctx, int8_t offset);
+void gb_ld_hl_sp_n(GBContext* ctx, int8_t offset);
 
 /* ============================================================================
  * Rotate/Shift Operations
@@ -279,6 +280,11 @@ void gb_ret(GBContext* ctx);
  * @brief RST vector call
  */
 void gb_rst(GBContext* ctx, uint8_t vector);
+
+/**
+ * @brief Jump to address in HL (JP HL)
+ */
+void gbrt_jump_hl(GBContext* ctx);
 
 /**
  * @brief Dispatch to recompiled function at address

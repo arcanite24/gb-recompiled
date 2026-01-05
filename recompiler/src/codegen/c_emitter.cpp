@@ -767,24 +767,24 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
             
         case ir::Opcode::ADD_SP_IMM8:
             out << "gb_add_sp(ctx, " << (int)instr.src.value.offset << ");\n";
-            break;
-            
-        case ir::Opcode::PUSH16:
-            if (instr.dst.value.reg16 == 4) { // AF
-                out << "gb_pack_flags(ctx); gb_push16(ctx, ctx->af & 0xFFF0);\n";
-            } else {
-                out << "gb_push16(ctx, ctx->" << reg16_names[instr.dst.value.reg16] << ");\n";
-            }
-            break;
-            
-        case ir::Opcode::POP16:
-            if (instr.dst.value.reg16 == 4) { // AF
-                out << "ctx->af = gb_pop16(ctx) & 0xFFF0; gb_unpack_flags(ctx);\n";
-            } else {
-                out << "ctx->" << reg16_names[instr.dst.value.reg16] << " = gb_pop16(ctx);\n";
-            }
-            break;
-            
+                break;
+                
+            case ir::Opcode::PUSH16:
+                if (instr.dst.value.reg16 == 4) { // AF
+                    out << "gb_pack_flags(ctx); gb_push16(ctx, ctx->af & 0xFFF0);\n";
+                } else {
+                    out << "gb_push16(ctx, ctx->" << reg16_names[instr.dst.value.reg16] << ");\n";
+                }
+                break;
+                
+            case ir::Opcode::POP16:
+                if (instr.dst.value.reg16 == 4) { // AF
+                    out << "ctx->af = gb_pop16(ctx) & 0xFFF0; gb_unpack_flags(ctx);\n";
+                } else {
+                    out << "ctx->" << reg16_names[instr.dst.value.reg16] << " = gb_pop16(ctx);\n";
+                }
+                break;
+                
         case ir::Opcode::JUMP:
             if (instr.dst.type == ir::OperandType::IMM16) {
                 uint16_t target = instr.dst.value.imm16;
@@ -919,12 +919,24 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
                         << std::setw(4) << target << std::dec << "; /* " << cond << " */\n";
                 }
             }
-            break;
+            if (instr.dst.type == ir::OperandType::REG16) {
+            // JP HL (Indirect Jump)
+            if (options.emit_cycle_counting && instr.cycles > 0) {
+                out << "gb_tick(ctx, " << (int)instr.cycles << ");\n";
+                emit_indent();
+            }
+            out << "gbrt_jump_hl(ctx); return;\n";
+        }
+        break;
         }
             
         case ir::Opcode::CALL: {
             uint16_t target = instr.dst.value.imm16;
-            
+            // PUSH return address (Instruction size 3)
+            uint16_t return_addr = instr.source_address + 3;
+            out << "gb_push16(ctx, 0x" << std::hex << return_addr << std::dec << ");\n";
+            emit_indent();
+
             // For targets in banked area (0x4000-0x7FFF), always use dispatch since
             // we don't know which bank will be active at runtime
             if (target >= 0x4000 && target <= 0x7FFF) {
@@ -940,39 +952,45 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
                 if (program.functions.find(func_name) != program.functions.end()) {
                     out << func_name << "(ctx);\n";
                 } else {
-                    // Fallback to runtime dispatch for unknown targets (e.g., HRAM code)
+                    // Fallback to runtime dispatch for unknown targets
                     out << "gb_dispatch_call(ctx, 0x" << std::hex << std::setfill('0') 
                         << std::setw(4) << target << std::dec << ");\n";
                 }
             }
+            emit_indent();
+            out << "return;\n"; // Force return to dispatcher
             break;
         }
-            
+
         case ir::Opcode::CALL_CC: {
             uint16_t target = instr.dst.value.imm16;
+            uint16_t return_addr = instr.source_address + 3;
             
             const char* cond = cond_names[instr.src.value.condition];
             const char* expr = (instr.src.value.condition == 0) ? "!ctx->f_z" :
                                (instr.src.value.condition == 1) ? "ctx->f_z" :
                                (instr.src.value.condition == 2) ? "!ctx->f_c" : "ctx->f_c";
             
-            // For targets in banked area (0x4000-0x7FFF), always use dispatch
+            out << "if (" << expr << ") {\n";
+            out << "    gb_push16(ctx, 0x" << std::hex << return_addr << std::dec << ");\n";
+            
             if (target >= 0x4000 && target <= 0x7FFF) {
-                out << "if (" << expr << ") gb_dispatch_call(ctx, 0x" << std::hex << std::setfill('0') 
-                    << std::setw(4) << target << std::dec << "); /* " << cond << " */\n";
+                out << "    gb_dispatch_call(ctx, 0x" << std::hex << std::setfill('0') 
+                    << std::setw(4) << target << std::dec << ");\n";
             } else {
                 std::ostringstream func_name_ss;
                 func_name_ss << "func_" << std::hex << std::setfill('0') << std::setw(4) << target;
                 std::string func_name = func_name_ss.str();
                 
-                // Check if function exists in analyzed program
                 if (program.functions.find(func_name) != program.functions.end()) {
-                    out << "if (" << expr << ") " << func_name << "(ctx); /* " << cond << " */\n";
+                    out << "    " << func_name << "(ctx);\n";
                 } else {
-                    out << "if (" << expr << ") gb_dispatch_call(ctx, 0x" << std::hex << std::setfill('0') 
-                        << std::setw(4) << target << std::dec << "); /* " << cond << " */\n";
+                    out << "    gb_dispatch_call(ctx, 0x" << std::hex << std::setfill('0') 
+                        << std::setw(4) << target << std::dec << ");\n";
                 }
             }
+            out << "    return;\n";
+            out << "} /* " << cond << " */\n";
             break;
         }
             
@@ -981,7 +999,7 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
                 out << "gb_tick(ctx, " << (int)instr.cycles << ");\n";
                 emit_indent();
             }
-            out << "return;\n";
+            out << "gb_ret(ctx); return;\n";
             break;
             
         case ir::Opcode::RET_CC: {
@@ -989,7 +1007,7 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
             const char* expr = (instr.src.value.condition == 0) ? "!ctx->f_z" :
                                (instr.src.value.condition == 1) ? "ctx->f_z" :
                                (instr.src.value.condition == 2) ? "!ctx->f_c" : "ctx->f_c";
-            out << "if (" << expr << ") return; /* " << cond << " */\n";
+            out << "if (" << expr << ") { gb_ret(ctx); return; } /* " << cond << " */\n";
             break;
         }
             
@@ -998,19 +1016,19 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
                 out << "gb_tick(ctx, " << (int)instr.cycles << ");\n";
                 emit_indent();
             }
-            out << "ctx->ime = 1; return;\n";
+            out << "ctx->ime = 1; gb_ret(ctx); return;\n";
             break;
             
         case ir::Opcode::RST:
-            // For RST 28 (Jump Table), we must emulate the PUSH PC behavior because
-            // the handler normally pops the return address to use as a data pointer.
-            if (instr.dst.value.rst_vec == 0x28) {
+            {
                 uint16_t next_pc = instr.source_address + 1;
                 out << "gb_push16(ctx, 0x" << std::hex << next_pc << std::dec << ");\n";
                 emit_indent();
+                out << "rst_" << std::hex << std::setfill('0') << std::setw(2) 
+                    << (int)instr.dst.value.rst_vec << std::dec << "(ctx);\n";
+                emit_indent();
+                out << "return;\n";
             }
-            out << "rst_" << std::hex << std::setfill('0') << std::setw(2) 
-                << (int)instr.dst.value.rst_vec << std::dec << "(ctx);\n";
             break;
             
         case ir::Opcode::HALT:
@@ -1192,20 +1210,9 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
                 << " = ctx->" << reg16_names[instr.src.value.reg16] << ";\n";
             break;
             
-        case ir::Opcode::LD_HL_SP_N: {
-            // LD HL,SP+n - add signed offset to SP, store in HL, set H/C flags based on low byte
-            int8_t offset = instr.src.value.offset;
-            out << "{ uint32_t result = ctx->sp + (" << (int)offset << ");\n";
-            emit_indent();
-            out << "ctx->f_z = 0; ctx->f_n = 0;\n";
-            emit_indent();
-            out << "ctx->f_h = ((ctx->sp & 0x0F) + (" << (offset & 0x0F) << ")) > 0x0F;\n";
-            emit_indent();
-            out << "ctx->f_c = ((ctx->sp & 0xFF) + (" << (offset & 0xFF) << ")) > 0xFF;\n";
-            emit_indent();
-            out << "ctx->hl = (uint16_t)result; }\n";
+        case ir::Opcode::LD_HL_SP_N:
+            out << "gb_ld_hl_sp_n(ctx, " << (int)instr.src.value.offset << ");\n";
             break;
-        }
             
         case ir::Opcode::STORE16:
             // LD (nn),SP - store 16-bit register to memory
@@ -1266,31 +1273,71 @@ GeneratedOutput generate_output(const ir::Program& program,
     // Generate dispatch function for banked calls
     source_ss << "/* Bank dispatch - routes calls to the correct bank function */\n";
     source_ss << "void gb_dispatch(GBContext* ctx, uint16_t addr) {\n";
-    source_ss << "    uint8_t bank = ctx->rom_bank;\n";
-    source_ss << "    if (addr < 0x4000) bank = 0;\n";
-    source_ss << "    switch (addr) {\n";
+    source_ss << "    ctx->pc = addr;\n";
+    source_ss << "    while (!ctx->stopped) {\n";
+    source_ss << "        addr = ctx->pc;\n";
+    source_ss << "        uint8_t bank = ctx->rom_bank;\n";
+    source_ss << "        if (addr < 0x4000) bank = 0;\n";
+    source_ss << "        switch (addr) {\n";
     
     // Group functions by address for the switch statement
-    std::map<uint16_t, std::vector<std::pair<uint8_t, std::string>>> addr_to_funcs;
+    // Map every basic block start address to its function
+    struct DispatchEntry {
+        uint8_t bank;
+        std::string name;
+        bool is_entry;
+        bool operator<(const DispatchEntry& o) const {
+            if (bank != o.bank) return bank < o.bank;
+            if (is_entry != o.is_entry) return is_entry > o.is_entry; // true (entry) first
+            return name < o.name;
+        }
+        bool operator==(const DispatchEntry& o) const {
+            return bank == o.bank && is_entry == o.is_entry; // Treat same bank/entry-status as equal for unique? NO.
+            // We want exact match for std::unique first.
+            // But wait, my manual unique below handles bank collisions.
+            return bank == o.bank && name == o.name && is_entry == o.is_entry;
+        }
+    };
+    std::map<uint16_t, std::vector<DispatchEntry>> addr_to_funcs;
+
     for (const auto& [name, func] : program.functions) {
-        addr_to_funcs[func.entry_address].push_back({func.bank, func.name});
-    }
-    
-    for (const auto& [addr, funcs] : addr_to_funcs) {
-        source_ss << "        case 0x" << std::hex << std::setfill('0') << std::setw(4) << addr << std::dec << ":\n";
-        if (funcs.size() == 1) {
-            source_ss << "            " << funcs[0].second << "(ctx); return;\n";
-        } else {
-            // Multiple banks have code at this address
-            source_ss << "            switch (bank) {\n";
-            for (const auto& [bank, func_name] : funcs) {
-                source_ss << "                case " << (int)bank << ": " << func_name << "(ctx); return;\n";
+        addr_to_funcs[func.entry_address].push_back({func.bank, func.name, true});
+        for (uint32_t block_id : func.block_ids) {
+            auto it = program.blocks.find(block_id);
+            if (it != program.blocks.end()) {
+                uint16_t addr = it->second.start_address;
+                if (addr != func.entry_address) {
+                    addr_to_funcs[addr].push_back({func.bank, func.name, false});
+                }
             }
-            source_ss << "                default: gb_interpret(ctx, addr); return;\n";
-            source_ss << "            }\n";
         }
     }
-    source_ss << "        default: gb_interpret(ctx, addr); return;\n";
+    
+    for (auto& [addr, funcs] : addr_to_funcs) {
+        std::sort(funcs.begin(), funcs.end());
+        funcs.erase(std::unique(funcs.begin(), funcs.end()), funcs.end());
+        
+        // Remove bank collisions (prefer entry)
+        auto last = std::unique(funcs.begin(), funcs.end(), [](const DispatchEntry& a, const DispatchEntry& b){
+            return a.bank == b.bank;
+        });
+        funcs.erase(last, funcs.end());
+
+        source_ss << "            case 0x" << std::hex << std::setfill('0') << std::setw(4) << addr << std::dec << ":\n";
+        if (funcs.size() == 1) {
+            source_ss << "                " << funcs[0].name << "(ctx); break;\n";
+        } else {
+            source_ss << "                switch (bank) {\n";
+            for (const auto& entry : funcs) {
+                source_ss << "                    case " << (int)entry.bank << ": " << entry.name << "(ctx); break;\n";
+            }
+            source_ss << "                    default: gb_interpret(ctx, addr); break;\n";
+            source_ss << "                }\n";
+            source_ss << "                break;\n";
+        }
+    }
+    source_ss << "            default: gb_interpret(ctx, addr); break;\n";
+    source_ss << "        }\n";
     source_ss << "    }\n";
     source_ss << "}\n\n";
     
@@ -1317,6 +1364,20 @@ GeneratedOutput generate_output(const ir::Program& program,
                 if (it_b == program.blocks.end()) return true;
                 return it_a->second.start_address < it_b->second.start_address;
             });
+            
+        // Emit computed goto for entry into the correct block
+        source_ss << "    switch (ctx->pc) {\n";
+        for (uint32_t block_id : sorted_block_ids) {
+            auto it = program.blocks.find(block_id);
+            if (it != program.blocks.end()) {
+                source_ss << "        case 0x" << std::hex << std::setfill('0') << std::setw(4) 
+                          << it->second.start_address << std::dec << ": goto loc_" 
+                          << std::hex << std::setfill('0') << std::setw(4) 
+                          << it->second.start_address << std::dec << ";\n";
+            }
+        }
+        source_ss << "        default: break;\n";
+        source_ss << "    }\n\n";
         
         // Emit each block in this function (now sorted by address)
         for (size_t block_idx = 0; block_idx < sorted_block_ids.size(); block_idx++) {
@@ -1430,7 +1491,8 @@ GeneratedOutput generate_output(const ir::Program& program,
     source_ss << "}\n\n";
     
     source_ss << "void " << options.output_prefix << "_run(GBContext* ctx) {\n";
-    source_ss << "    gb_main(ctx);\n";  // Call the game's main function
+    source_ss << "    // Start the trampoline loop - execution will stay here until stopped\n";
+    source_ss << "    gb_dispatch(ctx, ctx->pc);\n";
     source_ss << "}\n";
     
     output.source_content = source_ss.str();

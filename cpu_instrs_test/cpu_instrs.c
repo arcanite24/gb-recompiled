@@ -4,7 +4,6 @@
 
 /* Forward declarations */
 static void func_01_4000(GBContext* ctx);
-static void func_01_6aa5(GBContext* ctx);
 static void func_0213(GBContext* ctx);
 static void func_0222(GBContext* ctx);
 static void func_022f(GBContext* ctx);
@@ -58,115 +57,372 @@ static void rst_38(GBContext* ctx);
 
 /* Bank dispatch - routes calls to the correct bank function */
 void gb_dispatch(GBContext* ctx, uint16_t addr) {
-    uint8_t bank = ctx->rom_bank;
-    if (addr < 0x4000) bank = 0;
-    switch (addr) {
-        case 0x0000:
-            rst_00(ctx); return;
-        case 0x0008:
-            rst_08(ctx); return;
-        case 0x0010:
-            rst_10(ctx); return;
-        case 0x0018:
-            rst_18(ctx); return;
-        case 0x0020:
-            rst_20(ctx); return;
-        case 0x0028:
-            rst_28(ctx); return;
-        case 0x0030:
-            rst_30(ctx); return;
-        case 0x0038:
-            rst_38(ctx); return;
-        case 0x0040:
-            int_vblank(ctx); return;
-        case 0x0048:
-            int_lcd_stat(ctx); return;
-        case 0x0050:
-            int_timer(ctx); return;
-        case 0x0058:
-            int_serial(ctx); return;
-        case 0x0060:
-            int_joypad(ctx); return;
-        case 0x0100:
-            gb_main(ctx); return;
-        case 0x0213:
-            func_0213(ctx); return;
-        case 0x0222:
-            func_0222(ctx); return;
-        case 0x022f:
-            func_022f(ctx); return;
-        case 0x025d:
-            func_025d(ctx); return;
-        case 0x025f:
-            func_025f(ctx); return;
-        case 0x026a:
-            func_026a(ctx); return;
-        case 0x02a3:
-            func_02a3(ctx); return;
-        case 0x02b1:
-            func_02b1(ctx); return;
-        case 0x02b7:
-            func_02b7(ctx); return;
-        case 0x02ca:
-            func_02ca(ctx); return;
-        case 0x02d2:
-            func_02d2(ctx); return;
-        case 0x02d7:
-            func_02d7(ctx); return;
-        case 0x0350:
-            func_0350(ctx); return;
-        case 0x0354:
-            func_0354(ctx); return;
-        case 0x036d:
-            func_036d(ctx); return;
-        case 0x037b:
-            func_037b(ctx); return;
-        case 0x038e:
-            func_038e(ctx); return;
-        case 0x0486:
-            func_0486(ctx); return;
-        case 0x04b6:
-            func_04b6(ctx); return;
-        case 0x04bb:
-            func_04bb(ctx); return;
-        case 0x063b:
-            func_063b(ctx); return;
-        case 0x06f4:
-            func_06f4(ctx); return;
-        case 0x073a:
-            func_073a(ctx); return;
-        case 0x074b:
-            func_074b(ctx); return;
-        case 0x077f:
-            func_077f(ctx); return;
-        case 0x078d:
-            func_078d(ctx); return;
-        case 0x07c6:
-            func_07c6(ctx); return;
-        case 0x07db:
-            func_07db(ctx); return;
-        case 0x07ee:
-            func_07ee(ctx); return;
-        case 0x0834:
-            func_0834(ctx); return;
-        case 0x0851:
-            func_0851(ctx); return;
-        case 0x0861:
-            func_0861(ctx); return;
-        case 0x0b79:
-            func_0b79(ctx); return;
-        case 0x0bb2:
-            func_0bb2(ctx); return;
-        case 0x4000:
-            switch (bank) {
-                case 1: func_01_4000(ctx); return;
-                case 2: func_02_4000(ctx); return;
-                case 3: func_03_4000(ctx); return;
-                default: gb_interpret(ctx, addr); return;
-            }
-        case 0x6aa5:
-            func_01_6aa5(ctx); return;
-        default: gb_interpret(ctx, addr); return;
+    ctx->pc = addr;
+    while (!ctx->stopped) {
+        addr = ctx->pc;
+        uint8_t bank = ctx->rom_bank;
+        if (addr < 0x4000) bank = 0;
+        switch (addr) {
+            case 0x0000:
+                rst_00(ctx); break;
+            case 0x0008:
+                rst_08(ctx); break;
+            case 0x0010:
+                rst_10(ctx); break;
+            case 0x0018:
+                rst_18(ctx); break;
+            case 0x0020:
+                rst_20(ctx); break;
+            case 0x0028:
+                rst_28(ctx); break;
+            case 0x0030:
+                rst_30(ctx); break;
+            case 0x0038:
+                rst_38(ctx); break;
+            case 0x0040:
+                int_vblank(ctx); break;
+            case 0x0048:
+                int_lcd_stat(ctx); break;
+            case 0x0050:
+                int_timer(ctx); break;
+            case 0x0058:
+                int_serial(ctx); break;
+            case 0x0060:
+                int_joypad(ctx); break;
+            case 0x0100:
+                gb_main(ctx); break;
+            case 0x0200:
+                func_063b(ctx); break;
+            case 0x0206:
+                func_063b(ctx); break;
+            case 0x020b:
+                func_063b(ctx); break;
+            case 0x020f:
+                func_063b(ctx); break;
+            case 0x0213:
+                func_0213(ctx); break;
+            case 0x0217:
+                func_0213(ctx); break;
+            case 0x021a:
+                func_0213(ctx); break;
+            case 0x021d:
+                func_0213(ctx); break;
+            case 0x021e:
+                func_0213(ctx); break;
+            case 0x0222:
+                func_0222(ctx); break;
+            case 0x0228:
+                func_0222(ctx); break;
+            case 0x022c:
+                func_0222(ctx); break;
+            case 0x022f:
+                func_022f(ctx); break;
+            case 0x0235:
+                func_022f(ctx); break;
+            case 0x023a:
+                func_022f(ctx); break;
+            case 0x023e:
+                func_022f(ctx); break;
+            case 0x025d:
+                func_025d(ctx); break;
+            case 0x025f:
+                func_025f(ctx); break;
+            case 0x026a:
+                func_026a(ctx); break;
+            case 0x027a:
+                func_026a(ctx); break;
+            case 0x0283:
+                func_026a(ctx); break;
+            case 0x0293:
+                func_026a(ctx); break;
+            case 0x0296:
+                func_026a(ctx); break;
+            case 0x02a3:
+                func_02a3(ctx); break;
+            case 0x02b1:
+                func_02b1(ctx); break;
+            case 0x02b7:
+                func_02b7(ctx); break;
+            case 0x02bd:
+                func_02b7(ctx); break;
+            case 0x02c0:
+                func_02b7(ctx); break;
+            case 0x02ca:
+                func_02ca(ctx); break;
+            case 0x02d0:
+                func_02ca(ctx); break;
+            case 0x02d2:
+                func_02d2(ctx); break;
+            case 0x02d6:
+                func_02d2(ctx); break;
+            case 0x02d7:
+                func_02d7(ctx); break;
+            case 0x02da:
+                func_02d7(ctx); break;
+            case 0x02dd:
+                func_02d7(ctx); break;
+            case 0x02e1:
+                func_02d7(ctx); break;
+            case 0x0350:
+                func_0350(ctx); break;
+            case 0x0354:
+                func_0354(ctx); break;
+            case 0x035a:
+                func_0354(ctx); break;
+            case 0x0360:
+                func_0350(ctx); break;
+            case 0x0365:
+                func_0350(ctx); break;
+            case 0x036a:
+                func_0350(ctx); break;
+            case 0x036d:
+                func_036d(ctx); break;
+            case 0x036f:
+                func_036d(ctx); break;
+            case 0x0373:
+                func_036d(ctx); break;
+            case 0x0379:
+                func_036d(ctx); break;
+            case 0x037b:
+                func_037b(ctx); break;
+            case 0x038e:
+                func_038e(ctx); break;
+            case 0x0392:
+                func_038e(ctx); break;
+            case 0x0396:
+                func_038e(ctx); break;
+            case 0x039a:
+                func_038e(ctx); break;
+            case 0x0430:
+                gb_main(ctx); break;
+            case 0x0459:
+                gb_main(ctx); break;
+            case 0x045c:
+                gb_main(ctx); break;
+            case 0x045f:
+                gb_main(ctx); break;
+            case 0x0462:
+                gb_main(ctx); break;
+            case 0x0468:
+                gb_main(ctx); break;
+            case 0x046d:
+                gb_main(ctx); break;
+            case 0x0472:
+                gb_main(ctx); break;
+            case 0x0476:
+                gb_main(ctx); break;
+            case 0x047b:
+                gb_main(ctx); break;
+            case 0x0482:
+                gb_main(ctx); break;
+            case 0x0486:
+                func_0486(ctx); break;
+            case 0x048a:
+                func_0486(ctx); break;
+            case 0x048d:
+                func_0486(ctx); break;
+            case 0x0491:
+                func_0486(ctx); break;
+            case 0x0493:
+                func_0486(ctx); break;
+            case 0x0497:
+                func_0486(ctx); break;
+            case 0x04a1:
+                func_0486(ctx); break;
+            case 0x04a5:
+                func_0486(ctx); break;
+            case 0x04ad:
+                func_0486(ctx); break;
+            case 0x04b2:
+                func_0486(ctx); break;
+            case 0x04b5:
+                func_0486(ctx); break;
+            case 0x04b6:
+                func_04b6(ctx); break;
+            case 0x04bb:
+                func_04bb(ctx); break;
+            case 0x04d0:
+                func_0486(ctx); break;
+            case 0x04d8:
+                func_0486(ctx); break;
+            case 0x04de:
+                func_0486(ctx); break;
+            case 0x0637:
+                gb_main(ctx); break;
+            case 0x063b:
+                func_063b(ctx); break;
+            case 0x065b:
+                func_063b(ctx); break;
+            case 0x065f:
+                func_063b(ctx); break;
+            case 0x0681:
+                func_063b(ctx); break;
+            case 0x0684:
+                func_063b(ctx); break;
+            case 0x0687:
+                func_063b(ctx); break;
+            case 0x068c:
+                func_063b(ctx); break;
+            case 0x0690:
+                func_063b(ctx); break;
+            case 0x0698:
+                func_063b(ctx); break;
+            case 0x069c:
+                func_063b(ctx); break;
+            case 0x06a4:
+                func_063b(ctx); break;
+            case 0x06a8:
+                func_063b(ctx); break;
+            case 0x06b0:
+                func_063b(ctx); break;
+            case 0x06b5:
+                func_063b(ctx); break;
+            case 0x06b9:
+                func_063b(ctx); break;
+            case 0x06bb:
+                func_063b(ctx); break;
+            case 0x06c2:
+                func_063b(ctx); break;
+            case 0x06c5:
+                func_063b(ctx); break;
+            case 0x06c8:
+                func_063b(ctx); break;
+            case 0x06cb:
+                func_063b(ctx); break;
+            case 0x06d9:
+                func_063b(ctx); break;
+            case 0x06e3:
+                func_063b(ctx); break;
+            case 0x06e8:
+                func_063b(ctx); break;
+            case 0x06ed:
+                func_063b(ctx); break;
+            case 0x06f1:
+                func_063b(ctx); break;
+            case 0x06f4:
+                func_06f4(ctx); break;
+            case 0x06f9:
+                func_063b(ctx); break;
+            case 0x06fc:
+                func_063b(ctx); break;
+            case 0x0710:
+                func_063b(ctx); break;
+            case 0x0715:
+                func_063b(ctx); break;
+            case 0x071a:
+                func_063b(ctx); break;
+            case 0x072f:
+                func_063b(ctx); break;
+            case 0x0732:
+                func_063b(ctx); break;
+            case 0x0734:
+                func_063b(ctx); break;
+            case 0x0735:
+                func_063b(ctx); break;
+            case 0x0739:
+                func_063b(ctx); break;
+            case 0x073a:
+                func_073a(ctx); break;
+            case 0x073e:
+                func_073a(ctx); break;
+            case 0x0743:
+                func_073a(ctx); break;
+            case 0x0749:
+                func_073a(ctx); break;
+            case 0x074b:
+                func_074b(ctx); break;
+            case 0x074e:
+                func_074b(ctx); break;
+            case 0x0754:
+                func_063b(ctx); break;
+            case 0x0756:
+                func_063b(ctx); break;
+            case 0x075b:
+                func_063b(ctx); break;
+            case 0x0763:
+                func_063b(ctx); break;
+            case 0x076b:
+                func_063b(ctx); break;
+            case 0x077d:
+                func_063b(ctx); break;
+            case 0x077f:
+                func_077f(ctx); break;
+            case 0x0784:
+                func_077f(ctx); break;
+            case 0x0788:
+                func_077f(ctx); break;
+            case 0x078c:
+                func_077f(ctx); break;
+            case 0x078d:
+                func_078d(ctx); break;
+            case 0x0793:
+                func_078d(ctx); break;
+            case 0x07b6:
+                func_078d(ctx); break;
+            case 0x07c0:
+                func_078d(ctx); break;
+            case 0x07c6:
+                func_07c6(ctx); break;
+            case 0x07cb:
+                func_07c6(ctx); break;
+            case 0x07ce:
+                func_07c6(ctx); break;
+            case 0x07d6:
+                func_07c6(ctx); break;
+            case 0x07da:
+                func_07c6(ctx); break;
+            case 0x07db:
+                func_07db(ctx); break;
+            case 0x07df:
+                func_07db(ctx); break;
+            case 0x07ee:
+                func_07ee(ctx); break;
+            case 0x07f2:
+                func_07ee(ctx); break;
+            case 0x0834:
+                func_0834(ctx); break;
+            case 0x0845:
+                func_0834(ctx); break;
+            case 0x0849:
+                func_0834(ctx); break;
+            case 0x0851:
+                func_0851(ctx); break;
+            case 0x0855:
+                func_0851(ctx); break;
+            case 0x0858:
+                func_07db(ctx); break;
+            case 0x0861:
+                func_0861(ctx); break;
+            case 0x086e:
+                func_0861(ctx); break;
+            case 0x0876:
+                func_0861(ctx); break;
+            case 0x0b79:
+                func_0b79(ctx); break;
+            case 0x0b7c:
+                func_0b79(ctx); break;
+            case 0x0b80:
+                func_0b79(ctx); break;
+            case 0x0ba6:
+                gb_main(ctx); break;
+            case 0x0ba9:
+                gb_main(ctx); break;
+            case 0x0bac:
+                gb_main(ctx); break;
+            case 0x0bb0:
+                gb_main(ctx); break;
+            case 0x0bb2:
+                func_0bb2(ctx); break;
+            case 0x4000:
+                switch (bank) {
+                    case 1: func_01_4000(ctx); break;
+                    case 2: func_02_4000(ctx); break;
+                    case 3: func_03_4000(ctx); break;
+                    default: gb_interpret(ctx, addr); break;
+                }
+                break;
+            default: gb_interpret(ctx, addr); break;
+        }
     }
 }
 
@@ -176,5512 +432,34 @@ void gb_dispatch_call(GBContext* ctx, uint16_t addr) {
 
 /* Function at 01:4000 */
 static void func_01_4000(GBContext* ctx) {
-loc_4000:
-    /* 01:4000 */     /* JP nn */
-    /* 01:4000 */     gb_tick(ctx, 16);
-    gb_dispatch(ctx, 0xc220); return;
-}
+    switch (ctx->pc) {
+        case 0x4000: goto loc_4000;
+        default: break;
+    }
 
-/* Function at 01:6aa5 */
-static void func_01_6aa5(GBContext* ctx) {
-loc_6aa5:
-    /* 01:6aa5 */     /* NOP */
-    /* 01:6aa5 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6aa6 */     /* NOP */
-    /* 01:6aa6 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6aa7 */     /* NOP */
-    /* 01:6aa7 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6aa8 */     /* NOP */
-    /* 01:6aa8 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6aa9 */     /* NOP */
-    /* 01:6aa9 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6aaa */     /* NOP */
-    /* 01:6aaa */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6aab */     /* NOP */
-    /* 01:6aab */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6aac */     /* NOP */
-    /* 01:6aac */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6aad */     /* NOP */
-    /* 01:6aad */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6aae */     /* NOP */
-    /* 01:6aae */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6aaf */     /* NOP */
-    /* 01:6aaf */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ab0 */     /* NOP */
-    /* 01:6ab0 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ab1 */     /* NOP */
-    /* 01:6ab1 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ab2 */     /* NOP */
-    /* 01:6ab2 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ab3 */     /* NOP */
-    /* 01:6ab3 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ab4 */     /* NOP */
-    /* 01:6ab4 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ab5 */     /* NOP */
-    /* 01:6ab5 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ab6 */     /* NOP */
-    /* 01:6ab6 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ab7 */     /* NOP */
-    /* 01:6ab7 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ab8 */     /* NOP */
-    /* 01:6ab8 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ab9 */     /* NOP */
-    /* 01:6ab9 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6aba */     /* NOP */
-    /* 01:6aba */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6abb */     /* NOP */
-    /* 01:6abb */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6abc */     /* NOP */
-    /* 01:6abc */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6abd */     /* NOP */
-    /* 01:6abd */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6abe */     /* NOP */
-    /* 01:6abe */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6abf */     /* NOP */
-    /* 01:6abf */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ac0 */     /* NOP */
-    /* 01:6ac0 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ac1 */     /* NOP */
-    /* 01:6ac1 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ac2 */     /* NOP */
-    /* 01:6ac2 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ac3 */     /* NOP */
-    /* 01:6ac3 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ac4 */     /* NOP */
-    /* 01:6ac4 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ac5 */     /* NOP */
-    /* 01:6ac5 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ac6 */     /* NOP */
-    /* 01:6ac6 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ac7 */     /* NOP */
-    /* 01:6ac7 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ac8 */     /* NOP */
-    /* 01:6ac8 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ac9 */     /* NOP */
-    /* 01:6ac9 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6aca */     /* NOP */
-    /* 01:6aca */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6acb */     /* NOP */
-    /* 01:6acb */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6acc */     /* NOP */
-    /* 01:6acc */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6acd */     /* NOP */
-    /* 01:6acd */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ace */     /* NOP */
-    /* 01:6ace */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6acf */     /* NOP */
-    /* 01:6acf */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ad0 */     /* NOP */
-    /* 01:6ad0 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ad1 */     /* NOP */
-    /* 01:6ad1 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ad2 */     /* NOP */
-    /* 01:6ad2 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ad3 */     /* NOP */
-    /* 01:6ad3 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ad4 */     /* NOP */
-    /* 01:6ad4 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ad5 */     /* NOP */
-    /* 01:6ad5 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ad6 */     /* NOP */
-    /* 01:6ad6 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ad7 */     /* NOP */
-    /* 01:6ad7 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ad8 */     /* NOP */
-    /* 01:6ad8 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ad9 */     /* NOP */
-    /* 01:6ad9 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ada */     /* NOP */
-    /* 01:6ada */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6adb */     /* NOP */
-    /* 01:6adb */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6adc */     /* NOP */
-    /* 01:6adc */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6add */     /* NOP */
-    /* 01:6add */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ade */     /* NOP */
-    /* 01:6ade */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6adf */     /* NOP */
-    /* 01:6adf */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ae0 */     /* NOP */
-    /* 01:6ae0 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ae1 */     /* NOP */
-    /* 01:6ae1 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ae2 */     /* NOP */
-    /* 01:6ae2 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ae3 */     /* NOP */
-    /* 01:6ae3 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ae4 */     /* NOP */
-    /* 01:6ae4 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ae5 */     /* NOP */
-    /* 01:6ae5 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ae6 */     /* NOP */
-    /* 01:6ae6 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ae7 */     /* NOP */
-    /* 01:6ae7 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ae8 */     /* NOP */
-    /* 01:6ae8 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ae9 */     /* NOP */
-    /* 01:6ae9 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6aea */     /* NOP */
-    /* 01:6aea */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6aeb */     /* NOP */
-    /* 01:6aeb */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6aec */     /* NOP */
-    /* 01:6aec */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6aed */     /* NOP */
-    /* 01:6aed */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6aee */     /* NOP */
-    /* 01:6aee */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6aef */     /* NOP */
-    /* 01:6aef */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6af0 */     /* NOP */
-    /* 01:6af0 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6af1 */     /* NOP */
-    /* 01:6af1 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6af2 */     /* NOP */
-    /* 01:6af2 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6af3 */     /* NOP */
-    /* 01:6af3 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6af4 */     /* NOP */
-    /* 01:6af4 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6af5 */     /* NOP */
-    /* 01:6af5 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6af6 */     /* NOP */
-    /* 01:6af6 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6af7 */     /* NOP */
-    /* 01:6af7 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6af8 */     /* NOP */
-    /* 01:6af8 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6af9 */     /* NOP */
-    /* 01:6af9 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6afa */     /* NOP */
-    /* 01:6afa */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6afb */     /* NOP */
-    /* 01:6afb */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6afc */     /* NOP */
-    /* 01:6afc */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6afd */     /* NOP */
-    /* 01:6afd */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6afe */     /* NOP */
-    /* 01:6afe */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6aff */     /* NOP */
-    /* 01:6aff */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b00 */     /* NOP */
-    /* 01:6b00 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b01 */     /* NOP */
-    /* 01:6b01 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b02 */     /* NOP */
-    /* 01:6b02 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b03 */     /* NOP */
-    /* 01:6b03 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b04 */     /* NOP */
-    /* 01:6b04 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b05 */     /* NOP */
-    /* 01:6b05 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b06 */     /* NOP */
-    /* 01:6b06 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b07 */     /* NOP */
-    /* 01:6b07 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b08 */     /* NOP */
-    /* 01:6b08 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b09 */     /* NOP */
-    /* 01:6b09 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b0a */     /* NOP */
-    /* 01:6b0a */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b0b */     /* NOP */
-    /* 01:6b0b */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b0c */     /* NOP */
-    /* 01:6b0c */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b0d */     /* NOP */
-    /* 01:6b0d */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b0e */     /* NOP */
-    /* 01:6b0e */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b0f */     /* NOP */
-    /* 01:6b0f */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b10 */     /* NOP */
-    /* 01:6b10 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b11 */     /* NOP */
-    /* 01:6b11 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b12 */     /* NOP */
-    /* 01:6b12 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b13 */     /* NOP */
-    /* 01:6b13 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b14 */     /* NOP */
-    /* 01:6b14 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b15 */     /* NOP */
-    /* 01:6b15 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b16 */     /* NOP */
-    /* 01:6b16 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b17 */     /* NOP */
-    /* 01:6b17 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b18 */     /* NOP */
-    /* 01:6b18 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b19 */     /* NOP */
-    /* 01:6b19 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b1a */     /* NOP */
-    /* 01:6b1a */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b1b */     /* NOP */
-    /* 01:6b1b */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b1c */     /* NOP */
-    /* 01:6b1c */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b1d */     /* NOP */
-    /* 01:6b1d */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b1e */     /* NOP */
-    /* 01:6b1e */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b1f */     /* NOP */
-    /* 01:6b1f */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b20 */     /* NOP */
-    /* 01:6b20 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b21 */     /* NOP */
-    /* 01:6b21 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b22 */     /* NOP */
-    /* 01:6b22 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b23 */     /* NOP */
-    /* 01:6b23 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b24 */     /* NOP */
-    /* 01:6b24 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b25 */     /* NOP */
-    /* 01:6b25 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b26 */     /* NOP */
-    /* 01:6b26 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b27 */     /* NOP */
-    /* 01:6b27 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b28 */     /* NOP */
-    /* 01:6b28 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b29 */     /* NOP */
-    /* 01:6b29 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b2a */     /* NOP */
-    /* 01:6b2a */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b2b */     /* NOP */
-    /* 01:6b2b */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b2c */     /* NOP */
-    /* 01:6b2c */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b2d */     /* NOP */
-    /* 01:6b2d */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b2e */     /* NOP */
-    /* 01:6b2e */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b2f */     /* NOP */
-    /* 01:6b2f */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b30 */     /* NOP */
-    /* 01:6b30 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b31 */     /* NOP */
-    /* 01:6b31 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b32 */     /* NOP */
-    /* 01:6b32 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b33 */     /* NOP */
-    /* 01:6b33 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b34 */     /* NOP */
-    /* 01:6b34 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b35 */     /* NOP */
-    /* 01:6b35 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b36 */     /* NOP */
-    /* 01:6b36 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b37 */     /* NOP */
-    /* 01:6b37 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b38 */     /* NOP */
-    /* 01:6b38 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b39 */     /* NOP */
-    /* 01:6b39 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b3a */     /* NOP */
-    /* 01:6b3a */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b3b */     /* NOP */
-    /* 01:6b3b */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b3c */     /* NOP */
-    /* 01:6b3c */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b3d */     /* NOP */
-    /* 01:6b3d */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b3e */     /* NOP */
-    /* 01:6b3e */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b3f */     /* NOP */
-    /* 01:6b3f */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b40 */     /* NOP */
-    /* 01:6b40 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b41 */     /* NOP */
-    /* 01:6b41 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b42 */     /* NOP */
-    /* 01:6b42 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b43 */     /* NOP */
-    /* 01:6b43 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b44 */     /* NOP */
-    /* 01:6b44 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b45 */     /* NOP */
-    /* 01:6b45 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b46 */     /* NOP */
-    /* 01:6b46 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b47 */     /* NOP */
-    /* 01:6b47 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b48 */     /* NOP */
-    /* 01:6b48 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b49 */     /* NOP */
-    /* 01:6b49 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b4a */     /* NOP */
-    /* 01:6b4a */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b4b */     /* NOP */
-    /* 01:6b4b */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b4c */     /* NOP */
-    /* 01:6b4c */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b4d */     /* NOP */
-    /* 01:6b4d */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b4e */     /* NOP */
-    /* 01:6b4e */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b4f */     /* NOP */
-    /* 01:6b4f */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b50 */     /* NOP */
-    /* 01:6b50 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b51 */     /* NOP */
-    /* 01:6b51 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b52 */     /* NOP */
-    /* 01:6b52 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b53 */     /* NOP */
-    /* 01:6b53 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b54 */     /* NOP */
-    /* 01:6b54 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b55 */     /* NOP */
-    /* 01:6b55 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b56 */     /* NOP */
-    /* 01:6b56 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b57 */     /* NOP */
-    /* 01:6b57 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b58 */     /* NOP */
-    /* 01:6b58 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b59 */     /* NOP */
-    /* 01:6b59 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b5a */     /* NOP */
-    /* 01:6b5a */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b5b */     /* NOP */
-    /* 01:6b5b */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b5c */     /* NOP */
-    /* 01:6b5c */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b5d */     /* NOP */
-    /* 01:6b5d */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b5e */     /* NOP */
-    /* 01:6b5e */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b5f */     /* NOP */
-    /* 01:6b5f */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b60 */     /* NOP */
-    /* 01:6b60 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b61 */     /* NOP */
-    /* 01:6b61 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b62 */     /* NOP */
-    /* 01:6b62 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b63 */     /* NOP */
-    /* 01:6b63 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b64 */     /* NOP */
-    /* 01:6b64 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b65 */     /* NOP */
-    /* 01:6b65 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b66 */     /* NOP */
-    /* 01:6b66 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b67 */     /* NOP */
-    /* 01:6b67 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b68 */     /* NOP */
-    /* 01:6b68 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b69 */     /* NOP */
-    /* 01:6b69 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b6a */     /* NOP */
-    /* 01:6b6a */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b6b */     /* NOP */
-    /* 01:6b6b */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b6c */     /* NOP */
-    /* 01:6b6c */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b6d */     /* NOP */
-    /* 01:6b6d */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b6e */     /* NOP */
-    /* 01:6b6e */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b6f */     /* NOP */
-    /* 01:6b6f */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b70 */     /* NOP */
-    /* 01:6b70 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b71 */     /* NOP */
-    /* 01:6b71 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b72 */     /* NOP */
-    /* 01:6b72 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b73 */     /* NOP */
-    /* 01:6b73 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b74 */     /* NOP */
-    /* 01:6b74 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b75 */     /* NOP */
-    /* 01:6b75 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b76 */     /* NOP */
-    /* 01:6b76 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b77 */     /* NOP */
-    /* 01:6b77 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b78 */     /* NOP */
-    /* 01:6b78 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b79 */     /* NOP */
-    /* 01:6b79 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b7a */     /* NOP */
-    /* 01:6b7a */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b7b */     /* NOP */
-    /* 01:6b7b */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b7c */     /* NOP */
-    /* 01:6b7c */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b7d */     /* NOP */
-    /* 01:6b7d */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b7e */     /* NOP */
-    /* 01:6b7e */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b7f */     /* NOP */
-    /* 01:6b7f */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b80 */     /* NOP */
-    /* 01:6b80 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b81 */     /* NOP */
-    /* 01:6b81 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b82 */     /* NOP */
-    /* 01:6b82 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b83 */     /* NOP */
-    /* 01:6b83 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b84 */     /* NOP */
-    /* 01:6b84 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b85 */     /* NOP */
-    /* 01:6b85 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b86 */     /* NOP */
-    /* 01:6b86 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b87 */     /* NOP */
-    /* 01:6b87 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b88 */     /* NOP */
-    /* 01:6b88 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b89 */     /* NOP */
-    /* 01:6b89 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b8a */     /* NOP */
-    /* 01:6b8a */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b8b */     /* NOP */
-    /* 01:6b8b */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b8c */     /* NOP */
-    /* 01:6b8c */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b8d */     /* NOP */
-    /* 01:6b8d */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b8e */     /* NOP */
-    /* 01:6b8e */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b8f */     /* NOP */
-    /* 01:6b8f */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b90 */     /* NOP */
-    /* 01:6b90 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b91 */     /* NOP */
-    /* 01:6b91 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b92 */     /* NOP */
-    /* 01:6b92 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b93 */     /* NOP */
-    /* 01:6b93 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b94 */     /* NOP */
-    /* 01:6b94 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b95 */     /* NOP */
-    /* 01:6b95 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b96 */     /* NOP */
-    /* 01:6b96 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b97 */     /* NOP */
-    /* 01:6b97 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b98 */     /* NOP */
-    /* 01:6b98 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b99 */     /* NOP */
-    /* 01:6b99 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b9a */     /* NOP */
-    /* 01:6b9a */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b9b */     /* NOP */
-    /* 01:6b9b */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b9c */     /* NOP */
-    /* 01:6b9c */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b9d */     /* NOP */
-    /* 01:6b9d */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b9e */     /* NOP */
-    /* 01:6b9e */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6b9f */     /* NOP */
-    /* 01:6b9f */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ba0 */     /* NOP */
-    /* 01:6ba0 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ba1 */     /* NOP */
-    /* 01:6ba1 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ba2 */     /* NOP */
-    /* 01:6ba2 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ba3 */     /* NOP */
-    /* 01:6ba3 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ba4 */     /* NOP */
-    /* 01:6ba4 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ba5 */     /* NOP */
-    /* 01:6ba5 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ba6 */     /* NOP */
-    /* 01:6ba6 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ba7 */     /* NOP */
-    /* 01:6ba7 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ba8 */     /* NOP */
-    /* 01:6ba8 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ba9 */     /* NOP */
-    /* 01:6ba9 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6baa */     /* NOP */
-    /* 01:6baa */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bab */     /* NOP */
-    /* 01:6bab */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bac */     /* NOP */
-    /* 01:6bac */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bad */     /* NOP */
-    /* 01:6bad */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bae */     /* NOP */
-    /* 01:6bae */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6baf */     /* NOP */
-    /* 01:6baf */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bb0 */     /* NOP */
-    /* 01:6bb0 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bb1 */     /* NOP */
-    /* 01:6bb1 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bb2 */     /* NOP */
-    /* 01:6bb2 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bb3 */     /* NOP */
-    /* 01:6bb3 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bb4 */     /* NOP */
-    /* 01:6bb4 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bb5 */     /* NOP */
-    /* 01:6bb5 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bb6 */     /* NOP */
-    /* 01:6bb6 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bb7 */     /* NOP */
-    /* 01:6bb7 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bb8 */     /* NOP */
-    /* 01:6bb8 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bb9 */     /* NOP */
-    /* 01:6bb9 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bba */     /* NOP */
-    /* 01:6bba */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bbb */     /* NOP */
-    /* 01:6bbb */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bbc */     /* NOP */
-    /* 01:6bbc */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bbd */     /* NOP */
-    /* 01:6bbd */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bbe */     /* NOP */
-    /* 01:6bbe */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bbf */     /* NOP */
-    /* 01:6bbf */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bc0 */     /* NOP */
-    /* 01:6bc0 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bc1 */     /* NOP */
-    /* 01:6bc1 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bc2 */     /* NOP */
-    /* 01:6bc2 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bc3 */     /* NOP */
-    /* 01:6bc3 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bc4 */     /* NOP */
-    /* 01:6bc4 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bc5 */     /* NOP */
-    /* 01:6bc5 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bc6 */     /* NOP */
-    /* 01:6bc6 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bc7 */     /* NOP */
-    /* 01:6bc7 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bc8 */     /* NOP */
-    /* 01:6bc8 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bc9 */     /* NOP */
-    /* 01:6bc9 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bca */     /* NOP */
-    /* 01:6bca */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bcb */     /* NOP */
-    /* 01:6bcb */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bcc */     /* NOP */
-    /* 01:6bcc */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bcd */     /* NOP */
-    /* 01:6bcd */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bce */     /* NOP */
-    /* 01:6bce */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bcf */     /* NOP */
-    /* 01:6bcf */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bd0 */     /* NOP */
-    /* 01:6bd0 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bd1 */     /* NOP */
-    /* 01:6bd1 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bd2 */     /* NOP */
-    /* 01:6bd2 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bd3 */     /* NOP */
-    /* 01:6bd3 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bd4 */     /* NOP */
-    /* 01:6bd4 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bd5 */     /* NOP */
-    /* 01:6bd5 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bd6 */     /* NOP */
-    /* 01:6bd6 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bd7 */     /* NOP */
-    /* 01:6bd7 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bd8 */     /* NOP */
-    /* 01:6bd8 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bd9 */     /* NOP */
-    /* 01:6bd9 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bda */     /* NOP */
-    /* 01:6bda */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bdb */     /* NOP */
-    /* 01:6bdb */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bdc */     /* NOP */
-    /* 01:6bdc */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bdd */     /* NOP */
-    /* 01:6bdd */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bde */     /* NOP */
-    /* 01:6bde */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bdf */     /* NOP */
-    /* 01:6bdf */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6be0 */     /* NOP */
-    /* 01:6be0 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6be1 */     /* NOP */
-    /* 01:6be1 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6be2 */     /* NOP */
-    /* 01:6be2 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6be3 */     /* NOP */
-    /* 01:6be3 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6be4 */     /* NOP */
-    /* 01:6be4 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6be5 */     /* NOP */
-    /* 01:6be5 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6be6 */     /* NOP */
-    /* 01:6be6 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6be7 */     /* NOP */
-    /* 01:6be7 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6be8 */     /* NOP */
-    /* 01:6be8 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6be9 */     /* NOP */
-    /* 01:6be9 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bea */     /* NOP */
-    /* 01:6bea */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6beb */     /* NOP */
-    /* 01:6beb */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bec */     /* NOP */
-    /* 01:6bec */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bed */     /* NOP */
-    /* 01:6bed */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bee */     /* NOP */
-    /* 01:6bee */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bef */     /* NOP */
-    /* 01:6bef */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bf0 */     /* NOP */
-    /* 01:6bf0 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bf1 */     /* NOP */
-    /* 01:6bf1 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bf2 */     /* NOP */
-    /* 01:6bf2 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bf3 */     /* NOP */
-    /* 01:6bf3 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bf4 */     /* NOP */
-    /* 01:6bf4 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bf5 */     /* NOP */
-    /* 01:6bf5 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bf6 */     /* NOP */
-    /* 01:6bf6 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bf7 */     /* NOP */
-    /* 01:6bf7 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bf8 */     /* NOP */
-    /* 01:6bf8 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bf9 */     /* NOP */
-    /* 01:6bf9 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bfa */     /* NOP */
-    /* 01:6bfa */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bfb */     /* NOP */
-    /* 01:6bfb */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bfc */     /* NOP */
-    /* 01:6bfc */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bfd */     /* NOP */
-    /* 01:6bfd */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bfe */     /* NOP */
-    /* 01:6bfe */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6bff */     /* NOP */
-    /* 01:6bff */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c00 */     /* NOP */
-    /* 01:6c00 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c01 */     /* NOP */
-    /* 01:6c01 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c02 */     /* NOP */
-    /* 01:6c02 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c03 */     /* NOP */
-    /* 01:6c03 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c04 */     /* NOP */
-    /* 01:6c04 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c05 */     /* NOP */
-    /* 01:6c05 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c06 */     /* NOP */
-    /* 01:6c06 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c07 */     /* NOP */
-    /* 01:6c07 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c08 */     /* NOP */
-    /* 01:6c08 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c09 */     /* NOP */
-    /* 01:6c09 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c0a */     /* NOP */
-    /* 01:6c0a */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c0b */     /* NOP */
-    /* 01:6c0b */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c0c */     /* NOP */
-    /* 01:6c0c */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c0d */     /* NOP */
-    /* 01:6c0d */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c0e */     /* NOP */
-    /* 01:6c0e */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c0f */     /* NOP */
-    /* 01:6c0f */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c10 */     /* NOP */
-    /* 01:6c10 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c11 */     /* NOP */
-    /* 01:6c11 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c12 */     /* NOP */
-    /* 01:6c12 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c13 */     /* NOP */
-    /* 01:6c13 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c14 */     /* NOP */
-    /* 01:6c14 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c15 */     /* NOP */
-    /* 01:6c15 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c16 */     /* NOP */
-    /* 01:6c16 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c17 */     /* NOP */
-    /* 01:6c17 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c18 */     /* NOP */
-    /* 01:6c18 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c19 */     /* NOP */
-    /* 01:6c19 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c1a */     /* NOP */
-    /* 01:6c1a */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c1b */     /* NOP */
-    /* 01:6c1b */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c1c */     /* NOP */
-    /* 01:6c1c */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c1d */     /* NOP */
-    /* 01:6c1d */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c1e */     /* NOP */
-    /* 01:6c1e */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c1f */     /* NOP */
-    /* 01:6c1f */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c20 */     /* NOP */
-    /* 01:6c20 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c21 */     /* NOP */
-    /* 01:6c21 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c22 */     /* NOP */
-    /* 01:6c22 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c23 */     /* NOP */
-    /* 01:6c23 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c24 */     /* NOP */
-    /* 01:6c24 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c25 */     /* NOP */
-    /* 01:6c25 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c26 */     /* NOP */
-    /* 01:6c26 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c27 */     /* NOP */
-    /* 01:6c27 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c28 */     /* NOP */
-    /* 01:6c28 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c29 */     /* NOP */
-    /* 01:6c29 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c2a */     /* NOP */
-    /* 01:6c2a */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c2b */     /* NOP */
-    /* 01:6c2b */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c2c */     /* NOP */
-    /* 01:6c2c */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c2d */     /* NOP */
-    /* 01:6c2d */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c2e */     /* NOP */
-    /* 01:6c2e */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c2f */     /* NOP */
-    /* 01:6c2f */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c30 */     /* NOP */
-    /* 01:6c30 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c31 */     /* NOP */
-    /* 01:6c31 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c32 */     /* NOP */
-    /* 01:6c32 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c33 */     /* NOP */
-    /* 01:6c33 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c34 */     /* NOP */
-    /* 01:6c34 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c35 */     /* NOP */
-    /* 01:6c35 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c36 */     /* NOP */
-    /* 01:6c36 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c37 */     /* NOP */
-    /* 01:6c37 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c38 */     /* NOP */
-    /* 01:6c38 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c39 */     /* NOP */
-    /* 01:6c39 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c3a */     /* NOP */
-    /* 01:6c3a */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c3b */     /* NOP */
-    /* 01:6c3b */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c3c */     /* NOP */
-    /* 01:6c3c */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c3d */     /* NOP */
-    /* 01:6c3d */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c3e */     /* NOP */
-    /* 01:6c3e */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c3f */     /* NOP */
-    /* 01:6c3f */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c40 */     /* NOP */
-    /* 01:6c40 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c41 */     /* NOP */
-    /* 01:6c41 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c42 */     /* NOP */
-    /* 01:6c42 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c43 */     /* NOP */
-    /* 01:6c43 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c44 */     /* NOP */
-    /* 01:6c44 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c45 */     /* NOP */
-    /* 01:6c45 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c46 */     /* NOP */
-    /* 01:6c46 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c47 */     /* NOP */
-    /* 01:6c47 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c48 */     /* NOP */
-    /* 01:6c48 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c49 */     /* NOP */
-    /* 01:6c49 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c4a */     /* NOP */
-    /* 01:6c4a */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c4b */     /* NOP */
-    /* 01:6c4b */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c4c */     /* NOP */
-    /* 01:6c4c */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c4d */     /* NOP */
-    /* 01:6c4d */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c4e */     /* NOP */
-    /* 01:6c4e */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c4f */     /* NOP */
-    /* 01:6c4f */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c50 */     /* NOP */
-    /* 01:6c50 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c51 */     /* NOP */
-    /* 01:6c51 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c52 */     /* NOP */
-    /* 01:6c52 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c53 */     /* NOP */
-    /* 01:6c53 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c54 */     /* NOP */
-    /* 01:6c54 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c55 */     /* NOP */
-    /* 01:6c55 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c56 */     /* NOP */
-    /* 01:6c56 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c57 */     /* NOP */
-    /* 01:6c57 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c58 */     /* NOP */
-    /* 01:6c58 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c59 */     /* NOP */
-    /* 01:6c59 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c5a */     /* NOP */
-    /* 01:6c5a */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c5b */     /* NOP */
-    /* 01:6c5b */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c5c */     /* NOP */
-    /* 01:6c5c */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c5d */     /* NOP */
-    /* 01:6c5d */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c5e */     /* NOP */
-    /* 01:6c5e */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c5f */     /* NOP */
-    /* 01:6c5f */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c60 */     /* NOP */
-    /* 01:6c60 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c61 */     /* NOP */
-    /* 01:6c61 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c62 */     /* NOP */
-    /* 01:6c62 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c63 */     /* NOP */
-    /* 01:6c63 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c64 */     /* NOP */
-    /* 01:6c64 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c65 */     /* NOP */
-    /* 01:6c65 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c66 */     /* NOP */
-    /* 01:6c66 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c67 */     /* NOP */
-    /* 01:6c67 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c68 */     /* NOP */
-    /* 01:6c68 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c69 */     /* NOP */
-    /* 01:6c69 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c6a */     /* NOP */
-    /* 01:6c6a */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c6b */     /* NOP */
-    /* 01:6c6b */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c6c */     /* NOP */
-    /* 01:6c6c */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c6d */     /* NOP */
-    /* 01:6c6d */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c6e */     /* NOP */
-    /* 01:6c6e */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c6f */     /* NOP */
-    /* 01:6c6f */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c70 */     /* NOP */
-    /* 01:6c70 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c71 */     /* NOP */
-    /* 01:6c71 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c72 */     /* NOP */
-    /* 01:6c72 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c73 */     /* NOP */
-    /* 01:6c73 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c74 */     /* NOP */
-    /* 01:6c74 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c75 */     /* NOP */
-    /* 01:6c75 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c76 */     /* NOP */
-    /* 01:6c76 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c77 */     /* NOP */
-    /* 01:6c77 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c78 */     /* NOP */
-    /* 01:6c78 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c79 */     /* NOP */
-    /* 01:6c79 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c7a */     /* NOP */
-    /* 01:6c7a */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c7b */     /* NOP */
-    /* 01:6c7b */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c7c */     /* NOP */
-    /* 01:6c7c */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c7d */     /* NOP */
-    /* 01:6c7d */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c7e */     /* NOP */
-    /* 01:6c7e */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c7f */     /* NOP */
-    /* 01:6c7f */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c80 */     /* NOP */
-    /* 01:6c80 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c81 */     /* NOP */
-    /* 01:6c81 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c82 */     /* NOP */
-    /* 01:6c82 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c83 */     /* NOP */
-    /* 01:6c83 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c84 */     /* NOP */
-    /* 01:6c84 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c85 */     /* NOP */
-    /* 01:6c85 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c86 */     /* NOP */
-    /* 01:6c86 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c87 */     /* NOP */
-    /* 01:6c87 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c88 */     /* NOP */
-    /* 01:6c88 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c89 */     /* NOP */
-    /* 01:6c89 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c8a */     /* NOP */
-    /* 01:6c8a */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c8b */     /* NOP */
-    /* 01:6c8b */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c8c */     /* NOP */
-    /* 01:6c8c */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c8d */     /* NOP */
-    /* 01:6c8d */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c8e */     /* NOP */
-    /* 01:6c8e */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c8f */     /* NOP */
-    /* 01:6c8f */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c90 */     /* NOP */
-    /* 01:6c90 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c91 */     /* NOP */
-    /* 01:6c91 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c92 */     /* NOP */
-    /* 01:6c92 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c93 */     /* NOP */
-    /* 01:6c93 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c94 */     /* NOP */
-    /* 01:6c94 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c95 */     /* NOP */
-    /* 01:6c95 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c96 */     /* NOP */
-    /* 01:6c96 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c97 */     /* NOP */
-    /* 01:6c97 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c98 */     /* NOP */
-    /* 01:6c98 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c99 */     /* NOP */
-    /* 01:6c99 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c9a */     /* NOP */
-    /* 01:6c9a */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c9b */     /* NOP */
-    /* 01:6c9b */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c9c */     /* NOP */
-    /* 01:6c9c */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c9d */     /* NOP */
-    /* 01:6c9d */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c9e */     /* NOP */
-    /* 01:6c9e */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6c9f */     /* NOP */
-    /* 01:6c9f */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ca0 */     /* NOP */
-    /* 01:6ca0 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ca1 */     /* NOP */
-    /* 01:6ca1 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ca2 */     /* NOP */
-    /* 01:6ca2 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ca3 */     /* NOP */
-    /* 01:6ca3 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ca4 */     /* NOP */
-    /* 01:6ca4 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ca5 */     /* NOP */
-    /* 01:6ca5 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ca6 */     /* NOP */
-    /* 01:6ca6 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ca7 */     /* NOP */
-    /* 01:6ca7 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ca8 */     /* NOP */
-    /* 01:6ca8 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ca9 */     /* NOP */
-    /* 01:6ca9 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6caa */     /* NOP */
-    /* 01:6caa */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cab */     /* NOP */
-    /* 01:6cab */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cac */     /* NOP */
-    /* 01:6cac */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cad */     /* NOP */
-    /* 01:6cad */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cae */     /* NOP */
-    /* 01:6cae */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6caf */     /* NOP */
-    /* 01:6caf */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cb0 */     /* NOP */
-    /* 01:6cb0 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cb1 */     /* NOP */
-    /* 01:6cb1 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cb2 */     /* NOP */
-    /* 01:6cb2 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cb3 */     /* NOP */
-    /* 01:6cb3 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cb4 */     /* NOP */
-    /* 01:6cb4 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cb5 */     /* NOP */
-    /* 01:6cb5 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cb6 */     /* NOP */
-    /* 01:6cb6 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cb7 */     /* NOP */
-    /* 01:6cb7 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cb8 */     /* NOP */
-    /* 01:6cb8 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cb9 */     /* NOP */
-    /* 01:6cb9 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cba */     /* NOP */
-    /* 01:6cba */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cbb */     /* NOP */
-    /* 01:6cbb */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cbc */     /* NOP */
-    /* 01:6cbc */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cbd */     /* NOP */
-    /* 01:6cbd */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cbe */     /* NOP */
-    /* 01:6cbe */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cbf */     /* NOP */
-    /* 01:6cbf */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cc0 */     /* NOP */
-    /* 01:6cc0 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cc1 */     /* NOP */
-    /* 01:6cc1 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cc2 */     /* NOP */
-    /* 01:6cc2 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cc3 */     /* NOP */
-    /* 01:6cc3 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cc4 */     /* NOP */
-    /* 01:6cc4 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cc5 */     /* NOP */
-    /* 01:6cc5 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cc6 */     /* NOP */
-    /* 01:6cc6 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cc7 */     /* NOP */
-    /* 01:6cc7 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cc8 */     /* NOP */
-    /* 01:6cc8 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cc9 */     /* NOP */
-    /* 01:6cc9 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cca */     /* NOP */
-    /* 01:6cca */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ccb */     /* NOP */
-    /* 01:6ccb */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ccc */     /* NOP */
-    /* 01:6ccc */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ccd */     /* NOP */
-    /* 01:6ccd */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cce */     /* NOP */
-    /* 01:6cce */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ccf */     /* NOP */
-    /* 01:6ccf */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cd0 */     /* NOP */
-    /* 01:6cd0 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cd1 */     /* NOP */
-    /* 01:6cd1 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cd2 */     /* NOP */
-    /* 01:6cd2 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cd3 */     /* NOP */
-    /* 01:6cd3 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cd4 */     /* NOP */
-    /* 01:6cd4 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cd5 */     /* NOP */
-    /* 01:6cd5 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cd6 */     /* NOP */
-    /* 01:6cd6 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cd7 */     /* NOP */
-    /* 01:6cd7 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cd8 */     /* NOP */
-    /* 01:6cd8 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cd9 */     /* NOP */
-    /* 01:6cd9 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cda */     /* NOP */
-    /* 01:6cda */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cdb */     /* NOP */
-    /* 01:6cdb */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cdc */     /* NOP */
-    /* 01:6cdc */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cdd */     /* NOP */
-    /* 01:6cdd */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cde */     /* NOP */
-    /* 01:6cde */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cdf */     /* NOP */
-    /* 01:6cdf */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ce0 */     /* NOP */
-    /* 01:6ce0 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ce1 */     /* NOP */
-    /* 01:6ce1 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ce2 */     /* NOP */
-    /* 01:6ce2 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ce3 */     /* NOP */
-    /* 01:6ce3 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ce4 */     /* NOP */
-    /* 01:6ce4 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ce5 */     /* NOP */
-    /* 01:6ce5 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ce6 */     /* NOP */
-    /* 01:6ce6 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ce7 */     /* NOP */
-    /* 01:6ce7 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ce8 */     /* NOP */
-    /* 01:6ce8 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ce9 */     /* NOP */
-    /* 01:6ce9 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cea */     /* NOP */
-    /* 01:6cea */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ceb */     /* NOP */
-    /* 01:6ceb */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cec */     /* NOP */
-    /* 01:6cec */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ced */     /* NOP */
-    /* 01:6ced */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cee */     /* NOP */
-    /* 01:6cee */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cef */     /* NOP */
-    /* 01:6cef */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cf0 */     /* NOP */
-    /* 01:6cf0 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cf1 */     /* NOP */
-    /* 01:6cf1 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cf2 */     /* NOP */
-    /* 01:6cf2 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cf3 */     /* NOP */
-    /* 01:6cf3 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cf4 */     /* NOP */
-    /* 01:6cf4 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cf5 */     /* NOP */
-    /* 01:6cf5 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cf6 */     /* NOP */
-    /* 01:6cf6 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cf7 */     /* NOP */
-    /* 01:6cf7 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cf8 */     /* NOP */
-    /* 01:6cf8 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cf9 */     /* NOP */
-    /* 01:6cf9 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cfa */     /* NOP */
-    /* 01:6cfa */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cfb */     /* NOP */
-    /* 01:6cfb */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cfc */     /* NOP */
-    /* 01:6cfc */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cfd */     /* NOP */
-    /* 01:6cfd */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cfe */     /* NOP */
-    /* 01:6cfe */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6cff */     /* NOP */
-    /* 01:6cff */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d00 */     /* NOP */
-    /* 01:6d00 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d01 */     /* NOP */
-    /* 01:6d01 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d02 */     /* NOP */
-    /* 01:6d02 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d03 */     /* NOP */
-    /* 01:6d03 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d04 */     /* NOP */
-    /* 01:6d04 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d05 */     /* NOP */
-    /* 01:6d05 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d06 */     /* NOP */
-    /* 01:6d06 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d07 */     /* NOP */
-    /* 01:6d07 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d08 */     /* NOP */
-    /* 01:6d08 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d09 */     /* NOP */
-    /* 01:6d09 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d0a */     /* NOP */
-    /* 01:6d0a */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d0b */     /* NOP */
-    /* 01:6d0b */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d0c */     /* NOP */
-    /* 01:6d0c */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d0d */     /* NOP */
-    /* 01:6d0d */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d0e */     /* NOP */
-    /* 01:6d0e */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d0f */     /* NOP */
-    /* 01:6d0f */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d10 */     /* NOP */
-    /* 01:6d10 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d11 */     /* NOP */
-    /* 01:6d11 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d12 */     /* NOP */
-    /* 01:6d12 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d13 */     /* NOP */
-    /* 01:6d13 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d14 */     /* NOP */
-    /* 01:6d14 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d15 */     /* NOP */
-    /* 01:6d15 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d16 */     /* NOP */
-    /* 01:6d16 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d17 */     /* NOP */
-    /* 01:6d17 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d18 */     /* NOP */
-    /* 01:6d18 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d19 */     /* NOP */
-    /* 01:6d19 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d1a */     /* NOP */
-    /* 01:6d1a */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d1b */     /* NOP */
-    /* 01:6d1b */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d1c */     /* NOP */
-    /* 01:6d1c */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d1d */     /* NOP */
-    /* 01:6d1d */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d1e */     /* NOP */
-    /* 01:6d1e */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d1f */     /* NOP */
-    /* 01:6d1f */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d20 */     /* NOP */
-    /* 01:6d20 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d21 */     /* NOP */
-    /* 01:6d21 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d22 */     /* NOP */
-    /* 01:6d22 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d23 */     /* NOP */
-    /* 01:6d23 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d24 */     /* NOP */
-    /* 01:6d24 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d25 */     /* NOP */
-    /* 01:6d25 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d26 */     /* NOP */
-    /* 01:6d26 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d27 */     /* NOP */
-    /* 01:6d27 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d28 */     /* NOP */
-    /* 01:6d28 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d29 */     /* NOP */
-    /* 01:6d29 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d2a */     /* NOP */
-    /* 01:6d2a */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d2b */     /* NOP */
-    /* 01:6d2b */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d2c */     /* NOP */
-    /* 01:6d2c */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d2d */     /* NOP */
-    /* 01:6d2d */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d2e */     /* NOP */
-    /* 01:6d2e */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d2f */     /* NOP */
-    /* 01:6d2f */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d30 */     /* NOP */
-    /* 01:6d30 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d31 */     /* NOP */
-    /* 01:6d31 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d32 */     /* NOP */
-    /* 01:6d32 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d33 */     /* NOP */
-    /* 01:6d33 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d34 */     /* NOP */
-    /* 01:6d34 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d35 */     /* NOP */
-    /* 01:6d35 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d36 */     /* NOP */
-    /* 01:6d36 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d37 */     /* NOP */
-    /* 01:6d37 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d38 */     /* NOP */
-    /* 01:6d38 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d39 */     /* NOP */
-    /* 01:6d39 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d3a */     /* NOP */
-    /* 01:6d3a */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d3b */     /* NOP */
-    /* 01:6d3b */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d3c */     /* NOP */
-    /* 01:6d3c */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d3d */     /* NOP */
-    /* 01:6d3d */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d3e */     /* NOP */
-    /* 01:6d3e */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d3f */     /* NOP */
-    /* 01:6d3f */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d40 */     /* NOP */
-    /* 01:6d40 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d41 */     /* NOP */
-    /* 01:6d41 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d42 */     /* NOP */
-    /* 01:6d42 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d43 */     /* NOP */
-    /* 01:6d43 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d44 */     /* NOP */
-    /* 01:6d44 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d45 */     /* NOP */
-    /* 01:6d45 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d46 */     /* NOP */
-    /* 01:6d46 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d47 */     /* NOP */
-    /* 01:6d47 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d48 */     /* NOP */
-    /* 01:6d48 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d49 */     /* NOP */
-    /* 01:6d49 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d4a */     /* NOP */
-    /* 01:6d4a */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d4b */     /* NOP */
-    /* 01:6d4b */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d4c */     /* NOP */
-    /* 01:6d4c */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d4d */     /* NOP */
-    /* 01:6d4d */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d4e */     /* NOP */
-    /* 01:6d4e */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d4f */     /* NOP */
-    /* 01:6d4f */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d50 */     /* NOP */
-    /* 01:6d50 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d51 */     /* NOP */
-    /* 01:6d51 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d52 */     /* NOP */
-    /* 01:6d52 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d53 */     /* NOP */
-    /* 01:6d53 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d54 */     /* NOP */
-    /* 01:6d54 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d55 */     /* NOP */
-    /* 01:6d55 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d56 */     /* NOP */
-    /* 01:6d56 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d57 */     /* NOP */
-    /* 01:6d57 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d58 */     /* NOP */
-    /* 01:6d58 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d59 */     /* NOP */
-    /* 01:6d59 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d5a */     /* NOP */
-    /* 01:6d5a */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d5b */     /* NOP */
-    /* 01:6d5b */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d5c */     /* NOP */
-    /* 01:6d5c */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d5d */     /* NOP */
-    /* 01:6d5d */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d5e */     /* NOP */
-    /* 01:6d5e */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d5f */     /* NOP */
-    /* 01:6d5f */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d60 */     /* NOP */
-    /* 01:6d60 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d61 */     /* NOP */
-    /* 01:6d61 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d62 */     /* NOP */
-    /* 01:6d62 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d63 */     /* NOP */
-    /* 01:6d63 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d64 */     /* NOP */
-    /* 01:6d64 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d65 */     /* NOP */
-    /* 01:6d65 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d66 */     /* NOP */
-    /* 01:6d66 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d67 */     /* NOP */
-    /* 01:6d67 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d68 */     /* NOP */
-    /* 01:6d68 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d69 */     /* NOP */
-    /* 01:6d69 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d6a */     /* NOP */
-    /* 01:6d6a */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d6b */     /* NOP */
-    /* 01:6d6b */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d6c */     /* NOP */
-    /* 01:6d6c */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d6d */     /* NOP */
-    /* 01:6d6d */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d6e */     /* NOP */
-    /* 01:6d6e */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d6f */     /* NOP */
-    /* 01:6d6f */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d70 */     /* NOP */
-    /* 01:6d70 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d71 */     /* NOP */
-    /* 01:6d71 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d72 */     /* NOP */
-    /* 01:6d72 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d73 */     /* NOP */
-    /* 01:6d73 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d74 */     /* NOP */
-    /* 01:6d74 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d75 */     /* NOP */
-    /* 01:6d75 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d76 */     /* NOP */
-    /* 01:6d76 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d77 */     /* NOP */
-    /* 01:6d77 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d78 */     /* NOP */
-    /* 01:6d78 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d79 */     /* NOP */
-    /* 01:6d79 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d7a */     /* NOP */
-    /* 01:6d7a */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d7b */     /* NOP */
-    /* 01:6d7b */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d7c */     /* NOP */
-    /* 01:6d7c */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d7d */     /* NOP */
-    /* 01:6d7d */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d7e */     /* NOP */
-    /* 01:6d7e */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d7f */     /* NOP */
-    /* 01:6d7f */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d80 */     /* NOP */
-    /* 01:6d80 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d81 */     /* NOP */
-    /* 01:6d81 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d82 */     /* NOP */
-    /* 01:6d82 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d83 */     /* NOP */
-    /* 01:6d83 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d84 */     /* NOP */
-    /* 01:6d84 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d85 */     /* NOP */
-    /* 01:6d85 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d86 */     /* NOP */
-    /* 01:6d86 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d87 */     /* NOP */
-    /* 01:6d87 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d88 */     /* NOP */
-    /* 01:6d88 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d89 */     /* NOP */
-    /* 01:6d89 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d8a */     /* NOP */
-    /* 01:6d8a */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d8b */     /* NOP */
-    /* 01:6d8b */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d8c */     /* NOP */
-    /* 01:6d8c */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d8d */     /* NOP */
-    /* 01:6d8d */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d8e */     /* NOP */
-    /* 01:6d8e */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d8f */     /* NOP */
-    /* 01:6d8f */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d90 */     /* NOP */
-    /* 01:6d90 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d91 */     /* NOP */
-    /* 01:6d91 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d92 */     /* NOP */
-    /* 01:6d92 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d93 */     /* NOP */
-    /* 01:6d93 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d94 */     /* NOP */
-    /* 01:6d94 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d95 */     /* NOP */
-    /* 01:6d95 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d96 */     /* NOP */
-    /* 01:6d96 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d97 */     /* NOP */
-    /* 01:6d97 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d98 */     /* NOP */
-    /* 01:6d98 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d99 */     /* NOP */
-    /* 01:6d99 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d9a */     /* NOP */
-    /* 01:6d9a */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d9b */     /* NOP */
-    /* 01:6d9b */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d9c */     /* NOP */
-    /* 01:6d9c */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d9d */     /* NOP */
-    /* 01:6d9d */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d9e */     /* NOP */
-    /* 01:6d9e */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6d9f */     /* NOP */
-    /* 01:6d9f */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6da0 */     /* NOP */
-    /* 01:6da0 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6da1 */     /* NOP */
-    /* 01:6da1 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6da2 */     /* NOP */
-    /* 01:6da2 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6da3 */     /* NOP */
-    /* 01:6da3 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6da4 */     /* NOP */
-    /* 01:6da4 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6da5 */     /* NOP */
-    /* 01:6da5 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6da6 */     /* NOP */
-    /* 01:6da6 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6da7 */     /* NOP */
-    /* 01:6da7 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6da8 */     /* NOP */
-    /* 01:6da8 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6da9 */     /* NOP */
-    /* 01:6da9 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6daa */     /* NOP */
-    /* 01:6daa */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6dab */     /* NOP */
-    /* 01:6dab */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6dac */     /* NOP */
-    /* 01:6dac */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6dad */     /* NOP */
-    /* 01:6dad */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6dae */     /* NOP */
-    /* 01:6dae */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6daf */     /* NOP */
-    /* 01:6daf */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6db0 */     /* NOP */
-    /* 01:6db0 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6db1 */     /* NOP */
-    /* 01:6db1 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6db2 */     /* NOP */
-    /* 01:6db2 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6db3 */     /* NOP */
-    /* 01:6db3 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6db4 */     /* NOP */
-    /* 01:6db4 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6db5 */     /* NOP */
-    /* 01:6db5 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6db6 */     /* NOP */
-    /* 01:6db6 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6db7 */     /* NOP */
-    /* 01:6db7 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6db8 */     /* NOP */
-    /* 01:6db8 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6db9 */     /* NOP */
-    /* 01:6db9 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6dba */     /* NOP */
-    /* 01:6dba */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6dbb */     /* NOP */
-    /* 01:6dbb */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6dbc */     /* NOP */
-    /* 01:6dbc */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6dbd */     /* NOP */
-    /* 01:6dbd */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6dbe */     /* NOP */
-    /* 01:6dbe */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6dbf */     /* NOP */
-    /* 01:6dbf */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6dc0 */     /* NOP */
-    /* 01:6dc0 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6dc1 */     /* NOP */
-    /* 01:6dc1 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6dc2 */     /* NOP */
-    /* 01:6dc2 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6dc3 */     /* NOP */
-    /* 01:6dc3 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6dc4 */     /* NOP */
-    /* 01:6dc4 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6dc5 */     /* NOP */
-    /* 01:6dc5 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6dc6 */     /* NOP */
-    /* 01:6dc6 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6dc7 */     /* NOP */
-    /* 01:6dc7 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6dc8 */     /* NOP */
-    /* 01:6dc8 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6dc9 */     /* NOP */
-    /* 01:6dc9 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6dca */     /* NOP */
-    /* 01:6dca */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6dcb */     /* NOP */
-    /* 01:6dcb */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6dcc */     /* NOP */
-    /* 01:6dcc */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6dcd */     /* NOP */
-    /* 01:6dcd */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6dce */     /* NOP */
-    /* 01:6dce */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6dcf */     /* NOP */
-    /* 01:6dcf */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6dd0 */     /* NOP */
-    /* 01:6dd0 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6dd1 */     /* NOP */
-    /* 01:6dd1 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6dd2 */     /* NOP */
-    /* 01:6dd2 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6dd3 */     /* NOP */
-    /* 01:6dd3 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6dd4 */     /* NOP */
-    /* 01:6dd4 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6dd5 */     /* NOP */
-    /* 01:6dd5 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6dd6 */     /* NOP */
-    /* 01:6dd6 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6dd7 */     /* NOP */
-    /* 01:6dd7 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6dd8 */     /* NOP */
-    /* 01:6dd8 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6dd9 */     /* NOP */
-    /* 01:6dd9 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6dda */     /* NOP */
-    /* 01:6dda */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ddb */     /* NOP */
-    /* 01:6ddb */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ddc */     /* NOP */
-    /* 01:6ddc */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ddd */     /* NOP */
-    /* 01:6ddd */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6dde */     /* NOP */
-    /* 01:6dde */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ddf */     /* NOP */
-    /* 01:6ddf */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6de0 */     /* NOP */
-    /* 01:6de0 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6de1 */     /* NOP */
-    /* 01:6de1 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6de2 */     /* NOP */
-    /* 01:6de2 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6de3 */     /* NOP */
-    /* 01:6de3 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6de4 */     /* NOP */
-    /* 01:6de4 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6de5 */     /* NOP */
-    /* 01:6de5 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6de6 */     /* NOP */
-    /* 01:6de6 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6de7 */     /* NOP */
-    /* 01:6de7 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6de8 */     /* NOP */
-    /* 01:6de8 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6de9 */     /* NOP */
-    /* 01:6de9 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6dea */     /* NOP */
-    /* 01:6dea */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6deb */     /* NOP */
-    /* 01:6deb */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6dec */     /* NOP */
-    /* 01:6dec */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ded */     /* NOP */
-    /* 01:6ded */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6dee */     /* NOP */
-    /* 01:6dee */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6def */     /* NOP */
-    /* 01:6def */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6df0 */     /* NOP */
-    /* 01:6df0 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6df1 */     /* NOP */
-    /* 01:6df1 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6df2 */     /* NOP */
-    /* 01:6df2 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6df3 */     /* NOP */
-    /* 01:6df3 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6df4 */     /* NOP */
-    /* 01:6df4 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6df5 */     /* NOP */
-    /* 01:6df5 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6df6 */     /* NOP */
-    /* 01:6df6 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6df7 */     /* NOP */
-    /* 01:6df7 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6df8 */     /* NOP */
-    /* 01:6df8 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6df9 */     /* NOP */
-    /* 01:6df9 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6dfa */     /* NOP */
-    /* 01:6dfa */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6dfb */     /* NOP */
-    /* 01:6dfb */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6dfc */     /* NOP */
-    /* 01:6dfc */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6dfd */     /* NOP */
-    /* 01:6dfd */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6dfe */     /* NOP */
-    /* 01:6dfe */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6dff */     /* NOP */
-    /* 01:6dff */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e00 */     /* NOP */
-    /* 01:6e00 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e01 */     /* NOP */
-    /* 01:6e01 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e02 */     /* NOP */
-    /* 01:6e02 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e03 */     /* NOP */
-    /* 01:6e03 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e04 */     /* NOP */
-    /* 01:6e04 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e05 */     /* NOP */
-    /* 01:6e05 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e06 */     /* NOP */
-    /* 01:6e06 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e07 */     /* NOP */
-    /* 01:6e07 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e08 */     /* NOP */
-    /* 01:6e08 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e09 */     /* NOP */
-    /* 01:6e09 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e0a */     /* NOP */
-    /* 01:6e0a */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e0b */     /* NOP */
-    /* 01:6e0b */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e0c */     /* NOP */
-    /* 01:6e0c */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e0d */     /* NOP */
-    /* 01:6e0d */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e0e */     /* NOP */
-    /* 01:6e0e */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e0f */     /* NOP */
-    /* 01:6e0f */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e10 */     /* NOP */
-    /* 01:6e10 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e11 */     /* NOP */
-    /* 01:6e11 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e12 */     /* NOP */
-    /* 01:6e12 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e13 */     /* NOP */
-    /* 01:6e13 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e14 */     /* NOP */
-    /* 01:6e14 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e15 */     /* NOP */
-    /* 01:6e15 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e16 */     /* NOP */
-    /* 01:6e16 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e17 */     /* NOP */
-    /* 01:6e17 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e18 */     /* NOP */
-    /* 01:6e18 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e19 */     /* NOP */
-    /* 01:6e19 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e1a */     /* NOP */
-    /* 01:6e1a */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e1b */     /* NOP */
-    /* 01:6e1b */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e1c */     /* NOP */
-    /* 01:6e1c */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e1d */     /* NOP */
-    /* 01:6e1d */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e1e */     /* NOP */
-    /* 01:6e1e */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e1f */     /* NOP */
-    /* 01:6e1f */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e20 */     /* NOP */
-    /* 01:6e20 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e21 */     /* NOP */
-    /* 01:6e21 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e22 */     /* NOP */
-    /* 01:6e22 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e23 */     /* NOP */
-    /* 01:6e23 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e24 */     /* NOP */
-    /* 01:6e24 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e25 */     /* NOP */
-    /* 01:6e25 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e26 */     /* NOP */
-    /* 01:6e26 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e27 */     /* NOP */
-    /* 01:6e27 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e28 */     /* NOP */
-    /* 01:6e28 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e29 */     /* NOP */
-    /* 01:6e29 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e2a */     /* NOP */
-    /* 01:6e2a */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e2b */     /* NOP */
-    /* 01:6e2b */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e2c */     /* NOP */
-    /* 01:6e2c */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e2d */     /* NOP */
-    /* 01:6e2d */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e2e */     /* NOP */
-    /* 01:6e2e */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e2f */     /* NOP */
-    /* 01:6e2f */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e30 */     /* NOP */
-    /* 01:6e30 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e31 */     /* NOP */
-    /* 01:6e31 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e32 */     /* NOP */
-    /* 01:6e32 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e33 */     /* NOP */
-    /* 01:6e33 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e34 */     /* NOP */
-    /* 01:6e34 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e35 */     /* NOP */
-    /* 01:6e35 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e36 */     /* NOP */
-    /* 01:6e36 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e37 */     /* NOP */
-    /* 01:6e37 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e38 */     /* NOP */
-    /* 01:6e38 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e39 */     /* NOP */
-    /* 01:6e39 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e3a */     /* NOP */
-    /* 01:6e3a */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e3b */     /* NOP */
-    /* 01:6e3b */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e3c */     /* NOP */
-    /* 01:6e3c */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e3d */     /* NOP */
-    /* 01:6e3d */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e3e */     /* NOP */
-    /* 01:6e3e */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e3f */     /* NOP */
-    /* 01:6e3f */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e40 */     /* NOP */
-    /* 01:6e40 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e41 */     /* NOP */
-    /* 01:6e41 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e42 */     /* NOP */
-    /* 01:6e42 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e43 */     /* NOP */
-    /* 01:6e43 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e44 */     /* NOP */
-    /* 01:6e44 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e45 */     /* NOP */
-    /* 01:6e45 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e46 */     /* NOP */
-    /* 01:6e46 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e47 */     /* NOP */
-    /* 01:6e47 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e48 */     /* NOP */
-    /* 01:6e48 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e49 */     /* NOP */
-    /* 01:6e49 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e4a */     /* NOP */
-    /* 01:6e4a */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e4b */     /* NOP */
-    /* 01:6e4b */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e4c */     /* NOP */
-    /* 01:6e4c */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e4d */     /* NOP */
-    /* 01:6e4d */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e4e */     /* NOP */
-    /* 01:6e4e */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e4f */     /* NOP */
-    /* 01:6e4f */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e50 */     /* NOP */
-    /* 01:6e50 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e51 */     /* NOP */
-    /* 01:6e51 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e52 */     /* NOP */
-    /* 01:6e52 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e53 */     /* NOP */
-    /* 01:6e53 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e54 */     /* NOP */
-    /* 01:6e54 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e55 */     /* NOP */
-    /* 01:6e55 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e56 */     /* NOP */
-    /* 01:6e56 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e57 */     /* NOP */
-    /* 01:6e57 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e58 */     /* NOP */
-    /* 01:6e58 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e59 */     /* NOP */
-    /* 01:6e59 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e5a */     /* NOP */
-    /* 01:6e5a */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e5b */     /* NOP */
-    /* 01:6e5b */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e5c */     /* NOP */
-    /* 01:6e5c */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e5d */     /* NOP */
-    /* 01:6e5d */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e5e */     /* NOP */
-    /* 01:6e5e */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e5f */     /* NOP */
-    /* 01:6e5f */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e60 */     /* NOP */
-    /* 01:6e60 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e61 */     /* NOP */
-    /* 01:6e61 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e62 */     /* NOP */
-    /* 01:6e62 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e63 */     /* NOP */
-    /* 01:6e63 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e64 */     /* NOP */
-    /* 01:6e64 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e65 */     /* NOP */
-    /* 01:6e65 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e66 */     /* NOP */
-    /* 01:6e66 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e67 */     /* NOP */
-    /* 01:6e67 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e68 */     /* NOP */
-    /* 01:6e68 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e69 */     /* NOP */
-    /* 01:6e69 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e6a */     /* NOP */
-    /* 01:6e6a */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e6b */     /* NOP */
-    /* 01:6e6b */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e6c */     /* NOP */
-    /* 01:6e6c */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e6d */     /* NOP */
-    /* 01:6e6d */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e6e */     /* NOP */
-    /* 01:6e6e */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e6f */     /* NOP */
-    /* 01:6e6f */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e70 */     /* NOP */
-    /* 01:6e70 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e71 */     /* NOP */
-    /* 01:6e71 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e72 */     /* NOP */
-    /* 01:6e72 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e73 */     /* NOP */
-    /* 01:6e73 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e74 */     /* NOP */
-    /* 01:6e74 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e75 */     /* NOP */
-    /* 01:6e75 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e76 */     /* NOP */
-    /* 01:6e76 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e77 */     /* NOP */
-    /* 01:6e77 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e78 */     /* NOP */
-    /* 01:6e78 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e79 */     /* NOP */
-    /* 01:6e79 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e7a */     /* NOP */
-    /* 01:6e7a */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e7b */     /* NOP */
-    /* 01:6e7b */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e7c */     /* NOP */
-    /* 01:6e7c */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e7d */     /* NOP */
-    /* 01:6e7d */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e7e */     /* NOP */
-    /* 01:6e7e */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e7f */     /* NOP */
-    /* 01:6e7f */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e80 */     /* NOP */
-    /* 01:6e80 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e81 */     /* NOP */
-    /* 01:6e81 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e82 */     /* NOP */
-    /* 01:6e82 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e83 */     /* NOP */
-    /* 01:6e83 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e84 */     /* NOP */
-    /* 01:6e84 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e85 */     /* NOP */
-    /* 01:6e85 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e86 */     /* NOP */
-    /* 01:6e86 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e87 */     /* NOP */
-    /* 01:6e87 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e88 */     /* NOP */
-    /* 01:6e88 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e89 */     /* NOP */
-    /* 01:6e89 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e8a */     /* NOP */
-    /* 01:6e8a */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e8b */     /* NOP */
-    /* 01:6e8b */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e8c */     /* NOP */
-    /* 01:6e8c */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e8d */     /* NOP */
-    /* 01:6e8d */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e8e */     /* NOP */
-    /* 01:6e8e */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e8f */     /* NOP */
-    /* 01:6e8f */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e90 */     /* NOP */
-    /* 01:6e90 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e91 */     /* NOP */
-    /* 01:6e91 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e92 */     /* NOP */
-    /* 01:6e92 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e93 */     /* NOP */
-    /* 01:6e93 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e94 */     /* NOP */
-    /* 01:6e94 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e95 */     /* NOP */
-    /* 01:6e95 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e96 */     /* NOP */
-    /* 01:6e96 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e97 */     /* NOP */
-    /* 01:6e97 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e98 */     /* NOP */
-    /* 01:6e98 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e99 */     /* NOP */
-    /* 01:6e99 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e9a */     /* NOP */
-    /* 01:6e9a */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e9b */     /* NOP */
-    /* 01:6e9b */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e9c */     /* NOP */
-    /* 01:6e9c */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e9d */     /* NOP */
-    /* 01:6e9d */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e9e */     /* NOP */
-    /* 01:6e9e */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6e9f */     /* NOP */
-    /* 01:6e9f */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ea0 */     /* NOP */
-    /* 01:6ea0 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ea1 */     /* NOP */
-    /* 01:6ea1 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ea2 */     /* NOP */
-    /* 01:6ea2 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ea3 */     /* NOP */
-    /* 01:6ea3 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ea4 */     /* NOP */
-    /* 01:6ea4 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ea5 */     /* NOP */
-    /* 01:6ea5 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ea6 */     /* NOP */
-    /* 01:6ea6 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ea7 */     /* NOP */
-    /* 01:6ea7 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ea8 */     /* NOP */
-    /* 01:6ea8 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ea9 */     /* NOP */
-    /* 01:6ea9 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6eaa */     /* NOP */
-    /* 01:6eaa */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6eab */     /* NOP */
-    /* 01:6eab */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6eac */     /* NOP */
-    /* 01:6eac */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ead */     /* NOP */
-    /* 01:6ead */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6eae */     /* NOP */
-    /* 01:6eae */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6eaf */     /* NOP */
-    /* 01:6eaf */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6eb0 */     /* NOP */
-    /* 01:6eb0 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6eb1 */     /* NOP */
-    /* 01:6eb1 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6eb2 */     /* NOP */
-    /* 01:6eb2 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6eb3 */     /* NOP */
-    /* 01:6eb3 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6eb4 */     /* NOP */
-    /* 01:6eb4 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6eb5 */     /* NOP */
-    /* 01:6eb5 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6eb6 */     /* NOP */
-    /* 01:6eb6 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6eb7 */     /* NOP */
-    /* 01:6eb7 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6eb8 */     /* NOP */
-    /* 01:6eb8 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6eb9 */     /* NOP */
-    /* 01:6eb9 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6eba */     /* NOP */
-    /* 01:6eba */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ebb */     /* NOP */
-    /* 01:6ebb */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ebc */     /* NOP */
-    /* 01:6ebc */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ebd */     /* NOP */
-    /* 01:6ebd */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ebe */     /* NOP */
-    /* 01:6ebe */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ebf */     /* NOP */
-    /* 01:6ebf */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ec0 */     /* NOP */
-    /* 01:6ec0 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ec1 */     /* NOP */
-    /* 01:6ec1 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ec2 */     /* NOP */
-    /* 01:6ec2 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ec3 */     /* NOP */
-    /* 01:6ec3 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ec4 */     /* NOP */
-    /* 01:6ec4 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ec5 */     /* NOP */
-    /* 01:6ec5 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ec6 */     /* NOP */
-    /* 01:6ec6 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ec7 */     /* NOP */
-    /* 01:6ec7 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ec8 */     /* NOP */
-    /* 01:6ec8 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ec9 */     /* NOP */
-    /* 01:6ec9 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6eca */     /* NOP */
-    /* 01:6eca */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ecb */     /* NOP */
-    /* 01:6ecb */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ecc */     /* NOP */
-    /* 01:6ecc */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ecd */     /* NOP */
-    /* 01:6ecd */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ece */     /* NOP */
-    /* 01:6ece */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ecf */     /* NOP */
-    /* 01:6ecf */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ed0 */     /* NOP */
-    /* 01:6ed0 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ed1 */     /* NOP */
-    /* 01:6ed1 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ed2 */     /* NOP */
-    /* 01:6ed2 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ed3 */     /* NOP */
-    /* 01:6ed3 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ed4 */     /* NOP */
-    /* 01:6ed4 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ed5 */     /* NOP */
-    /* 01:6ed5 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ed6 */     /* NOP */
-    /* 01:6ed6 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ed7 */     /* NOP */
-    /* 01:6ed7 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ed8 */     /* NOP */
-    /* 01:6ed8 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ed9 */     /* NOP */
-    /* 01:6ed9 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6eda */     /* NOP */
-    /* 01:6eda */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6edb */     /* NOP */
-    /* 01:6edb */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6edc */     /* NOP */
-    /* 01:6edc */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6edd */     /* NOP */
-    /* 01:6edd */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ede */     /* NOP */
-    /* 01:6ede */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6edf */     /* NOP */
-    /* 01:6edf */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ee0 */     /* NOP */
-    /* 01:6ee0 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ee1 */     /* NOP */
-    /* 01:6ee1 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ee2 */     /* NOP */
-    /* 01:6ee2 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ee3 */     /* NOP */
-    /* 01:6ee3 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ee4 */     /* NOP */
-    /* 01:6ee4 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ee5 */     /* NOP */
-    /* 01:6ee5 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ee6 */     /* NOP */
-    /* 01:6ee6 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ee7 */     /* NOP */
-    /* 01:6ee7 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ee8 */     /* NOP */
-    /* 01:6ee8 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ee9 */     /* NOP */
-    /* 01:6ee9 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6eea */     /* NOP */
-    /* 01:6eea */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6eeb */     /* NOP */
-    /* 01:6eeb */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6eec */     /* NOP */
-    /* 01:6eec */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6eed */     /* NOP */
-    /* 01:6eed */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6eee */     /* NOP */
-    /* 01:6eee */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6eef */     /* NOP */
-    /* 01:6eef */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ef0 */     /* NOP */
-    /* 01:6ef0 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ef1 */     /* NOP */
-    /* 01:6ef1 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ef2 */     /* NOP */
-    /* 01:6ef2 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ef3 */     /* NOP */
-    /* 01:6ef3 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ef4 */     /* NOP */
-    /* 01:6ef4 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ef5 */     /* NOP */
-    /* 01:6ef5 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ef6 */     /* NOP */
-    /* 01:6ef6 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ef7 */     /* NOP */
-    /* 01:6ef7 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ef8 */     /* NOP */
-    /* 01:6ef8 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ef9 */     /* NOP */
-    /* 01:6ef9 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6efa */     /* NOP */
-    /* 01:6efa */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6efb */     /* NOP */
-    /* 01:6efb */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6efc */     /* NOP */
-    /* 01:6efc */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6efd */     /* NOP */
-    /* 01:6efd */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6efe */     /* NOP */
-    /* 01:6efe */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6eff */     /* NOP */
-    /* 01:6eff */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f00 */     /* NOP */
-    /* 01:6f00 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f01 */     /* NOP */
-    /* 01:6f01 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f02 */     /* NOP */
-    /* 01:6f02 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f03 */     /* NOP */
-    /* 01:6f03 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f04 */     /* NOP */
-    /* 01:6f04 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f05 */     /* NOP */
-    /* 01:6f05 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f06 */     /* NOP */
-    /* 01:6f06 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f07 */     /* NOP */
-    /* 01:6f07 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f08 */     /* NOP */
-    /* 01:6f08 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f09 */     /* NOP */
-    /* 01:6f09 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f0a */     /* NOP */
-    /* 01:6f0a */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f0b */     /* NOP */
-    /* 01:6f0b */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f0c */     /* NOP */
-    /* 01:6f0c */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f0d */     /* NOP */
-    /* 01:6f0d */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f0e */     /* NOP */
-    /* 01:6f0e */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f0f */     /* NOP */
-    /* 01:6f0f */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f10 */     /* NOP */
-    /* 01:6f10 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f11 */     /* NOP */
-    /* 01:6f11 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f12 */     /* NOP */
-    /* 01:6f12 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f13 */     /* NOP */
-    /* 01:6f13 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f14 */     /* NOP */
-    /* 01:6f14 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f15 */     /* NOP */
-    /* 01:6f15 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f16 */     /* NOP */
-    /* 01:6f16 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f17 */     /* NOP */
-    /* 01:6f17 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f18 */     /* NOP */
-    /* 01:6f18 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f19 */     /* NOP */
-    /* 01:6f19 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f1a */     /* NOP */
-    /* 01:6f1a */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f1b */     /* NOP */
-    /* 01:6f1b */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f1c */     /* NOP */
-    /* 01:6f1c */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f1d */     /* NOP */
-    /* 01:6f1d */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f1e */     /* NOP */
-    /* 01:6f1e */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f1f */     /* NOP */
-    /* 01:6f1f */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f20 */     /* NOP */
-    /* 01:6f20 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f21 */     /* NOP */
-    /* 01:6f21 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f22 */     /* NOP */
-    /* 01:6f22 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f23 */     /* NOP */
-    /* 01:6f23 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f24 */     /* NOP */
-    /* 01:6f24 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f25 */     /* NOP */
-    /* 01:6f25 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f26 */     /* NOP */
-    /* 01:6f26 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f27 */     /* NOP */
-    /* 01:6f27 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f28 */     /* NOP */
-    /* 01:6f28 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f29 */     /* NOP */
-    /* 01:6f29 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f2a */     /* NOP */
-    /* 01:6f2a */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f2b */     /* NOP */
-    /* 01:6f2b */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f2c */     /* NOP */
-    /* 01:6f2c */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f2d */     /* NOP */
-    /* 01:6f2d */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f2e */     /* NOP */
-    /* 01:6f2e */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f2f */     /* NOP */
-    /* 01:6f2f */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f30 */     /* NOP */
-    /* 01:6f30 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f31 */     /* NOP */
-    /* 01:6f31 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f32 */     /* NOP */
-    /* 01:6f32 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f33 */     /* NOP */
-    /* 01:6f33 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f34 */     /* NOP */
-    /* 01:6f34 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f35 */     /* NOP */
-    /* 01:6f35 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f36 */     /* NOP */
-    /* 01:6f36 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f37 */     /* NOP */
-    /* 01:6f37 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f38 */     /* NOP */
-    /* 01:6f38 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f39 */     /* NOP */
-    /* 01:6f39 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f3a */     /* NOP */
-    /* 01:6f3a */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f3b */     /* NOP */
-    /* 01:6f3b */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f3c */     /* NOP */
-    /* 01:6f3c */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f3d */     /* NOP */
-    /* 01:6f3d */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f3e */     /* NOP */
-    /* 01:6f3e */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f3f */     /* NOP */
-    /* 01:6f3f */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f40 */     /* NOP */
-    /* 01:6f40 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f41 */     /* NOP */
-    /* 01:6f41 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f42 */     /* NOP */
-    /* 01:6f42 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f43 */     /* NOP */
-    /* 01:6f43 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f44 */     /* NOP */
-    /* 01:6f44 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f45 */     /* NOP */
-    /* 01:6f45 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f46 */     /* NOP */
-    /* 01:6f46 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f47 */     /* NOP */
-    /* 01:6f47 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f48 */     /* NOP */
-    /* 01:6f48 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f49 */     /* NOP */
-    /* 01:6f49 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f4a */     /* NOP */
-    /* 01:6f4a */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f4b */     /* NOP */
-    /* 01:6f4b */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f4c */     /* NOP */
-    /* 01:6f4c */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f4d */     /* NOP */
-    /* 01:6f4d */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f4e */     /* NOP */
-    /* 01:6f4e */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f4f */     /* NOP */
-    /* 01:6f4f */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f50 */     /* NOP */
-    /* 01:6f50 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f51 */     /* NOP */
-    /* 01:6f51 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f52 */     /* NOP */
-    /* 01:6f52 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f53 */     /* NOP */
-    /* 01:6f53 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f54 */     /* NOP */
-    /* 01:6f54 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f55 */     /* NOP */
-    /* 01:6f55 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f56 */     /* NOP */
-    /* 01:6f56 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f57 */     /* NOP */
-    /* 01:6f57 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f58 */     /* NOP */
-    /* 01:6f58 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f59 */     /* NOP */
-    /* 01:6f59 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f5a */     /* NOP */
-    /* 01:6f5a */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f5b */     /* NOP */
-    /* 01:6f5b */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f5c */     /* NOP */
-    /* 01:6f5c */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f5d */     /* NOP */
-    /* 01:6f5d */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f5e */     /* NOP */
-    /* 01:6f5e */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f5f */     /* NOP */
-    /* 01:6f5f */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f60 */     /* NOP */
-    /* 01:6f60 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f61 */     /* NOP */
-    /* 01:6f61 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f62 */     /* NOP */
-    /* 01:6f62 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f63 */     /* NOP */
-    /* 01:6f63 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f64 */     /* NOP */
-    /* 01:6f64 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f65 */     /* NOP */
-    /* 01:6f65 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f66 */     /* NOP */
-    /* 01:6f66 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f67 */     /* NOP */
-    /* 01:6f67 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f68 */     /* NOP */
-    /* 01:6f68 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f69 */     /* NOP */
-    /* 01:6f69 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f6a */     /* NOP */
-    /* 01:6f6a */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f6b */     /* NOP */
-    /* 01:6f6b */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f6c */     /* NOP */
-    /* 01:6f6c */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f6d */     /* NOP */
-    /* 01:6f6d */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f6e */     /* NOP */
-    /* 01:6f6e */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f6f */     /* NOP */
-    /* 01:6f6f */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f70 */     /* NOP */
-    /* 01:6f70 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f71 */     /* NOP */
-    /* 01:6f71 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f72 */     /* NOP */
-    /* 01:6f72 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f73 */     /* NOP */
-    /* 01:6f73 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f74 */     /* NOP */
-    /* 01:6f74 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f75 */     /* NOP */
-    /* 01:6f75 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f76 */     /* NOP */
-    /* 01:6f76 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f77 */     /* NOP */
-    /* 01:6f77 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f78 */     /* NOP */
-    /* 01:6f78 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f79 */     /* NOP */
-    /* 01:6f79 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f7a */     /* NOP */
-    /* 01:6f7a */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f7b */     /* NOP */
-    /* 01:6f7b */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f7c */     /* NOP */
-    /* 01:6f7c */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f7d */     /* NOP */
-    /* 01:6f7d */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f7e */     /* NOP */
-    /* 01:6f7e */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f7f */     /* NOP */
-    /* 01:6f7f */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f80 */     /* NOP */
-    /* 01:6f80 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f81 */     /* NOP */
-    /* 01:6f81 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f82 */     /* NOP */
-    /* 01:6f82 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f83 */     /* NOP */
-    /* 01:6f83 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f84 */     /* NOP */
-    /* 01:6f84 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f85 */     /* NOP */
-    /* 01:6f85 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f86 */     /* NOP */
-    /* 01:6f86 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f87 */     /* NOP */
-    /* 01:6f87 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f88 */     /* NOP */
-    /* 01:6f88 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f89 */     /* NOP */
-    /* 01:6f89 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f8a */     /* NOP */
-    /* 01:6f8a */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f8b */     /* NOP */
-    /* 01:6f8b */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f8c */     /* NOP */
-    /* 01:6f8c */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f8d */     /* NOP */
-    /* 01:6f8d */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f8e */     /* NOP */
-    /* 01:6f8e */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f8f */     /* NOP */
-    /* 01:6f8f */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f90 */     /* NOP */
-    /* 01:6f90 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f91 */     /* NOP */
-    /* 01:6f91 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f92 */     /* NOP */
-    /* 01:6f92 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f93 */     /* NOP */
-    /* 01:6f93 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f94 */     /* NOP */
-    /* 01:6f94 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f95 */     /* NOP */
-    /* 01:6f95 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f96 */     /* NOP */
-    /* 01:6f96 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f97 */     /* NOP */
-    /* 01:6f97 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f98 */     /* NOP */
-    /* 01:6f98 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f99 */     /* NOP */
-    /* 01:6f99 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f9a */     /* NOP */
-    /* 01:6f9a */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f9b */     /* NOP */
-    /* 01:6f9b */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f9c */     /* NOP */
-    /* 01:6f9c */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f9d */     /* NOP */
-    /* 01:6f9d */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f9e */     /* NOP */
-    /* 01:6f9e */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6f9f */     /* NOP */
-    /* 01:6f9f */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fa0 */     /* NOP */
-    /* 01:6fa0 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fa1 */     /* NOP */
-    /* 01:6fa1 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fa2 */     /* NOP */
-    /* 01:6fa2 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fa3 */     /* NOP */
-    /* 01:6fa3 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fa4 */     /* NOP */
-    /* 01:6fa4 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fa5 */     /* NOP */
-    /* 01:6fa5 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fa6 */     /* NOP */
-    /* 01:6fa6 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fa7 */     /* NOP */
-    /* 01:6fa7 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fa8 */     /* NOP */
-    /* 01:6fa8 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fa9 */     /* NOP */
-    /* 01:6fa9 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6faa */     /* NOP */
-    /* 01:6faa */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fab */     /* NOP */
-    /* 01:6fab */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fac */     /* NOP */
-    /* 01:6fac */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fad */     /* NOP */
-    /* 01:6fad */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fae */     /* NOP */
-    /* 01:6fae */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6faf */     /* NOP */
-    /* 01:6faf */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fb0 */     /* NOP */
-    /* 01:6fb0 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fb1 */     /* NOP */
-    /* 01:6fb1 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fb2 */     /* NOP */
-    /* 01:6fb2 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fb3 */     /* NOP */
-    /* 01:6fb3 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fb4 */     /* NOP */
-    /* 01:6fb4 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fb5 */     /* NOP */
-    /* 01:6fb5 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fb6 */     /* NOP */
-    /* 01:6fb6 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fb7 */     /* NOP */
-    /* 01:6fb7 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fb8 */     /* NOP */
-    /* 01:6fb8 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fb9 */     /* NOP */
-    /* 01:6fb9 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fba */     /* NOP */
-    /* 01:6fba */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fbb */     /* NOP */
-    /* 01:6fbb */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fbc */     /* NOP */
-    /* 01:6fbc */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fbd */     /* NOP */
-    /* 01:6fbd */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fbe */     /* NOP */
-    /* 01:6fbe */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fbf */     /* NOP */
-    /* 01:6fbf */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fc0 */     /* NOP */
-    /* 01:6fc0 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fc1 */     /* NOP */
-    /* 01:6fc1 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fc2 */     /* NOP */
-    /* 01:6fc2 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fc3 */     /* NOP */
-    /* 01:6fc3 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fc4 */     /* NOP */
-    /* 01:6fc4 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fc5 */     /* NOP */
-    /* 01:6fc5 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fc6 */     /* NOP */
-    /* 01:6fc6 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fc7 */     /* NOP */
-    /* 01:6fc7 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fc8 */     /* NOP */
-    /* 01:6fc8 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fc9 */     /* NOP */
-    /* 01:6fc9 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fca */     /* NOP */
-    /* 01:6fca */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fcb */     /* NOP */
-    /* 01:6fcb */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fcc */     /* NOP */
-    /* 01:6fcc */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fcd */     /* NOP */
-    /* 01:6fcd */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fce */     /* NOP */
-    /* 01:6fce */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fcf */     /* NOP */
-    /* 01:6fcf */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fd0 */     /* NOP */
-    /* 01:6fd0 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fd1 */     /* NOP */
-    /* 01:6fd1 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fd2 */     /* NOP */
-    /* 01:6fd2 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fd3 */     /* NOP */
-    /* 01:6fd3 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fd4 */     /* NOP */
-    /* 01:6fd4 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fd5 */     /* NOP */
-    /* 01:6fd5 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fd6 */     /* NOP */
-    /* 01:6fd6 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fd7 */     /* NOP */
-    /* 01:6fd7 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fd8 */     /* NOP */
-    /* 01:6fd8 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fd9 */     /* NOP */
-    /* 01:6fd9 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fda */     /* NOP */
-    /* 01:6fda */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fdb */     /* NOP */
-    /* 01:6fdb */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fdc */     /* NOP */
-    /* 01:6fdc */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fdd */     /* NOP */
-    /* 01:6fdd */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fde */     /* NOP */
-    /* 01:6fde */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fdf */     /* NOP */
-    /* 01:6fdf */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fe0 */     /* NOP */
-    /* 01:6fe0 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fe1 */     /* NOP */
-    /* 01:6fe1 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fe2 */     /* NOP */
-    /* 01:6fe2 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fe3 */     /* NOP */
-    /* 01:6fe3 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fe4 */     /* NOP */
-    /* 01:6fe4 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fe5 */     /* NOP */
-    /* 01:6fe5 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fe6 */     /* NOP */
-    /* 01:6fe6 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fe7 */     /* NOP */
-    /* 01:6fe7 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fe8 */     /* NOP */
-    /* 01:6fe8 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fe9 */     /* NOP */
-    /* 01:6fe9 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fea */     /* NOP */
-    /* 01:6fea */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6feb */     /* NOP */
-    /* 01:6feb */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fec */     /* NOP */
-    /* 01:6fec */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fed */     /* NOP */
-    /* 01:6fed */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fee */     /* NOP */
-    /* 01:6fee */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fef */     /* NOP */
-    /* 01:6fef */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ff0 */     /* NOP */
-    /* 01:6ff0 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ff1 */     /* NOP */
-    /* 01:6ff1 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ff2 */     /* NOP */
-    /* 01:6ff2 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ff3 */     /* NOP */
-    /* 01:6ff3 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ff4 */     /* NOP */
-    /* 01:6ff4 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ff5 */     /* NOP */
-    /* 01:6ff5 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ff6 */     /* NOP */
-    /* 01:6ff6 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ff7 */     /* NOP */
-    /* 01:6ff7 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ff8 */     /* NOP */
-    /* 01:6ff8 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ff9 */     /* NOP */
-    /* 01:6ff9 */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ffa */     /* NOP */
-    /* 01:6ffa */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ffb */     /* NOP */
-    /* 01:6ffb */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ffc */     /* NOP */
-    /* 01:6ffc */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ffd */     /* NOP */
-    /* 01:6ffd */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6ffe */     /* NOP */
-    /* 01:6ffe */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:6fff */     /* NOP */
-    /* 01:6fff */     /* NOP */
-    gb_tick(ctx, 4);
-    if (ctx->stopped) return;
-    /* 01:7000 */     /* JP nn */
-    /* 01:7000 */     gb_tick(ctx, 16);
+loc_4000:
+    /* 01:4000 */     /* JP $c220 */
+    /* 01:4000 */     gb_tick(ctx, 16);
     gb_dispatch(ctx, 0xc220); return;
 }
 
 /* Function at 0213 */
 static void func_0213(GBContext* ctx) {
+    switch (ctx->pc) {
+        case 0x0213: goto loc_0213;
+        case 0x0217: goto loc_0217;
+        case 0x021a: goto loc_021a;
+        case 0x021d: goto loc_021d;
+        case 0x021e: goto loc_021e;
+        default: break;
+    }
+
 loc_0213:
-    /* 0213 */     /* SUB n */
+    /* 0213 */     /* SUB $05 */
     /* 0213 */     gb_sub8(ctx, 0x05);
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0215 */     /* JR cc,n */
+    /* 0215 */     /* JR NC,-4 */
     /* 0215 */     if (!ctx->f_c) goto loc_0213; /* NC */
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
@@ -5690,180 +468,231 @@ loc_0217:
     /* 0217 */     gb_rra(ctx);
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 0218 */     /* JR cc,n */
+    /* 0218 */     /* JR NC,0 */
     /* 0218 */     if (!ctx->f_c) goto loc_021a; /* NC */
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
 loc_021a:
-    /* 021a */     /* ADC A,n */
+    /* 021a */     /* ADC A,$01 */
     /* 021a */     gb_adc8(ctx, 0x01);
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 021c */     /* RET cc */
-    /* 021c */     if (!ctx->f_c) return; /* NC */
+    /* 021c */     /* RET NC */
+    /* 021c */     if (!ctx->f_c) { gb_ret(ctx); return; } /* NC */
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* warning: fallthrough to unanalyzed code at 0x21d in bank 0 */
-    return;
+loc_021d:
+    /* 021d */     /* RET Z */
+    /* 021d */     if (ctx->f_z) { gb_ret(ctx); return; } /* Z */
+    gb_tick(ctx, 8);
+    if (ctx->stopped) return;
+loc_021e:
+    /* 021e */     /* NOP */
+    /* 021e */     /* NOP */
+    gb_tick(ctx, 4);
+    if (ctx->stopped) return;
+    /* 021f */     /* RET */
+    /* 021f */     gb_tick(ctx, 16);
+    gb_ret(ctx); return;
 }
 
 /* Function at 0222 */
 static void func_0222(GBContext* ctx) {
+    switch (ctx->pc) {
+        case 0x0222: goto loc_0222;
+        case 0x0228: goto loc_0228;
+        case 0x022c: goto loc_022c;
+        default: break;
+    }
+
 loc_0222:
-    /* 0222 */     /* PUSH */
+    /* 0222 */     /* PUSH AF */
     /* 0222 */     gb_pack_flags(ctx); gb_push16(ctx, ctx->af & 0xFFF0);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 0223 */     /* LD r,n */
+    /* 0223 */     /* LD A,$df */
     /* 0223 */     ctx->a = 0xdf;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0225 */     /* CALL nn */
-    /* 0225 */     func_0213(ctx);
+    /* 0225 */     /* CALL $0213 */
+    /* 0225 */     gb_push16(ctx, 0x228);
+    func_0213(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_0228:
-    /* 0228 */     /* POP */
+    /* 0228 */     /* POP AF */
     /* 0228 */     ctx->af = gb_pop16(ctx) & 0xFFF0; gb_unpack_flags(ctx);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 0229 */     /* DEC r */
+    /* 0229 */     /* DEC A */
     /* 0229 */     ctx->a = gb_dec8(ctx, ctx->a);
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 022a */     /* JR cc,n */
+    /* 022a */     /* JR NZ,-10 */
     /* 022a */     if (!ctx->f_z) goto loc_0222; /* NZ */
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
 loc_022c:
     /* 022c */     /* RET */
     /* 022c */     gb_tick(ctx, 16);
-    return;
+    gb_ret(ctx); return;
 }
 
 /* Function at 022f */
 static void func_022f(GBContext* ctx) {
+    switch (ctx->pc) {
+        case 0x022f: goto loc_022f;
+        case 0x0235: goto loc_0235;
+        case 0x023a: goto loc_023a;
+        case 0x023e: goto loc_023e;
+        default: break;
+    }
+
 loc_022f:
-    /* 022f */     /* PUSH */
+    /* 022f */     /* PUSH AF */
     /* 022f */     gb_pack_flags(ctx); gb_push16(ctx, ctx->af & 0xFFF0);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 0230 */     /* LD r,n */
+    /* 0230 */     /* LD A,$ff */
     /* 0230 */     ctx->a = 0xff;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0232 */     /* CALL nn */
-    /* 0232 */     func_0222(ctx);
+    /* 0232 */     /* CALL $0222 */
+    /* 0232 */     gb_push16(ctx, 0x235);
+    func_0222(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_0235:
-    /* 0235 */     /* LD r,n */
+    /* 0235 */     /* LD A,$d4 */
     /* 0235 */     ctx->a = 0xd4;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0237 */     /* CALL nn */
-    /* 0237 */     func_0213(ctx);
+    /* 0237 */     /* CALL $0213 */
+    /* 0237 */     gb_push16(ctx, 0x23a);
+    func_0213(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_023a:
-    /* 023a */     /* POP */
+    /* 023a */     /* POP AF */
     /* 023a */     ctx->af = gb_pop16(ctx) & 0xFFF0; gb_unpack_flags(ctx);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 023b */     /* DEC r */
+    /* 023b */     /* DEC A */
     /* 023b */     ctx->a = gb_dec8(ctx, ctx->a);
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 023c */     /* JR cc,n */
+    /* 023c */     /* JR NZ,-15 */
     /* 023c */     if (!ctx->f_z) goto loc_022f; /* NZ */
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
 loc_023e:
     /* 023e */     /* RET */
     /* 023e */     gb_tick(ctx, 16);
-    return;
+    gb_ret(ctx); return;
 }
 
 /* Function at 025d */
 static void func_025d(GBContext* ctx) {
+    switch (ctx->pc) {
+        case 0x025d: goto loc_025d;
+        default: break;
+    }
+
 loc_025d:
-    /* 025d */     /* JR n */
+    /* 025d */     /* JR 0 */
     /* 025d */     gb_tick(ctx, 12);
     func_025f(ctx); return;
 }
 
 /* Function at 025f */
 static void func_025f(GBContext* ctx) {
+    switch (ctx->pc) {
+        case 0x025f: goto loc_025f;
+        default: break;
+    }
+
 loc_025f:
-    /* 025f */     /* LD r,n */
+    /* 025f */     /* LD A,$ff */
     /* 025f */     ctx->a = 0xff;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0261 */     /* LDH (n),A */
+    /* 0261 */     /* LDH ($FF00+$c0),A */
     /* 0261 */     gb_write8(ctx, 0xffc0, ctx->a);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 0263 */     /* LDH (n),A */
+    /* 0263 */     /* LDH ($FF00+$c1),A */
     /* 0263 */     gb_write8(ctx, 0xffc1, ctx->a);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 0265 */     /* LDH (n),A */
+    /* 0265 */     /* LDH ($FF00+$c2),A */
     /* 0265 */     gb_write8(ctx, 0xffc2, ctx->a);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 0267 */     /* LDH (n),A */
+    /* 0267 */     /* LDH ($FF00+$c3),A */
     /* 0267 */     gb_write8(ctx, 0xffc3, ctx->a);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
     /* 0269 */     /* RET */
     /* 0269 */     gb_tick(ctx, 16);
-    return;
+    gb_ret(ctx); return;
 }
 
 /* Function at 026a */
 static void func_026a(GBContext* ctx) {
+    switch (ctx->pc) {
+        case 0x026a: goto loc_026a;
+        case 0x027a: goto loc_027a;
+        case 0x0283: goto loc_0283;
+        case 0x0293: goto loc_0293;
+        case 0x0296: goto loc_0296;
+        default: break;
+    }
+
 loc_026a:
-    /* 026a */     /* PUSH */
+    /* 026a */     /* PUSH AF */
     /* 026a */     gb_pack_flags(ctx); gb_push16(ctx, ctx->af & 0xFFF0);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 026b */     /* PUSH */
+    /* 026b */     /* PUSH BC */
     /* 026b */     gb_push16(ctx, ctx->bc);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 026c */     /* PUSH */
+    /* 026c */     /* PUSH DE */
     /* 026c */     gb_push16(ctx, ctx->de);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 026d */     /* PUSH */
+    /* 026d */     /* PUSH HL */
     /* 026d */     gb_push16(ctx, ctx->hl);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 026e */     /* LD rr,nn */
+    /* 026e */     /* LD HL,$ffc3 */
     /* 026e */     ctx->hl = 0xffc3;
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 0271 */     /* LD r,(HL) */
+    /* 0271 */     /* LD B,(HL) */
     /* 0271 */     ctx->b = gb_read8(ctx, ctx->hl);
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0272 */     /* DEC r */
+    /* 0272 */     /* DEC L */
     /* 0272 */     ctx->l = gb_dec8(ctx, ctx->l);
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 0273 */     /* LD r,(HL) */
+    /* 0273 */     /* LD C,(HL) */
     /* 0273 */     ctx->c = gb_read8(ctx, ctx->hl);
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0274 */     /* DEC r */
+    /* 0274 */     /* DEC L */
     /* 0274 */     ctx->l = gb_dec8(ctx, ctx->l);
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 0275 */     /* LD r,(HL) */
+    /* 0275 */     /* LD D,(HL) */
     /* 0275 */     ctx->d = gb_read8(ctx, ctx->hl);
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0276 */     /* DEC r */
+    /* 0276 */     /* DEC L */
     /* 0276 */     ctx->l = gb_dec8(ctx, ctx->l);
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
@@ -5871,7 +700,7 @@ loc_026a:
     /* 0277 */     gb_xor8(ctx, ctx->b);
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0278 */     /* LD r,n */
+    /* 0278 */     /* LD H,$08 */
     /* 0278 */     ctx->h = 0x08;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
@@ -5892,70 +721,70 @@ loc_027a:
     /* 0280 */     gb_rra(ctx);
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 0281 */     /* JR cc,n */
+    /* 0281 */     /* JR NC,16 */
     /* 0281 */     if (!ctx->f_c) goto loc_0293; /* NC */
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
 loc_0283:
-    /* 0283 */     /* LD r,r */
+    /* 0283 */     /* LD E,A */
     /* 0283 */     ctx->e = ctx->a;
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 0284 */     /* LD r,r */
+    /* 0284 */     /* LD A,B */
     /* 0284 */     ctx->a = ctx->b;
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 0285 */     /* XOR n */
+    /* 0285 */     /* XOR $ed */
     /* 0285 */     gb_xor8(ctx, 0xed);
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0287 */     /* LD r,r */
+    /* 0287 */     /* LD B,A */
     /* 0287 */     ctx->b = ctx->a;
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 0288 */     /* LD r,r */
+    /* 0288 */     /* LD A,C */
     /* 0288 */     ctx->a = ctx->c;
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 0289 */     /* XOR n */
+    /* 0289 */     /* XOR $b8 */
     /* 0289 */     gb_xor8(ctx, 0xb8);
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 028b */     /* LD r,r */
+    /* 028b */     /* LD C,A */
     /* 028b */     ctx->c = ctx->a;
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 028c */     /* LD r,r */
+    /* 028c */     /* LD A,D */
     /* 028c */     ctx->a = ctx->d;
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 028d */     /* XOR n */
+    /* 028d */     /* XOR $83 */
     /* 028d */     gb_xor8(ctx, 0x83);
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 028f */     /* LD r,r */
+    /* 028f */     /* LD D,A */
     /* 028f */     ctx->d = ctx->a;
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 0290 */     /* LD r,r */
+    /* 0290 */     /* LD A,E */
     /* 0290 */     ctx->a = ctx->e;
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 0291 */     /* XOR n */
+    /* 0291 */     /* XOR $20 */
     /* 0291 */     gb_xor8(ctx, 0x20);
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
 loc_0293:
-    /* 0293 */     /* DEC r */
+    /* 0293 */     /* DEC H */
     /* 0293 */     ctx->h = gb_dec8(ctx, ctx->h);
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 0294 */     /* JR cc,n */
+    /* 0294 */     /* JR NZ,-28 */
     /* 0294 */     if (!ctx->f_z) goto loc_027a; /* NZ */
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
 loc_0296:
-    /* 0296 */     /* LD r,n */
+    /* 0296 */     /* LD H,$ff */
     /* 0296 */     ctx->h = 0xff;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
@@ -5964,159 +793,203 @@ loc_0296:
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
     /* 0298 */     ctx->hl++;
-    /* 0299 */     /* LD (HL),r */
+    /* 0299 */     /* LD (HL),D */
     /* 0299 */     gb_write8(ctx, ctx->hl, ctx->d);
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 029a */     /* INC r */
+    /* 029a */     /* INC L */
     /* 029a */     ctx->l = gb_inc8(ctx, ctx->l);
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 029b */     /* LD (HL),r */
+    /* 029b */     /* LD (HL),C */
     /* 029b */     gb_write8(ctx, ctx->hl, ctx->c);
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 029c */     /* INC r */
+    /* 029c */     /* INC L */
     /* 029c */     ctx->l = gb_inc8(ctx, ctx->l);
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 029d */     /* LD (HL),r */
+    /* 029d */     /* LD (HL),B */
     /* 029d */     gb_write8(ctx, ctx->hl, ctx->b);
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 029e */     /* POP */
+    /* 029e */     /* POP HL */
     /* 029e */     ctx->hl = gb_pop16(ctx);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 029f */     /* POP */
+    /* 029f */     /* POP DE */
     /* 029f */     ctx->de = gb_pop16(ctx);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 02a0 */     /* POP */
+    /* 02a0 */     /* POP BC */
     /* 02a0 */     ctx->bc = gb_pop16(ctx);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 02a1 */     /* POP */
+    /* 02a1 */     /* POP AF */
     /* 02a1 */     ctx->af = gb_pop16(ctx) & 0xFFF0; gb_unpack_flags(ctx);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
     /* 02a2 */     /* RET */
     /* 02a2 */     gb_tick(ctx, 16);
-    return;
+    gb_ret(ctx); return;
 }
 
 /* Function at 02:4000 */
 static void func_02_4000(GBContext* ctx) {
+    switch (ctx->pc) {
+        case 0x4000: goto loc_4000;
+        default: break;
+    }
+
 loc_4000:
-    /* 02:4000 */     /* JP nn */
+    /* 02:4000 */     /* JP $c220 */
     /* 02:4000 */     gb_tick(ctx, 16);
     gb_dispatch(ctx, 0xc220); return;
 }
 
 /* Function at 02a3 */
 static void func_02a3(GBContext* ctx) {
+    switch (ctx->pc) {
+        case 0x02a3: goto loc_02a3;
+        default: break;
+    }
+
 loc_02a3:
-    /* 02a3 */     /* LD r,r */
+    /* 02a3 */     /* LD A,L */
     /* 02a3 */     ctx->a = ctx->l;
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 02a4 */     /* LD (nn),A */
+    /* 02a4 */     /* LD ($d602),A */
     /* 02a4 */     gb_write8(ctx, 0xd602, ctx->a);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 02a7 */     /* LD r,r */
+    /* 02a7 */     /* LD A,H */
     /* 02a7 */     ctx->a = ctx->h;
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 02a8 */     /* LD (nn),A */
+    /* 02a8 */     /* LD ($d603),A */
     /* 02a8 */     gb_write8(ctx, 0xd603, ctx->a);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 02ab */     /* JR n */
+    /* 02ab */     /* JR 4 */
     /* 02ab */     gb_tick(ctx, 12);
     func_02b1(ctx); return;
 }
 
 /* Function at 02b1 */
 static void func_02b1(GBContext* ctx) {
+    switch (ctx->pc) {
+        case 0x02b1: goto loc_02b1;
+        default: break;
+    }
+
 loc_02b1:
-    /* 02b1 */     /* LD r,n */
+    /* 02b1 */     /* LD A,$c3 */
     /* 02b1 */     ctx->a = 0xc3;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 02b3 */     /* LD (nn),A */
+    /* 02b3 */     /* LD ($d601),A */
     /* 02b3 */     gb_write8(ctx, 0xd601, ctx->a);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
     /* 02b6 */     /* RET */
     /* 02b6 */     gb_tick(ctx, 16);
-    return;
+    gb_ret(ctx); return;
 }
 
 /* Function at 02b7 */
 static void func_02b7(GBContext* ctx) {
+    switch (ctx->pc) {
+        case 0x02b7: goto loc_02b7;
+        case 0x02bd: goto loc_02bd;
+        case 0x02c0: goto loc_02c0;
+        default: break;
+    }
+
 loc_02b7:
-    /* 02b7 */     /* PUSH */
+    /* 02b7 */     /* PUSH AF */
     /* 02b7 */     gb_pack_flags(ctx); gb_push16(ctx, ctx->af & 0xFFF0);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 02b8 */     /* CP n */
+    /* 02b8 */     /* CP $0a */
     /* 02b8 */     gb_cp8(ctx, 0x0a);
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 02ba */     /* CALL cc,nn */
-    /* 02ba */     if (!ctx->f_z) func_026a(ctx); /* NZ */
+    /* 02ba */     /* CALL NZ,$026a */
+    /* 02ba */     if (!ctx->f_z) {
+    gb_push16(ctx, 0x2bd);
+    func_026a(ctx);
+    return;
+} /* NZ */
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
 loc_02bd:
-    /* 02bd */     /* CALL nn */
-    /* 02bd */     gb_dispatch_call(ctx, 0xd601);
+    /* 02bd */     /* CALL $d601 */
+    /* 02bd */     gb_push16(ctx, 0x2c0);
+    gb_dispatch_call(ctx, 0xd601);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_02c0:
-    /* 02c0 */     /* POP */
+    /* 02c0 */     /* POP AF */
     /* 02c0 */     ctx->af = gb_pop16(ctx) & 0xFFF0; gb_unpack_flags(ctx);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
     /* 02c1 */     /* RET */
     /* 02c1 */     gb_tick(ctx, 16);
-    return;
+    gb_ret(ctx); return;
 }
 
 /* Function at 02ca */
 static void func_02ca(GBContext* ctx) {
+    switch (ctx->pc) {
+        case 0x02ca: goto loc_02ca;
+        case 0x02d0: goto loc_02d0;
+        default: break;
+    }
+
 loc_02ca:
-    /* 02ca */     /* PUSH */
+    /* 02ca */     /* PUSH AF */
     /* 02ca */     gb_pack_flags(ctx); gb_push16(ctx, ctx->af & 0xFFF0);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 02cb */     /* LD r,n */
+    /* 02cb */     /* LD A,$0a */
     /* 02cb */     ctx->a = 0x0a;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 02cd */     /* CALL nn */
-    /* 02cd */     gb_dispatch_call(ctx, 0xd601);
+    /* 02cd */     /* CALL $d601 */
+    /* 02cd */     gb_push16(ctx, 0x2d0);
+    gb_dispatch_call(ctx, 0xd601);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_02d0:
-    /* 02d0 */     /* POP */
+    /* 02d0 */     /* POP AF */
     /* 02d0 */     ctx->af = gb_pop16(ctx) & 0xFFF0; gb_unpack_flags(ctx);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
     /* 02d1 */     /* RET */
     /* 02d1 */     gb_tick(ctx, 16);
-    return;
+    gb_ret(ctx); return;
 }
 
 /* Function at 02d2 */
 static void func_02d2(GBContext* ctx) {
+    switch (ctx->pc) {
+        case 0x02d2: goto loc_02d2;
+        case 0x02d6: goto loc_02d6;
+        default: break;
+    }
+
 loc_02d2:
-    /* 02d2 */     /* POP */
+    /* 02d2 */     /* POP HL */
     /* 02d2 */     ctx->hl = gb_pop16(ctx);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 02d3 */     /* CALL nn */
-    /* 02d3 */     func_02d7(ctx);
+    /* 02d3 */     /* CALL $02d7 */
+    /* 02d3 */     gb_push16(ctx, 0x2d6);
+    func_02d7(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_02d6:
@@ -6127,18 +1000,28 @@ loc_02d6:
 
 /* Function at 02d7 */
 static void func_02d7(GBContext* ctx) {
+    switch (ctx->pc) {
+        case 0x02d7: goto loc_02d7;
+        case 0x02da: goto loc_02da;
+        case 0x02dd: goto loc_02dd;
+        case 0x02e1: goto loc_02e1;
+        default: break;
+    }
+
 loc_02d7:
-    /* 02d7 */     /* PUSH */
+    /* 02d7 */     /* PUSH AF */
     /* 02d7 */     gb_pack_flags(ctx); gb_push16(ctx, ctx->af & 0xFFF0);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 02d8 */     /* JR n */
+    /* 02d8 */     /* JR 3 */
     /* 02d8 */     gb_tick(ctx, 12);
     if (ctx->stopped) return;
     goto loc_02dd;
 loc_02da:
-    /* 02da */     /* CALL nn */
-    /* 02da */     func_02b7(ctx);
+    /* 02da */     /* CALL $02b7 */
+    /* 02da */     gb_push16(ctx, 0x2dd);
+    func_02b7(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_02dd:
@@ -6147,202 +1030,246 @@ loc_02dd:
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
     /* 02dd */     ctx->hl++;
-    /* 02de */     /* OR r */
+    /* 02de */     /* OR A */
     /* 02de */     gb_or8(ctx, ctx->a);
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 02df */     /* JR cc,n */
+    /* 02df */     /* JR NZ,-7 */
     /* 02df */     if (!ctx->f_z) goto loc_02da; /* NZ */
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
 loc_02e1:
-    /* 02e1 */     /* POP */
+    /* 02e1 */     /* POP AF */
     /* 02e1 */     ctx->af = gb_pop16(ctx) & 0xFFF0; gb_unpack_flags(ctx);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
     /* 02e2 */     /* RET */
     /* 02e2 */     gb_tick(ctx, 16);
-    return;
+    gb_ret(ctx); return;
 }
 
 /* Function at 0350 */
 static void func_0350(GBContext* ctx) {
+    switch (ctx->pc) {
+        case 0x0350: goto loc_0350;
+        case 0x0360: goto loc_0360;
+        case 0x0365: goto loc_0365;
+        case 0x036a: goto loc_036a;
+        default: break;
+    }
+
 loc_0350:
-    /* 0350 */     /* PUSH */
+    /* 0350 */     /* PUSH AF */
     /* 0350 */     gb_pack_flags(ctx); gb_push16(ctx, ctx->af & 0xFFF0);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 0351 */     /* PUSH */
+    /* 0351 */     /* PUSH BC */
     /* 0351 */     gb_push16(ctx, ctx->bc);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 0352 */     /* JR n */
+    /* 0352 */     /* JR 12 */
     /* 0352 */     gb_tick(ctx, 12);
     if (ctx->stopped) return;
     goto loc_0360;
 loc_0360:
-    /* 0360 */     /* LD r,n */
+    /* 0360 */     /* LD C,$0a */
     /* 0360 */     ctx->c = 0x0a;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0362 */     /* CALL nn */
-    /* 0362 */     func_036d(ctx);
+    /* 0362 */     /* CALL $036d */
+    /* 0362 */     gb_push16(ctx, 0x365);
+    func_036d(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_0365:
-    /* 0365 */     /* ADD A,n */
+    /* 0365 */     /* ADD A,$30 */
     /* 0365 */     gb_add8(ctx, 0x30);
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0367 */     /* CALL nn */
-    /* 0367 */     func_02b7(ctx);
+    /* 0367 */     /* CALL $02b7 */
+    /* 0367 */     gb_push16(ctx, 0x36a);
+    func_02b7(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_036a:
-    /* 036a */     /* POP */
+    /* 036a */     /* POP BC */
     /* 036a */     ctx->bc = gb_pop16(ctx);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 036b */     /* POP */
+    /* 036b */     /* POP AF */
     /* 036b */     ctx->af = gb_pop16(ctx) & 0xFFF0; gb_unpack_flags(ctx);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
     /* 036c */     /* RET */
     /* 036c */     gb_tick(ctx, 16);
-    return;
+    gb_ret(ctx); return;
 }
 
 /* Function at 0354 */
 static void func_0354(GBContext* ctx) {
+    switch (ctx->pc) {
+        case 0x0354: goto loc_0354;
+        case 0x035a: goto loc_035a;
+        case 0x0360: goto loc_0360;
+        case 0x0365: goto loc_0365;
+        case 0x036a: goto loc_036a;
+        default: break;
+    }
+
 loc_0354:
-    /* 0354 */     /* PUSH */
+    /* 0354 */     /* PUSH AF */
     /* 0354 */     gb_pack_flags(ctx); gb_push16(ctx, ctx->af & 0xFFF0);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 0355 */     /* PUSH */
+    /* 0355 */     /* PUSH BC */
     /* 0355 */     gb_push16(ctx, ctx->bc);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 0356 */     /* CP n */
+    /* 0356 */     /* CP $0a */
     /* 0356 */     gb_cp8(ctx, 0x0a);
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0358 */     /* JR cc,n */
+    /* 0358 */     /* JR C,11 */
     /* 0358 */     if (ctx->f_c) goto loc_0365; /* C */
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
 loc_035a:
-    /* 035a */     /* LD r,n */
+    /* 035a */     /* LD C,$64 */
     /* 035a */     ctx->c = 0x64;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 035c */     /* CP r */
+    /* 035c */     /* CP C */
     /* 035c */     gb_cp8(ctx, ctx->c);
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 035d */     /* CALL cc,nn */
-    /* 035d */     if (!ctx->f_c) func_036d(ctx); /* NC */
+    /* 035d */     /* CALL NC,$036d */
+    /* 035d */     if (!ctx->f_c) {
+    gb_push16(ctx, 0x360);
+    func_036d(ctx);
+    return;
+} /* NC */
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
 loc_0360:
-    /* 0360 */     /* LD r,n */
+    /* 0360 */     /* LD C,$0a */
     /* 0360 */     ctx->c = 0x0a;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0362 */     /* CALL nn */
-    /* 0362 */     func_036d(ctx);
+    /* 0362 */     /* CALL $036d */
+    /* 0362 */     gb_push16(ctx, 0x365);
+    func_036d(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_0365:
-    /* 0365 */     /* ADD A,n */
+    /* 0365 */     /* ADD A,$30 */
     /* 0365 */     gb_add8(ctx, 0x30);
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0367 */     /* CALL nn */
-    /* 0367 */     func_02b7(ctx);
+    /* 0367 */     /* CALL $02b7 */
+    /* 0367 */     gb_push16(ctx, 0x36a);
+    func_02b7(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_036a:
-    /* 036a */     /* POP */
+    /* 036a */     /* POP BC */
     /* 036a */     ctx->bc = gb_pop16(ctx);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 036b */     /* POP */
+    /* 036b */     /* POP AF */
     /* 036b */     ctx->af = gb_pop16(ctx) & 0xFFF0; gb_unpack_flags(ctx);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
     /* 036c */     /* RET */
     /* 036c */     gb_tick(ctx, 16);
-    return;
+    gb_ret(ctx); return;
 }
 
 /* Function at 036d */
 static void func_036d(GBContext* ctx) {
+    switch (ctx->pc) {
+        case 0x036d: goto loc_036d;
+        case 0x036f: goto loc_036f;
+        case 0x0373: goto loc_0373;
+        case 0x0379: goto loc_0379;
+        default: break;
+    }
+
 loc_036d:
-    /* 036d */     /* LD r,n */
+    /* 036d */     /* LD B,$2f */
     /* 036d */     ctx->b = 0x2f;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
 loc_036f:
-    /* 036f */     /* INC r */
+    /* 036f */     /* INC B */
     /* 036f */     ctx->b = gb_inc8(ctx, ctx->b);
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 0370 */     /* SUB r */
+    /* 0370 */     /* SUB C */
     /* 0370 */     gb_sub8(ctx, ctx->c);
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 0371 */     /* JR cc,n */
+    /* 0371 */     /* JR NC,-4 */
     /* 0371 */     if (!ctx->f_c) goto loc_036f; /* NC */
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
 loc_0373:
-    /* 0373 */     /* ADD A,r */
+    /* 0373 */     /* ADD A,C */
     /* 0373 */     gb_add8(ctx, ctx->c);
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 0374 */     /* LD r,r */
+    /* 0374 */     /* LD C,A */
     /* 0374 */     ctx->c = ctx->a;
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 0375 */     /* LD r,r */
+    /* 0375 */     /* LD A,B */
     /* 0375 */     ctx->a = ctx->b;
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 0376 */     /* CALL nn */
-    /* 0376 */     func_02b7(ctx);
+    /* 0376 */     /* CALL $02b7 */
+    /* 0376 */     gb_push16(ctx, 0x379);
+    func_02b7(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_0379:
-    /* 0379 */     /* LD r,r */
+    /* 0379 */     /* LD A,C */
     /* 0379 */     ctx->a = ctx->c;
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
     /* 037a */     /* RET */
     /* 037a */     gb_tick(ctx, 16);
-    return;
+    gb_ret(ctx); return;
 }
 
 /* Function at 037b */
 static void func_037b(GBContext* ctx) {
+    switch (ctx->pc) {
+        case 0x037b: goto loc_037b;
+        default: break;
+    }
+
 loc_037b:
-    /* 037b */     /* POP */
+    /* 037b */     /* POP HL */
     /* 037b */     ctx->hl = gb_pop16(ctx);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 037c */     /* PUSH */
+    /* 037c */     /* PUSH HL */
     /* 037c */     gb_push16(ctx, ctx->hl);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 037d */     /* PUSH */
+    /* 037d */     /* PUSH AF */
     /* 037d */     gb_pack_flags(ctx); gb_push16(ctx, ctx->af & 0xFFF0);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 037e */     /* INC rr */
+    /* 037e */     /* INC HL */
     /* 037e */     ctx->hl++;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 037f */     /* INC rr */
+    /* 037f */     /* INC HL */
     /* 037f */     ctx->hl++;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
@@ -6351,167 +1278,419 @@ loc_037b:
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
     /* 0380 */     ctx->hl++;
-    /* 0381 */     /* LD (nn),A */
+    /* 0381 */     /* LD ($d604),A */
     /* 0381 */     gb_write8(ctx, 0xd604, ctx->a);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 0384 */     /* LD r,r */
+    /* 0384 */     /* LD A,L */
     /* 0384 */     ctx->a = ctx->l;
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 0385 */     /* LD (nn),A */
+    /* 0385 */     /* LD ($d605),A */
     /* 0385 */     gb_write8(ctx, 0xd605, ctx->a);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 0388 */     /* LD r,r */
+    /* 0388 */     /* LD A,H */
     /* 0388 */     ctx->a = ctx->h;
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 0389 */     /* LD (nn),A */
+    /* 0389 */     /* LD ($d606),A */
     /* 0389 */     gb_write8(ctx, 0xd606, ctx->a);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 038c */     /* POP */
+    /* 038c */     /* POP AF */
     /* 038c */     ctx->af = gb_pop16(ctx) & 0xFFF0; gb_unpack_flags(ctx);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
     /* 038d */     /* RET */
     /* 038d */     gb_tick(ctx, 16);
-    return;
+    gb_ret(ctx); return;
 }
 
 /* Function at 038e */
 static void func_038e(GBContext* ctx) {
+    switch (ctx->pc) {
+        case 0x038e: goto loc_038e;
+        case 0x0392: goto loc_0392;
+        case 0x0396: goto loc_0396;
+        case 0x039a: goto loc_039a;
+        default: break;
+    }
+
 loc_038e:
-    /* 038e */     /* PUSH */
+    /* 038e */     /* PUSH HL */
     /* 038e */     gb_push16(ctx, ctx->hl);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 038f */     /* CALL nn */
-    /* 038f */     func_037b(ctx);
+    /* 038f */     /* CALL $037b */
+    /* 038f */     gb_push16(ctx, 0x392);
+    func_037b(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_0392:
-    /* 0392 */     /* JR n */
+    /* 0392 */     /* JR 2 */
     /* 0392 */     gb_tick(ctx, 12);
     if (ctx->stopped) return;
     goto loc_0396;
 loc_0396:
-    /* 0396 */     /* POP */
+    /* 0396 */     /* POP HL */
     /* 0396 */     ctx->hl = gb_pop16(ctx);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 0397 */     /* CALL nn */
-    /* 0397 */     func_025d(ctx);
+    /* 0397 */     /* CALL $025d */
+    /* 0397 */     gb_push16(ctx, 0x39a);
+    func_025d(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_039a:
     /* 039a */     /* RET */
     /* 039a */     gb_tick(ctx, 16);
-    return;
+    gb_ret(ctx); return;
 }
 
 /* Function at 03:4000 */
 static void func_03_4000(GBContext* ctx) {
+    switch (ctx->pc) {
+        case 0x4000: goto loc_4000;
+        default: break;
+    }
+
 loc_4000:
-    /* 03:4000 */     /* JP nn */
+    /* 03:4000 */     /* JP $c220 */
     /* 03:4000 */     gb_tick(ctx, 16);
     gb_dispatch(ctx, 0xc220); return;
 }
 
 /* Function at 0486 */
 static void func_0486(GBContext* ctx) {
+    switch (ctx->pc) {
+        case 0x0486: goto loc_0486;
+        case 0x048a: goto loc_048a;
+        case 0x048d: goto loc_048d;
+        case 0x0491: goto loc_0491;
+        case 0x0493: goto loc_0493;
+        case 0x0497: goto loc_0497;
+        case 0x04a1: goto loc_04a1;
+        case 0x04a5: goto loc_04a5;
+        case 0x04ad: goto loc_04ad;
+        case 0x04b2: goto loc_04b2;
+        case 0x04b5: goto loc_04b5;
+        case 0x04d0: goto loc_04d0;
+        case 0x04d8: goto loc_04d8;
+        case 0x04de: goto loc_04de;
+        default: break;
+    }
+
 loc_0486:
-    /* 0486 */     /* PUSH */
+    /* 0486 */     /* PUSH AF */
     /* 0486 */     gb_pack_flags(ctx); gb_push16(ctx, ctx->af & 0xFFF0);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 0487 */     /* CALL nn */
-    /* 0487 */     func_02ca(ctx);
+    /* 0487 */     /* CALL $02ca */
+    /* 0487 */     gb_push16(ctx, 0x48a);
+    func_02ca(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_048a:
-    /* 048a */     /* CALL nn */
-    /* 048a */     func_02b1(ctx);
+    /* 048a */     /* CALL $02b1 */
+    /* 048a */     gb_push16(ctx, 0x48d);
+    func_02b1(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_048d:
-    /* 048d */     /* POP */
+    /* 048d */     /* POP AF */
     /* 048d */     ctx->af = gb_pop16(ctx) & 0xFFF0; gb_unpack_flags(ctx);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 048e */     /* CP n */
+    /* 048e */     /* CP $01 */
     /* 048e */     gb_cp8(ctx, 0x01);
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0490 */     /* RET cc */
-    /* 0490 */     if (ctx->f_c) return; /* C */
+    /* 0490 */     /* RET C */
+    /* 0490 */     if (ctx->f_c) { gb_ret(ctx); return; } /* C */
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* warning: fallthrough to unanalyzed code at 0x491 in bank 0 */
+loc_0491:
+    /* 0491 */     /* JR NZ,14 */
+    /* 0491 */     if (!ctx->f_z) goto loc_04a1; /* NZ */
+    gb_tick(ctx, 8);
+    if (ctx->stopped) return;
+loc_0493:
+    /* 0493 */     /* PUSH HL */
+    /* 0493 */     gb_push16(ctx, ctx->hl);
+    gb_tick(ctx, 16);
+    if (ctx->stopped) return;
+    /* 0494 */     /* CALL $02d2 */
+    /* 0494 */     gb_push16(ctx, 0x497);
+    func_02d2(ctx);
     return;
+    gb_tick(ctx, 24);
+    if (ctx->stopped) return;
+loc_0497:
+    /* 0497 */     /* LD B,(HL) */
+    /* 0497 */     ctx->b = gb_read8(ctx, ctx->hl);
+    gb_tick(ctx, 8);
+    if (ctx->stopped) return;
+    /* 0498 */     /* LD H,C */
+    /* 0498 */     ctx->h = ctx->c;
+    gb_tick(ctx, 4);
+    if (ctx->stopped) return;
+    /* 0499 */     /* LD L,C */
+    /* 0499 */     ctx->l = ctx->c;
+    gb_tick(ctx, 4);
+    if (ctx->stopped) return;
+    /* 049a */     /* LD L,H */
+    /* 049a */     ctx->l = ctx->h;
+    gb_tick(ctx, 4);
+    if (ctx->stopped) return;
+    /* 049b */     /* LD H,L */
+    /* 049b */     ctx->h = ctx->l;
+    gb_tick(ctx, 4);
+    if (ctx->stopped) return;
+    /* 049c */     /* LD H,H */
+    /* 049c */     ctx->h = ctx->h;
+    gb_tick(ctx, 4);
+    if (ctx->stopped) return;
+    /* 049d */     /* LD A,(BC) */
+    /* 049d */     ctx->a = gb_read8(ctx, ctx->bc);
+    gb_tick(ctx, 8);
+    if (ctx->stopped) return;
+    /* 049e */     /* NOP */
+    /* 049e */     /* NOP */
+    gb_tick(ctx, 4);
+    if (ctx->stopped) return;
+    /* 049f */     /* POP HL */
+    /* 049f */     ctx->hl = gb_pop16(ctx);
+    gb_tick(ctx, 12);
+    if (ctx->stopped) return;
+    /* 04a0 */     /* RET */
+    /* 04a0 */     gb_tick(ctx, 16);
+    gb_ret(ctx); return;
+loc_04a1:
+    /* 04a1 */     /* PUSH HL */
+    /* 04a1 */     gb_push16(ctx, ctx->hl);
+    gb_tick(ctx, 16);
+    if (ctx->stopped) return;
+    /* 04a2 */     /* CALL $02d2 */
+    /* 04a2 */     gb_push16(ctx, 0x4a5);
+    func_02d2(ctx);
+    return;
+    gb_tick(ctx, 24);
+    if (ctx->stopped) return;
+loc_04a5:
+    /* 04a5 */     /* LD B,(HL) */
+    /* 04a5 */     ctx->b = gb_read8(ctx, ctx->hl);
+    gb_tick(ctx, 8);
+    if (ctx->stopped) return;
+    /* 04a6 */     /* LD H,C */
+    /* 04a6 */     ctx->h = ctx->c;
+    gb_tick(ctx, 4);
+    if (ctx->stopped) return;
+    /* 04a7 */     /* LD L,C */
+    /* 04a7 */     ctx->l = ctx->c;
+    gb_tick(ctx, 4);
+    if (ctx->stopped) return;
+    /* 04a8 */     /* LD L,H */
+    /* 04a8 */     ctx->l = ctx->h;
+    gb_tick(ctx, 4);
+    if (ctx->stopped) return;
+    /* 04a9 */     /* LD H,L */
+    /* 04a9 */     ctx->h = ctx->l;
+    gb_tick(ctx, 4);
+    if (ctx->stopped) return;
+    /* 04aa */     /* LD H,H */
+    /* 04aa */     ctx->h = ctx->h;
+    gb_tick(ctx, 4);
+    if (ctx->stopped) return;
+    /* 04ab */     /* JR NZ,35 */
+    /* 04ab */     if (!ctx->f_z) goto loc_04d0; /* NZ */
+    gb_tick(ctx, 8);
+    if (ctx->stopped) return;
+loc_04ad:
+    /* 04ad */     /* NOP */
+    /* 04ad */     /* NOP */
+    gb_tick(ctx, 4);
+    if (ctx->stopped) return;
+    /* 04ae */     /* POP HL */
+    /* 04ae */     ctx->hl = gb_pop16(ctx);
+    gb_tick(ctx, 12);
+    if (ctx->stopped) return;
+    /* 04af */     /* CALL $0354 */
+    /* 04af */     gb_push16(ctx, 0x4b2);
+    func_0354(ctx);
+    return;
+    gb_tick(ctx, 24);
+    if (ctx->stopped) return;
+loc_04b2:
+    /* 04b2 */     /* CALL $02ca */
+    /* 04b2 */     gb_push16(ctx, 0x4b5);
+    func_02ca(ctx);
+    return;
+    gb_tick(ctx, 24);
+    if (ctx->stopped) return;
+loc_04b5:
+    /* 04b5 */     /* RET */
+    /* 04b5 */     gb_tick(ctx, 16);
+    gb_ret(ctx); return;
+loc_04d0:
+    /* 04d0 */     /* LD A,$08 */
+    /* 04d0 */     ctx->a = 0x08;
+    gb_tick(ctx, 8);
+    if (ctx->stopped) return;
+    /* 04d2 */     /* LDH ($FF00+$17),A */
+    /* 04d2 */     gb_write8(ctx, 0xff17, ctx->a);
+    gb_tick(ctx, 12);
+    if (ctx->stopped) return;
+    /* 04d4 */     /* LD A,$c0 */
+    /* 04d4 */     ctx->a = 0xc0;
+    gb_tick(ctx, 8);
+    if (ctx->stopped) return;
+    /* 04d6 */     /* LDH ($FF00+$19),A */
+    /* 04d6 */     gb_write8(ctx, 0xff19, ctx->a);
+    gb_tick(ctx, 12);
+    if (ctx->stopped) return;
+loc_04d8:
+    /* 04d8 */     /* LDH A,($FF00+$26) */
+    /* 04d8 */     ctx->a = gb_read8(ctx, 0xff26);
+    gb_tick(ctx, 12);
+    if (ctx->stopped) return;
+    /* 04da */     /* AND $02 */
+    /* 04da */     gb_and8(ctx, 0x02);
+    gb_tick(ctx, 8);
+    if (ctx->stopped) return;
+    /* 04dc */     /* JR NZ,-6 */
+    /* 04dc */     if (!ctx->f_z) goto loc_04d8; /* NZ */
+    gb_tick(ctx, 8);
+    if (ctx->stopped) return;
+loc_04de:
+    /* 04de */     /* RET */
+    /* 04de */     gb_tick(ctx, 16);
+    gb_ret(ctx); return;
 }
 
 /* Function at 04b6 */
 static void func_04b6(GBContext* ctx) {
+    switch (ctx->pc) {
+        case 0x04b6: goto loc_04b6;
+        default: break;
+    }
+
 loc_04b6:
-    /* 04b6 */     /* LD r,n */
+    /* 04b6 */     /* LD A,$00 */
     /* 04b6 */     ctx->a = 0x00;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 04b8 */     /* LDH (n),A */
+    /* 04b8 */     /* LDH ($FF00+$26),A */
     /* 04b8 */     gb_write8(ctx, 0xff26, ctx->a);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
     /* 04ba */     /* RET */
     /* 04ba */     gb_tick(ctx, 16);
-    return;
+    gb_ret(ctx); return;
 }
 
 /* Function at 04bb */
 static void func_04bb(GBContext* ctx) {
+    switch (ctx->pc) {
+        case 0x04bb: goto loc_04bb;
+        default: break;
+    }
+
 loc_04bb:
-    /* 04bb */     /* LD r,n */
+    /* 04bb */     /* LD A,$80 */
     /* 04bb */     ctx->a = 0x80;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 04bd */     /* LDH (n),A */
+    /* 04bd */     /* LDH ($FF00+$26),A */
     /* 04bd */     gb_write8(ctx, 0xff26, ctx->a);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 04bf */     /* LD r,n */
+    /* 04bf */     /* LD A,$ff */
     /* 04bf */     ctx->a = 0xff;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 04c1 */     /* LDH (n),A */
+    /* 04c1 */     /* LDH ($FF00+$25),A */
     /* 04c1 */     gb_write8(ctx, 0xff25, ctx->a);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 04c3 */     /* LD r,n */
+    /* 04c3 */     /* LD A,$77 */
     /* 04c3 */     ctx->a = 0x77;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 04c5 */     /* LDH (n),A */
+    /* 04c5 */     /* LDH ($FF00+$24),A */
     /* 04c5 */     gb_write8(ctx, 0xff24, ctx->a);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
     /* 04c7 */     /* RET */
     /* 04c7 */     gb_tick(ctx, 16);
-    return;
+    gb_ret(ctx); return;
 }
 
 /* Function at 063b */
 static void func_063b(GBContext* ctx) {
+    switch (ctx->pc) {
+        case 0x0200: goto loc_0200;
+        case 0x0206: goto loc_0206;
+        case 0x020b: goto loc_020b;
+        case 0x020f: goto loc_020f;
+        case 0x063b: goto loc_063b;
+        case 0x065b: goto loc_065b;
+        case 0x065f: goto loc_065f;
+        case 0x0681: goto loc_0681;
+        case 0x0684: goto loc_0684;
+        case 0x0687: goto loc_0687;
+        case 0x068c: goto loc_068c;
+        case 0x0690: goto loc_0690;
+        case 0x0698: goto loc_0698;
+        case 0x069c: goto loc_069c;
+        case 0x06a4: goto loc_06a4;
+        case 0x06a8: goto loc_06a8;
+        case 0x06b0: goto loc_06b0;
+        case 0x06b5: goto loc_06b5;
+        case 0x06b9: goto loc_06b9;
+        case 0x06bb: goto loc_06bb;
+        case 0x06c2: goto loc_06c2;
+        case 0x06c5: goto loc_06c5;
+        case 0x06c8: goto loc_06c8;
+        case 0x06cb: goto loc_06cb;
+        case 0x06d9: goto loc_06d9;
+        case 0x06e3: goto loc_06e3;
+        case 0x06e8: goto loc_06e8;
+        case 0x06ed: goto loc_06ed;
+        case 0x06f1: goto loc_06f1;
+        case 0x06f9: goto loc_06f9;
+        case 0x06fc: goto loc_06fc;
+        case 0x0710: goto loc_0710;
+        case 0x0715: goto loc_0715;
+        case 0x071a: goto loc_071a;
+        case 0x072f: goto loc_072f;
+        case 0x0732: goto loc_0732;
+        case 0x0734: goto loc_0734;
+        case 0x0735: goto loc_0735;
+        case 0x0739: goto loc_0739;
+        case 0x0754: goto loc_0754;
+        case 0x0756: goto loc_0756;
+        case 0x075b: goto loc_075b;
+        case 0x0763: goto loc_0763;
+        case 0x076b: goto loc_076b;
+        case 0x077d: goto loc_077d;
+        default: break;
+    }
+
 loc_0200:
-    /* 0200 */     /* LD r,r */
+    /* 0200 */     /* LD B,A */
     /* 0200 */     ctx->b = ctx->a;
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 0201 */     /* LD rr,nn */
+    /* 0201 */     /* LD DE,$c000 */
     /* 0201 */     ctx->de = 0xc000;
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 0204 */     /* LD r,n */
+    /* 0204 */     /* LD C,$10 */
     /* 0204 */     ctx->c = 0x10;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
@@ -6525,49 +1704,49 @@ loc_0206:
     /* 0207 */     gb_write8(ctx, ctx->de, ctx->a);
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0208 */     /* INC r */
+    /* 0208 */     /* INC E */
     /* 0208 */     ctx->e = gb_inc8(ctx, ctx->e);
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 0209 */     /* JR cc,n */
+    /* 0209 */     /* JR NZ,-5 */
     /* 0209 */     if (!ctx->f_z) goto loc_0206; /* NZ */
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
 loc_020b:
-    /* 020b */     /* INC r */
+    /* 020b */     /* INC D */
     /* 020b */     ctx->d = gb_inc8(ctx, ctx->d);
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 020c */     /* DEC r */
+    /* 020c */     /* DEC C */
     /* 020c */     ctx->c = gb_dec8(ctx, ctx->c);
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 020d */     /* JR cc,n */
+    /* 020d */     /* JR NZ,-9 */
     /* 020d */     if (!ctx->f_z) goto loc_0206; /* NZ */
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
 loc_020f:
-    /* 020f */     /* LD r,r */
+    /* 020f */     /* LD A,B */
     /* 020f */     ctx->a = ctx->b;
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 0210 */     /* JP nn */
+    /* 0210 */     /* JP $c000 */
     /* 0210 */     gb_tick(ctx, 16);
     gb_dispatch(ctx, 0xc000); return;
 loc_063b:
-    /* 063b */     /* LD rr,nn */
+    /* 063b */     /* LD SP,$d65e */
     /* 063b */     ctx->sp = 0xd65e;
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 063e */     /* LD r,n */
+    /* 063e */     /* LD B,$00 */
     /* 063e */     ctx->b = 0x00;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0640 */     /* LD r,n */
+    /* 0640 */     /* LD C,$00 */
     /* 0640 */     ctx->c = 0x00;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0642 */     /* LD r,r */
+    /* 0642 */     /* LD A,B */
     /* 0642 */     ctx->a = ctx->b;
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
@@ -6579,15 +1758,15 @@ loc_063b:
     /* 0645 */     ctx->a = gb_srl(ctx, ctx->a);
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0647 */     /* INC r */
+    /* 0647 */     /* INC A */
     /* 0647 */     ctx->a = gb_inc8(ctx, ctx->a);
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 0648 */     /* LD (nn),A */
+    /* 0648 */     /* LD ($2000),A */
     /* 0648 */     gb_write8(ctx, 0x2000, ctx->a);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 064b */     /* LD r,r */
+    /* 064b */     /* LD A,B */
     /* 064b */     ctx->a = ctx->b;
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
@@ -6595,19 +1774,19 @@ loc_063b:
     /* 064c */     ctx->a = gb_swap(ctx, ctx->a);
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 064e */     /* AND n */
+    /* 064e */     /* AND $30 */
     /* 064e */     gb_and8(ctx, 0x30);
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0650 */     /* OR n */
+    /* 0650 */     /* OR $40 */
     /* 0650 */     gb_or8(ctx, 0x40);
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0652 */     /* LD r,r */
+    /* 0652 */     /* LD D,A */
     /* 0652 */     ctx->d = ctx->a;
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 0653 */     /* LD r,n */
+    /* 0653 */     /* LD E,$00 */
     /* 0653 */     ctx->e = 0x00;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
@@ -6615,148 +1794,152 @@ loc_063b:
     /* 0655 */     ctx->a = gb_read8(ctx, ctx->de);
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0656 */     /* CP n */
+    /* 0656 */     /* CP $c3 */
     /* 0656 */     gb_cp8(ctx, 0xc3);
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0658 */     /* JP cc,nn */
+    /* 0658 */     /* JP NZ,$0681 */
     /* 0658 */     if (!ctx->f_z) goto loc_0681; /* NZ */
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
 loc_065b:
-    /* 065b */     /* PUSH */
+    /* 065b */     /* PUSH BC */
     /* 065b */     gb_push16(ctx, ctx->bc);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 065c */     /* CALL nn */
-    /* 065c */     func_06f4(ctx);
+    /* 065c */     /* CALL $06f4 */
+    /* 065c */     gb_push16(ctx, 0x65f);
+    func_06f4(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_065f:
-    /* 065f */     /* LD HL,SP+n */
-    /* 065f */     { uint32_t result = ctx->sp + (0);
-    ctx->f_z = 0; ctx->f_n = 0;
-    ctx->f_h = ((ctx->sp & 0x0F) + (0)) > 0x0F;
-    ctx->f_c = ((ctx->sp & 0xFF) + (0)) > 0xFF;
-    ctx->hl = (uint16_t)result; }
+    /* 065f */     /* LD HL,SP+0 */
+    /* 065f */     gb_ld_hl_sp_n(ctx, 0);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 0661 */     /* LD r,r */
+    /* 0661 */     /* LD A,L */
     /* 0661 */     ctx->a = ctx->l;
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 0662 */     /* LD (nn),A */
+    /* 0662 */     /* LD ($d65e),A */
     /* 0662 */     gb_write8(ctx, 0xd65e, ctx->a);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 0665 */     /* LD r,r */
+    /* 0665 */     /* LD A,H */
     /* 0665 */     ctx->a = ctx->h;
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 0666 */     /* LD (nn),A */
+    /* 0666 */     /* LD ($d65f),A */
     /* 0666 */     gb_write8(ctx, 0xd65f, ctx->a);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 0669 */     /* LD r,r */
+    /* 0669 */     /* LD H,D */
     /* 0669 */     ctx->h = ctx->d;
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 066a */     /* LD r,r */
+    /* 066a */     /* LD L,E */
     /* 066a */     ctx->l = ctx->e;
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 066b */     /* JP nn */
+    /* 066b */     /* JP $0200 */
     /* 066b */     gb_tick(ctx, 16);
     if (ctx->stopped) return;
     goto loc_0200;
 loc_0681:
-    /* 0681 */     /* CALL nn */
-    /* 0681 */     func_02ca(ctx);
+    /* 0681 */     /* CALL $02ca */
+    /* 0681 */     gb_push16(ctx, 0x684);
+    func_02ca(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_0684:
-    /* 0684 */     /* CALL nn */
-    /* 0684 */     func_02ca(ctx);
+    /* 0684 */     /* CALL $02ca */
+    /* 0684 */     gb_push16(ctx, 0x687);
+    func_02ca(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_0687:
-    /* 0687 */     /* LD r,r */
+    /* 0687 */     /* LD A,C */
     /* 0687 */     ctx->a = ctx->c;
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 0688 */     /* CP n */
+    /* 0688 */     /* CP $00 */
     /* 0688 */     gb_cp8(ctx, 0x00);
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 068a */     /* JR cc,n */
+    /* 068a */     /* JR NZ,24 */
     /* 068a */     if (!ctx->f_z) goto loc_06a4; /* NZ */
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
 loc_068c:
-    /* 068c */     /* PUSH */
+    /* 068c */     /* PUSH HL */
     /* 068c */     gb_push16(ctx, ctx->hl);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 068d */     /* CALL nn */
-    /* 068d */     func_02d2(ctx);
+    /* 068d */     /* CALL $02d2 */
+    /* 068d */     gb_push16(ctx, 0x690);
+    func_02d2(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_0690:
-    /* 0690 */     /* LD r,r */
+    /* 0690 */     /* LD D,B */
     /* 0690 */     ctx->d = ctx->b;
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 0691 */     /* LD r,r */
+    /* 0691 */     /* LD H,C */
     /* 0691 */     ctx->h = ctx->c;
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 0692 */     /* LD (HL),r */
+    /* 0692 */     /* LD (HL),E */
     /* 0692 */     gb_write8(ctx, ctx->hl, ctx->e);
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0693 */     /* LD (HL),r */
+    /* 0693 */     /* LD (HL),E */
     /* 0693 */     gb_write8(ctx, ctx->hl, ctx->e);
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0694 */     /* LD r,r */
+    /* 0694 */     /* LD H,L */
     /* 0694 */     ctx->h = ctx->l;
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 0695 */     /* LD r,r */
+    /* 0695 */     /* LD H,H */
     /* 0695 */     ctx->h = ctx->h;
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 0696 */     /* JR cc,n */
+    /* 0696 */     /* JR NZ,97 */
     /* 0696 */     if (!ctx->f_z) goto loc_06f9; /* NZ */
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
 loc_0698:
-    /* 0698 */     /* LD r,r */
+    /* 0698 */     /* LD L,H */
     /* 0698 */     ctx->l = ctx->h;
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 0699 */     /* LD r,r */
+    /* 0699 */     /* LD L,H */
     /* 0699 */     ctx->l = ctx->h;
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 069a */     /* JR cc,n */
+    /* 069a */     /* JR NZ,116 */
     /* 069a */     if (!ctx->f_z) goto loc_0710; /* NZ */
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
 loc_069c:
-    /* 069c */     /* LD r,r */
+    /* 069c */     /* LD H,L */
     /* 069c */     ctx->h = ctx->l;
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 069d */     /* LD (HL),r */
+    /* 069d */     /* LD (HL),E */
     /* 069d */     gb_write8(ctx, ctx->hl, ctx->e);
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 069e */     /* LD (HL),r */
+    /* 069e */     /* LD (HL),H */
     /* 069e */     gb_write8(ctx, ctx->hl, ctx->h);
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 069f */     /* LD (HL),r */
+    /* 069f */     /* LD (HL),E */
     /* 069f */     gb_write8(ctx, ctx->hl, ctx->e);
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
@@ -6764,228 +1947,248 @@ loc_069c:
     /* 06a0 */     /* NOP */
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 06a1 */     /* POP */
+    /* 06a1 */     /* POP HL */
     /* 06a1 */     ctx->hl = gb_pop16(ctx);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 06a2 */     /* JR n */
+    /* 06a2 */     /* JR 30 */
     /* 06a2 */     gb_tick(ctx, 12);
     if (ctx->stopped) return;
     goto loc_06c2;
 loc_06a4:
-    /* 06a4 */     /* PUSH */
+    /* 06a4 */     /* PUSH HL */
     /* 06a4 */     gb_push16(ctx, ctx->hl);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 06a5 */     /* CALL nn */
-    /* 06a5 */     func_02d2(ctx);
+    /* 06a5 */     /* CALL $02d2 */
+    /* 06a5 */     gb_push16(ctx, 0x6a8);
+    func_02d2(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_06a8:
-    /* 06a8 */     /* LD r,(HL) */
+    /* 06a8 */     /* LD B,(HL) */
     /* 06a8 */     ctx->b = gb_read8(ctx, ctx->hl);
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 06a9 */     /* LD r,r */
+    /* 06a9 */     /* LD H,C */
     /* 06a9 */     ctx->h = ctx->c;
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 06aa */     /* LD r,r */
+    /* 06aa */     /* LD L,C */
     /* 06aa */     ctx->l = ctx->c;
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 06ab */     /* LD r,r */
+    /* 06ab */     /* LD L,H */
     /* 06ab */     ctx->l = ctx->h;
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 06ac */     /* LD r,r */
+    /* 06ac */     /* LD H,L */
     /* 06ac */     ctx->h = ctx->l;
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 06ad */     /* LD r,r */
+    /* 06ad */     /* LD H,H */
     /* 06ad */     ctx->h = ctx->h;
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 06ae */     /* JR cc,n */
+    /* 06ae */     /* JR NZ,0 */
     /* 06ae */     if (!ctx->f_z) goto loc_06b0; /* NZ */
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
 loc_06b0:
-    /* 06b0 */     /* POP */
+    /* 06b0 */     /* POP HL */
     /* 06b0 */     ctx->hl = gb_pop16(ctx);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 06b1 */     /* LD r,r */
+    /* 06b1 */     /* LD A,C */
     /* 06b1 */     ctx->a = ctx->c;
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 06b2 */     /* CALL nn */
-    /* 06b2 */     func_0354(ctx);
+    /* 06b2 */     /* CALL $0354 */
+    /* 06b2 */     gb_push16(ctx, 0x6b5);
+    func_0354(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_06b5:
-    /* 06b5 */     /* PUSH */
+    /* 06b5 */     /* PUSH HL */
     /* 06b5 */     gb_push16(ctx, ctx->hl);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 06b6 */     /* CALL nn */
-    /* 06b6 */     func_02d2(ctx);
+    /* 06b6 */     /* CALL $02d2 */
+    /* 06b6 */     gb_push16(ctx, 0x6b9);
+    func_02d2(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_06b9:
-    /* 06b9 */     /* JR cc,n */
+    /* 06b9 */     /* JR NZ,116 */
     /* 06b9 */     if (!ctx->f_z) goto loc_072f; /* NZ */
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
 loc_06bb:
-    /* 06bb */     /* LD r,r */
+    /* 06bb */     /* LD H,L */
     /* 06bb */     ctx->h = ctx->l;
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 06bc */     /* LD (HL),r */
+    /* 06bc */     /* LD (HL),E */
     /* 06bc */     gb_write8(ctx, ctx->hl, ctx->e);
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 06bd */     /* LD (HL),r */
+    /* 06bd */     /* LD (HL),H */
     /* 06bd */     gb_write8(ctx, ctx->hl, ctx->h);
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 06be */     /* LD (HL),r */
+    /* 06be */     /* LD (HL),E */
     /* 06be */     gb_write8(ctx, ctx->hl, ctx->e);
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 06bf */     /* LD r,n */
+    /* 06bf */     /* LD L,$00 */
     /* 06bf */     ctx->l = 0x00;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 06c1 */     /* POP */
+    /* 06c1 */     /* POP HL */
     /* 06c1 */     ctx->hl = gb_pop16(ctx);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
 loc_06c2:
-    /* 06c2 */     /* CALL nn */
-    /* 06c2 */     func_02ca(ctx);
+    /* 06c2 */     /* CALL $02ca */
+    /* 06c2 */     gb_push16(ctx, 0x6c5);
+    func_02ca(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_06c5:
-    /* 06c5 */     /* CALL nn */
-    /* 06c5 */     func_04b6(ctx);
+    /* 06c5 */     /* CALL $04b6 */
+    /* 06c5 */     gb_push16(ctx, 0x6c8);
+    func_04b6(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_06c8:
-    /* 06c8 */     /* CALL nn */
-    /* 06c8 */     func_04bb(ctx);
+    /* 06c8 */     /* CALL $04bb */
+    /* 06c8 */     gb_push16(ctx, 0x6cb);
+    func_04bb(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_06cb:
-    /* 06cb */     /* LD r,n */
+    /* 06cb */     /* LD A,$80 */
     /* 06cb */     ctx->a = 0x80;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 06cd */     /* LDH (n),A */
+    /* 06cd */     /* LDH ($FF00+$11),A */
     /* 06cd */     gb_write8(ctx, 0xff11, ctx->a);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 06cf */     /* LD r,n */
+    /* 06cf */     /* LD A,$f1 */
     /* 06cf */     ctx->a = 0xf1;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 06d1 */     /* LDH (n),A */
+    /* 06d1 */     /* LDH ($FF00+$12),A */
     /* 06d1 */     gb_write8(ctx, 0xff12, ctx->a);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 06d3 */     /* LD r,n */
+    /* 06d3 */     /* LD A,$00 */
     /* 06d3 */     ctx->a = 0x00;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 06d5 */     /* LDH (n),A */
+    /* 06d5 */     /* LDH ($FF00+$13),A */
     /* 06d5 */     gb_write8(ctx, 0xff13, ctx->a);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 06d7 */     /* LD r,n */
+    /* 06d7 */     /* LD C,$0a */
     /* 06d7 */     ctx->c = 0x0a;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
 loc_06d9:
-    /* 06d9 */     /* LD r,n */
+    /* 06d9 */     /* LD A,$87 */
     /* 06d9 */     ctx->a = 0x87;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 06db */     /* LDH (n),A */
+    /* 06db */     /* LDH ($FF00+$14),A */
     /* 06db */     gb_write8(ctx, 0xff14, ctx->a);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 06dd */     /* PUSH */
+    /* 06dd */     /* PUSH AF */
     /* 06dd */     gb_pack_flags(ctx); gb_push16(ctx, ctx->af & 0xFFF0);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 06de */     /* LD r,n */
+    /* 06de */     /* LD A,$03 */
     /* 06de */     ctx->a = 0x03;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 06e0 */     /* CALL nn */
-    /* 06e0 */     func_022f(ctx);
+    /* 06e0 */     /* CALL $022f */
+    /* 06e0 */     gb_push16(ctx, 0x6e3);
+    func_022f(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_06e3:
-    /* 06e3 */     /* LD r,n */
+    /* 06e3 */     /* LD A,$ff */
     /* 06e3 */     ctx->a = 0xff;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 06e5 */     /* CALL nn */
-    /* 06e5 */     func_0222(ctx);
+    /* 06e5 */     /* CALL $0222 */
+    /* 06e5 */     gb_push16(ctx, 0x6e8);
+    func_0222(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_06e8:
-    /* 06e8 */     /* LD r,n */
+    /* 06e8 */     /* LD A,$cd */
     /* 06e8 */     ctx->a = 0xcd;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 06ea */     /* CALL nn */
-    /* 06ea */     func_0213(ctx);
+    /* 06ea */     /* CALL $0213 */
+    /* 06ea */     gb_push16(ctx, 0x6ed);
+    func_0213(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_06ed:
-    /* 06ed */     /* POP */
+    /* 06ed */     /* POP AF */
     /* 06ed */     ctx->af = gb_pop16(ctx) & 0xFFF0; gb_unpack_flags(ctx);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 06ee */     /* DEC r */
+    /* 06ee */     /* DEC C */
     /* 06ee */     ctx->c = gb_dec8(ctx, ctx->c);
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 06ef */     /* JR cc,n */
+    /* 06ef */     /* JR NZ,-24 */
     /* 06ef */     if (!ctx->f_z) goto loc_06d9; /* NZ */
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
 loc_06f1:
-    /* 06f1 */     /* JP nn */
+    /* 06f1 */     /* JP $06f1 */
     /* 06f1 */     gb_tick(ctx, 16);
     if (ctx->stopped) return;
     goto loc_06f1;
 loc_06f9:
-    /* 06f9 */     /* CALL nn */
-    /* 06f9 */     func_0851(ctx);
+    /* 06f9 */     /* CALL $0851 */
+    /* 06f9 */     gb_push16(ctx, 0x6fc);
+    func_0851(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_06fc:
     /* 06fc */     /* RET */
     /* 06fc */     gb_tick(ctx, 16);
-    return;
+    gb_ret(ctx); return;
 loc_0710:
     /* 0710 */     /* LD (BC),A */
     /* 0710 */     gb_write8(ctx, ctx->bc, ctx->a);
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0711 */     /* LD r,r */
+    /* 0711 */     /* LD L,A */
     /* 0711 */     ctx->l = ctx->a;
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 0712 */     /* LD r,r */
+    /* 0712 */     /* LD L,E */
     /* 0712 */     ctx->l = ctx->e;
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 0713 */     /* JR cc,n */
+    /* 0713 */     /* JR NZ,32 */
     /* 0713 */     if (!ctx->f_z) goto loc_0735; /* NZ */
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
@@ -6994,25 +2197,29 @@ loc_0715:
     /* 0715 */     /* NOP */
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 0716 */     /* POP */
+    /* 0716 */     /* POP HL */
     /* 0716 */     ctx->hl = gb_pop16(ctx);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 0717 */     /* CALL nn */
-    /* 0717 */     func_0851(ctx);
+    /* 0717 */     /* CALL $0851 */
+    /* 0717 */     gb_push16(ctx, 0x71a);
+    func_0851(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_071a:
     /* 071a */     /* RET */
     /* 071a */     gb_tick(ctx, 16);
-    return;
+    gb_ret(ctx); return;
 loc_072f:
-    /* 072f */     /* CALL nn */
-    /* 072f */     func_02d2(ctx);
+    /* 072f */     /* CALL $02d2 */
+    /* 072f */     gb_push16(ctx, 0x732);
+    func_02d2(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_0732:
-    /* 0732 */     /* JR cc,n */
+    /* 0732 */     /* JR NZ,32 */
     /* 0732 */     if (!ctx->f_z) goto loc_0754; /* NZ */
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
@@ -7022,20 +2229,22 @@ loc_0734:
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
 loc_0735:
-    /* 0735 */     /* POP */
+    /* 0735 */     /* POP HL */
     /* 0735 */     ctx->hl = gb_pop16(ctx);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 0736 */     /* CALL nn */
-    /* 0736 */     func_0851(ctx);
+    /* 0736 */     /* CALL $0851 */
+    /* 0736 */     gb_push16(ctx, 0x739);
+    func_0851(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_0739:
     /* 0739 */     /* RET */
     /* 0739 */     gb_tick(ctx, 16);
-    return;
+    gb_ret(ctx); return;
 loc_0754:
-    /* 0754 */     /* ADC A,r */
+    /* 0754 */     /* ADC A,L */
     /* 0754 */     gb_adc8(ctx, ctx->l);
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
@@ -7044,421 +2253,500 @@ loc_0754:
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
 loc_0756:
-    /* 0756 */     /* LD r,n */
+    /* 0756 */     /* LD A,$20 */
     /* 0756 */     ctx->a = 0x20;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0758 */     /* CALL nn */
-    /* 0758 */     func_077f(ctx);
+    /* 0758 */     /* CALL $077f */
+    /* 0758 */     gb_push16(ctx, 0x75b);
+    func_077f(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_075b:
-    /* 075b */     /* LD rr,nn */
+    /* 075b */     /* LD HL,$8200 */
     /* 075b */     ctx->hl = 0x8200;
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 075e */     /* LD r,n */
+    /* 075e */     /* LD C,$00 */
     /* 075e */     ctx->c = 0x00;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0760 */     /* CALL nn */
-    /* 0760 */     func_07c6(ctx);
+    /* 0760 */     /* CALL $07c6 */
+    /* 0760 */     gb_push16(ctx, 0x763);
+    func_07c6(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_0763:
-    /* 0763 */     /* LD rr,nn */
+    /* 0763 */     /* LD HL,$8a00 */
     /* 0763 */     ctx->hl = 0x8a00;
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 0766 */     /* LD r,n */
+    /* 0766 */     /* LD C,$ff */
     /* 0766 */     ctx->c = 0xff;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0768 */     /* CALL nn */
-    /* 0768 */     func_07c6(ctx);
+    /* 0768 */     /* CALL $07c6 */
+    /* 0768 */     gb_push16(ctx, 0x76b);
+    func_07c6(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_076b:
-    /* 076b */     /* LD r,n */
+    /* 076b */     /* LD A,$14 */
     /* 076b */     ctx->a = 0x14;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 076d */     /* LD (nn),A */
+    /* 076d */     /* LD ($d61b),A */
     /* 076d */     gb_write8(ctx, 0xd61b, ctx->a);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 0770 */     /* LD r,n */
+    /* 0770 */     /* LD A,$00 */
     /* 0770 */     ctx->a = 0x00;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0772 */     /* LD (nn),A */
+    /* 0772 */     /* LD ($d61c),A */
     /* 0772 */     gb_write8(ctx, 0xd61c, ctx->a);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 0775 */     /* LD r,n */
+    /* 0775 */     /* LD A,$f8 */
     /* 0775 */     ctx->a = 0xf8;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0777 */     /* LD (nn),A */
+    /* 0777 */     /* LD ($d61d),A */
     /* 0777 */     gb_write8(ctx, 0xd61d, ctx->a);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 077a */     /* CALL nn */
-    /* 077a */     func_0834(ctx);
+    /* 077a */     /* CALL $0834 */
+    /* 077a */     gb_push16(ctx, 0x77d);
+    func_0834(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_077d:
-    /* 077d */     /* JR n */
+    /* 077d */     /* JR 92 */
     /* 077d */     gb_tick(ctx, 12);
     func_07db(ctx); return;
 }
 
 /* Function at 06f4 */
 static void func_06f4(GBContext* ctx) {
+    switch (ctx->pc) {
+        case 0x06f4: goto loc_06f4;
+        case 0x06f9: goto loc_06f9;
+        case 0x06fc: goto loc_06fc;
+        default: break;
+    }
+
 loc_06f4:
-    /* 06f4 */     /* LD r,r */
+    /* 06f4 */     /* LD A,B */
     /* 06f4 */     ctx->a = ctx->b;
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 06f5 */     /* INC r */
+    /* 06f5 */     /* INC A */
     /* 06f5 */     ctx->a = gb_inc8(ctx, ctx->a);
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 06f6 */     /* CALL nn */
-    /* 06f6 */     func_0350(ctx);
+    /* 06f6 */     /* CALL $0350 */
+    /* 06f6 */     gb_push16(ctx, 0x6f9);
+    func_0350(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_06f9:
-    /* 06f9 */     /* CALL nn */
-    /* 06f9 */     func_0851(ctx);
+    /* 06f9 */     /* CALL $0851 */
+    /* 06f9 */     gb_push16(ctx, 0x6fc);
+    func_0851(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_06fc:
     /* 06fc */     /* RET */
     /* 06fc */     gb_tick(ctx, 16);
-    return;
+    gb_ret(ctx); return;
 }
 
 /* Function at 073a */
 static void func_073a(GBContext* ctx) {
+    switch (ctx->pc) {
+        case 0x073a: goto loc_073a;
+        case 0x073e: goto loc_073e;
+        case 0x0743: goto loc_0743;
+        case 0x0749: goto loc_0749;
+        default: break;
+    }
+
 loc_073a:
-    /* 073a */     /* PUSH */
+    /* 073a */     /* PUSH BC */
     /* 073a */     gb_push16(ctx, ctx->bc);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 073b */     /* LD rr,nn */
+    /* 073b */     /* LD BC,$fb1e */
     /* 073b */     ctx->bc = 0xfb1e;
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
 loc_073e:
-    /* 073e */     /* INC rr */
+    /* 073e */     /* INC BC */
     /* 073e */     ctx->bc++;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 073f */     /* LD r,r */
+    /* 073f */     /* LD A,B */
     /* 073f */     ctx->a = ctx->b;
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 0740 */     /* OR r */
+    /* 0740 */     /* OR C */
     /* 0740 */     gb_or8(ctx, ctx->c);
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 0741 */     /* JR cc,n */
+    /* 0741 */     /* JR Z,6 */
     /* 0741 */     if (ctx->f_z) goto loc_0749; /* Z */
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
 loc_0743:
-    /* 0743 */     /* LDH A,(n) */
+    /* 0743 */     /* LDH A,($FF00+$44) */
     /* 0743 */     ctx->a = gb_read8(ctx, 0xff44);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 0745 */     /* CP n */
+    /* 0745 */     /* CP $90 */
     /* 0745 */     gb_cp8(ctx, 0x90);
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0747 */     /* JR cc,n */
+    /* 0747 */     /* JR NZ,-11 */
     /* 0747 */     if (!ctx->f_z) goto loc_073e; /* NZ */
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
 loc_0749:
-    /* 0749 */     /* POP */
+    /* 0749 */     /* POP BC */
     /* 0749 */     ctx->bc = gb_pop16(ctx);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
     /* 074a */     /* RET */
     /* 074a */     gb_tick(ctx, 16);
-    return;
+    gb_ret(ctx); return;
 }
 
 /* Function at 074b */
 static void func_074b(GBContext* ctx) {
+    switch (ctx->pc) {
+        case 0x074b: goto loc_074b;
+        case 0x074e: goto loc_074e;
+        case 0x0756: goto loc_0756;
+        case 0x075b: goto loc_075b;
+        case 0x0763: goto loc_0763;
+        case 0x076b: goto loc_076b;
+        case 0x077d: goto loc_077d;
+        default: break;
+    }
+
 loc_074b:
-    /* 074b */     /* CALL nn */
-    /* 074b */     func_07ee(ctx);
+    /* 074b */     /* CALL $07ee */
+    /* 074b */     gb_push16(ctx, 0x74e);
+    func_07ee(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_074e:
-    /* 074e */     /* LD A,(nn) */
+    /* 074e */     /* LD A,($d600) */
     /* 074e */     ctx->a = gb_read8(ctx, 0xd600);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 0751 */     /* AND n */
+    /* 0751 */     /* AND $10 */
     /* 0751 */     gb_and8(ctx, 0x10);
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0753 */     /* CALL cc,nn */
-    /* 0753 */     if (!ctx->f_z) func_078d(ctx); /* NZ */
+    /* 0753 */     /* CALL NZ,$078d */
+    /* 0753 */     if (!ctx->f_z) {
+    gb_push16(ctx, 0x756);
+    func_078d(ctx);
+    return;
+} /* NZ */
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
 loc_0756:
-    /* 0756 */     /* LD r,n */
+    /* 0756 */     /* LD A,$20 */
     /* 0756 */     ctx->a = 0x20;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0758 */     /* CALL nn */
-    /* 0758 */     func_077f(ctx);
+    /* 0758 */     /* CALL $077f */
+    /* 0758 */     gb_push16(ctx, 0x75b);
+    func_077f(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_075b:
-    /* 075b */     /* LD rr,nn */
+    /* 075b */     /* LD HL,$8200 */
     /* 075b */     ctx->hl = 0x8200;
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 075e */     /* LD r,n */
+    /* 075e */     /* LD C,$00 */
     /* 075e */     ctx->c = 0x00;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0760 */     /* CALL nn */
-    /* 0760 */     func_07c6(ctx);
+    /* 0760 */     /* CALL $07c6 */
+    /* 0760 */     gb_push16(ctx, 0x763);
+    func_07c6(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_0763:
-    /* 0763 */     /* LD rr,nn */
+    /* 0763 */     /* LD HL,$8a00 */
     /* 0763 */     ctx->hl = 0x8a00;
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 0766 */     /* LD r,n */
+    /* 0766 */     /* LD C,$ff */
     /* 0766 */     ctx->c = 0xff;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0768 */     /* CALL nn */
-    /* 0768 */     func_07c6(ctx);
+    /* 0768 */     /* CALL $07c6 */
+    /* 0768 */     gb_push16(ctx, 0x76b);
+    func_07c6(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_076b:
-    /* 076b */     /* LD r,n */
+    /* 076b */     /* LD A,$14 */
     /* 076b */     ctx->a = 0x14;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 076d */     /* LD (nn),A */
+    /* 076d */     /* LD ($d61b),A */
     /* 076d */     gb_write8(ctx, 0xd61b, ctx->a);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 0770 */     /* LD r,n */
+    /* 0770 */     /* LD A,$00 */
     /* 0770 */     ctx->a = 0x00;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0772 */     /* LD (nn),A */
+    /* 0772 */     /* LD ($d61c),A */
     /* 0772 */     gb_write8(ctx, 0xd61c, ctx->a);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 0775 */     /* LD r,n */
+    /* 0775 */     /* LD A,$f8 */
     /* 0775 */     ctx->a = 0xf8;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0777 */     /* LD (nn),A */
+    /* 0777 */     /* LD ($d61d),A */
     /* 0777 */     gb_write8(ctx, 0xd61d, ctx->a);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 077a */     /* CALL nn */
-    /* 077a */     func_0834(ctx);
+    /* 077a */     /* CALL $0834 */
+    /* 077a */     gb_push16(ctx, 0x77d);
+    func_0834(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_077d:
-    /* 077d */     /* JR n */
+    /* 077d */     /* JR 92 */
     /* 077d */     gb_tick(ctx, 12);
     func_07db(ctx); return;
 }
 
 /* Function at 077f */
 static void func_077f(GBContext* ctx) {
+    switch (ctx->pc) {
+        case 0x077f: goto loc_077f;
+        case 0x0784: goto loc_0784;
+        case 0x0788: goto loc_0788;
+        case 0x078c: goto loc_078c;
+        default: break;
+    }
+
 loc_077f:
-    /* 077f */     /* LD rr,nn */
+    /* 077f */     /* LD HL,$9800 */
     /* 077f */     ctx->hl = 0x9800;
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 0782 */     /* LD r,n */
+    /* 0782 */     /* LD B,$04 */
     /* 0782 */     ctx->b = 0x04;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
 loc_0784:
-    /* 0784 */     /* LD (HL),r */
+    /* 0784 */     /* LD (HL),A */
     /* 0784 */     gb_write8(ctx, ctx->hl, ctx->a);
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0785 */     /* INC r */
+    /* 0785 */     /* INC L */
     /* 0785 */     ctx->l = gb_inc8(ctx, ctx->l);
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 0786 */     /* JR cc,n */
+    /* 0786 */     /* JR NZ,-4 */
     /* 0786 */     if (!ctx->f_z) goto loc_0784; /* NZ */
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
 loc_0788:
-    /* 0788 */     /* INC r */
+    /* 0788 */     /* INC H */
     /* 0788 */     ctx->h = gb_inc8(ctx, ctx->h);
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 0789 */     /* DEC r */
+    /* 0789 */     /* DEC B */
     /* 0789 */     ctx->b = gb_dec8(ctx, ctx->b);
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 078a */     /* JR cc,n */
+    /* 078a */     /* JR NZ,-8 */
     /* 078a */     if (!ctx->f_z) goto loc_0784; /* NZ */
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
 loc_078c:
     /* 078c */     /* RET */
     /* 078c */     gb_tick(ctx, 16);
-    return;
+    gb_ret(ctx); return;
 }
 
 /* Function at 078d */
 static void func_078d(GBContext* ctx) {
+    switch (ctx->pc) {
+        case 0x078d: goto loc_078d;
+        case 0x0793: goto loc_0793;
+        case 0x07b6: goto loc_07b6;
+        case 0x07c0: goto loc_07c0;
+        default: break;
+    }
+
 loc_078d:
-    /* 078d */     /* LD r,n */
+    /* 078d */     /* LD A,$80 */
     /* 078d */     ctx->a = 0x80;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 078f */     /* LDH (n),A */
+    /* 078f */     /* LDH ($FF00+$68),A */
     /* 078f */     gb_write8(ctx, 0xff68, ctx->a);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 0791 */     /* LD r,n */
+    /* 0791 */     /* LD B,$10 */
     /* 0791 */     ctx->b = 0x10;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
 loc_0793:
-    /* 0793 */     /* LD r,n */
+    /* 0793 */     /* LD A,$ff */
     /* 0793 */     ctx->a = 0xff;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0795 */     /* LDH (n),A */
+    /* 0795 */     /* LDH ($FF00+$69),A */
     /* 0795 */     gb_write8(ctx, 0xff69, ctx->a);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 0797 */     /* LD r,n */
+    /* 0797 */     /* LD A,$7f */
     /* 0797 */     ctx->a = 0x7f;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0799 */     /* LDH (n),A */
+    /* 0799 */     /* LDH ($FF00+$69),A */
     /* 0799 */     gb_write8(ctx, 0xff69, ctx->a);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 079b */     /* LD r,n */
+    /* 079b */     /* LD A,$00 */
     /* 079b */     ctx->a = 0x00;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 079d */     /* LDH (n),A */
+    /* 079d */     /* LDH ($FF00+$69),A */
     /* 079d */     gb_write8(ctx, 0xff69, ctx->a);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 079f */     /* LD r,n */
+    /* 079f */     /* LD A,$00 */
     /* 079f */     ctx->a = 0x00;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 07a1 */     /* LDH (n),A */
+    /* 07a1 */     /* LDH ($FF00+$69),A */
     /* 07a1 */     gb_write8(ctx, 0xff69, ctx->a);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 07a3 */     /* LD r,n */
+    /* 07a3 */     /* LD A,$00 */
     /* 07a3 */     ctx->a = 0x00;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 07a5 */     /* LDH (n),A */
+    /* 07a5 */     /* LDH ($FF00+$69),A */
     /* 07a5 */     gb_write8(ctx, 0xff69, ctx->a);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 07a7 */     /* LD r,n */
+    /* 07a7 */     /* LD A,$00 */
     /* 07a7 */     ctx->a = 0x00;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 07a9 */     /* LDH (n),A */
+    /* 07a9 */     /* LDH ($FF00+$69),A */
     /* 07a9 */     gb_write8(ctx, 0xff69, ctx->a);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 07ab */     /* LD r,n */
+    /* 07ab */     /* LD A,$00 */
     /* 07ab */     ctx->a = 0x00;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 07ad */     /* LDH (n),A */
+    /* 07ad */     /* LDH ($FF00+$69),A */
     /* 07ad */     gb_write8(ctx, 0xff69, ctx->a);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 07af */     /* LD r,n */
+    /* 07af */     /* LD A,$00 */
     /* 07af */     ctx->a = 0x00;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 07b1 */     /* LDH (n),A */
+    /* 07b1 */     /* LDH ($FF00+$69),A */
     /* 07b1 */     gb_write8(ctx, 0xff69, ctx->a);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 07b3 */     /* DEC r */
+    /* 07b3 */     /* DEC B */
     /* 07b3 */     ctx->b = gb_dec8(ctx, ctx->b);
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 07b4 */     /* JR cc,n */
+    /* 07b4 */     /* JR NZ,-35 */
     /* 07b4 */     if (!ctx->f_z) goto loc_0793; /* NZ */
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
 loc_07b6:
-    /* 07b6 */     /* LD r,n */
+    /* 07b6 */     /* LD A,$01 */
     /* 07b6 */     ctx->a = 0x01;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 07b8 */     /* LD (nn),A */
+    /* 07b8 */     /* LD ($ff4f),A */
     /* 07b8 */     gb_write8(ctx, 0xff4f, ctx->a);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 07bb */     /* LD r,n */
+    /* 07bb */     /* LD A,$00 */
     /* 07bb */     ctx->a = 0x00;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 07bd */     /* CALL nn */
-    /* 07bd */     func_077f(ctx);
+    /* 07bd */     /* CALL $077f */
+    /* 07bd */     gb_push16(ctx, 0x7c0);
+    func_077f(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_07c0:
-    /* 07c0 */     /* LD r,n */
+    /* 07c0 */     /* LD A,$00 */
     /* 07c0 */     ctx->a = 0x00;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 07c2 */     /* LD (nn),A */
+    /* 07c2 */     /* LD ($ff4f),A */
     /* 07c2 */     gb_write8(ctx, 0xff4f, ctx->a);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
     /* 07c5 */     /* RET */
     /* 07c5 */     gb_tick(ctx, 16);
-    return;
+    gb_ret(ctx); return;
 }
 
 /* Function at 07c6 */
 static void func_07c6(GBContext* ctx) {
+    switch (ctx->pc) {
+        case 0x07c6: goto loc_07c6;
+        case 0x07cb: goto loc_07cb;
+        case 0x07ce: goto loc_07ce;
+        case 0x07d6: goto loc_07d6;
+        case 0x07da: goto loc_07da;
+        default: break;
+    }
+
 loc_07c6:
-    /* 07c6 */     /* LD rr,nn */
+    /* 07c6 */     /* LD DE,$0879 */
     /* 07c6 */     ctx->de = 0x0879;
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 07c9 */     /* LD r,n */
+    /* 07c9 */     /* LD B,$60 */
     /* 07c9 */     ctx->b = 0x60;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
 loc_07cb:
-    /* 07cb */     /* PUSH */
+    /* 07cb */     /* PUSH BC */
     /* 07cb */     gb_push16(ctx, ctx->bc);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 07cc */     /* LD r,n */
+    /* 07cc */     /* LD B,$08 */
     /* 07cc */     ctx->b = 0x08;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
@@ -7467,11 +2755,11 @@ loc_07ce:
     /* 07ce */     ctx->a = gb_read8(ctx, ctx->de);
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 07cf */     /* INC rr */
+    /* 07cf */     /* INC DE */
     /* 07cf */     ctx->de++;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 07d0 */     /* XOR r */
+    /* 07d0 */     /* XOR C */
     /* 07d0 */     gb_xor8(ctx, ctx->c);
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
@@ -7485,156 +2773,180 @@ loc_07ce:
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
     /* 07d2 */     ctx->hl++;
-    /* 07d3 */     /* DEC r */
+    /* 07d3 */     /* DEC B */
     /* 07d3 */     ctx->b = gb_dec8(ctx, ctx->b);
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 07d4 */     /* JR cc,n */
+    /* 07d4 */     /* JR NZ,-8 */
     /* 07d4 */     if (!ctx->f_z) goto loc_07ce; /* NZ */
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
 loc_07d6:
-    /* 07d6 */     /* POP */
+    /* 07d6 */     /* POP BC */
     /* 07d6 */     ctx->bc = gb_pop16(ctx);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 07d7 */     /* DEC r */
+    /* 07d7 */     /* DEC B */
     /* 07d7 */     ctx->b = gb_dec8(ctx, ctx->b);
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 07d8 */     /* JR cc,n */
+    /* 07d8 */     /* JR NZ,-15 */
     /* 07d8 */     if (!ctx->f_z) goto loc_07cb; /* NZ */
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
 loc_07da:
     /* 07da */     /* RET */
     /* 07da */     gb_tick(ctx, 16);
-    return;
+    gb_ret(ctx); return;
 }
 
 /* Function at 07db */
 static void func_07db(GBContext* ctx) {
+    switch (ctx->pc) {
+        case 0x07db: goto loc_07db;
+        case 0x07df: goto loc_07df;
+        case 0x0858: goto loc_0858;
+        default: break;
+    }
+
 loc_07db:
-    /* 07db */     /* PUSH */
+    /* 07db */     /* PUSH AF */
     /* 07db */     gb_pack_flags(ctx); gb_push16(ctx, ctx->af & 0xFFF0);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 07dc */     /* CALL nn */
-    /* 07dc */     func_073a(ctx);
+    /* 07dc */     /* CALL $073a */
+    /* 07dc */     gb_push16(ctx, 0x7df);
+    func_073a(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_07df:
-    /* 07df */     /* LD r,n */
+    /* 07df */     /* LD A,$91 */
     /* 07df */     ctx->a = 0x91;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 07e1 */     /* LDH (n),A */
+    /* 07e1 */     /* LDH ($FF00+$40),A */
     /* 07e1 */     gb_write8(ctx, 0xff40, ctx->a);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 07e3 */     /* LD r,n */
+    /* 07e3 */     /* LD A,$00 */
     /* 07e3 */     ctx->a = 0x00;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 07e5 */     /* LDH (n),A */
+    /* 07e5 */     /* LDH ($FF00+$43),A */
     /* 07e5 */     gb_write8(ctx, 0xff43, ctx->a);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 07e7 */     /* LD r,n */
+    /* 07e7 */     /* LD A,$e4 */
     /* 07e7 */     ctx->a = 0xe4;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 07e9 */     /* LDH (n),A */
+    /* 07e9 */     /* LDH ($FF00+$47),A */
     /* 07e9 */     gb_write8(ctx, 0xff47, ctx->a);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 07eb */     /* JP nn */
+    /* 07eb */     /* JP $0858 */
     /* 07eb */     gb_tick(ctx, 16);
     if (ctx->stopped) return;
     goto loc_0858;
 loc_0858:
-    /* 0858 */     /* LD A,(nn) */
+    /* 0858 */     /* LD A,($d61d) */
     /* 0858 */     ctx->a = gb_read8(ctx, 0xd61d);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 085b */     /* SUB n */
+    /* 085b */     /* SUB $88 */
     /* 085b */     gb_sub8(ctx, 0x88);
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 085d */     /* LDH (n),A */
+    /* 085d */     /* LDH ($FF00+$42),A */
     /* 085d */     gb_write8(ctx, 0xff42, ctx->a);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 085f */     /* POP */
+    /* 085f */     /* POP AF */
     /* 085f */     ctx->af = gb_pop16(ctx) & 0xFFF0; gb_unpack_flags(ctx);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
     /* 0860 */     /* RET */
     /* 0860 */     gb_tick(ctx, 16);
-    return;
+    gb_ret(ctx); return;
 }
 
 /* Function at 07ee */
 static void func_07ee(GBContext* ctx) {
+    switch (ctx->pc) {
+        case 0x07ee: goto loc_07ee;
+        case 0x07f2: goto loc_07f2;
+        default: break;
+    }
+
 loc_07ee:
-    /* 07ee */     /* PUSH */
+    /* 07ee */     /* PUSH AF */
     /* 07ee */     gb_pack_flags(ctx); gb_push16(ctx, ctx->af & 0xFFF0);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 07ef */     /* CALL nn */
-    /* 07ef */     func_073a(ctx);
+    /* 07ef */     /* CALL $073a */
+    /* 07ef */     gb_push16(ctx, 0x7f2);
+    func_073a(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_07f2:
-    /* 07f2 */     /* LD r,n */
+    /* 07f2 */     /* LD A,$11 */
     /* 07f2 */     ctx->a = 0x11;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 07f4 */     /* LDH (n),A */
+    /* 07f4 */     /* LDH ($FF00+$40),A */
     /* 07f4 */     gb_write8(ctx, 0xff40, ctx->a);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 07f6 */     /* POP */
+    /* 07f6 */     /* POP AF */
     /* 07f6 */     ctx->af = gb_pop16(ctx) & 0xFFF0; gb_unpack_flags(ctx);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
     /* 07f7 */     /* RET */
     /* 07f7 */     gb_tick(ctx, 16);
-    return;
+    gb_ret(ctx); return;
 }
 
 /* Function at 0834 */
 static void func_0834(GBContext* ctx) {
+    switch (ctx->pc) {
+        case 0x0834: goto loc_0834;
+        case 0x0845: goto loc_0845;
+        case 0x0849: goto loc_0849;
+        default: break;
+    }
+
 loc_0834:
-    /* 0834 */     /* PUSH */
+    /* 0834 */     /* PUSH BC */
     /* 0834 */     gb_push16(ctx, ctx->bc);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 0835 */     /* PUSH */
+    /* 0835 */     /* PUSH HL */
     /* 0835 */     gb_push16(ctx, ctx->hl);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 0836 */     /* LD A,(nn) */
+    /* 0836 */     /* LD A,($d61d) */
     /* 0836 */     ctx->a = gb_read8(ctx, 0xd61d);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 0839 */     /* ADD A,n */
+    /* 0839 */     /* ADD A,$08 */
     /* 0839 */     gb_add8(ctx, 0x08);
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 083b */     /* LD (nn),A */
+    /* 083b */     /* LD ($d61d),A */
     /* 083b */     gb_write8(ctx, 0xd61d, ctx->a);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 083e */     /* LD r,n */
+    /* 083e */     /* LD A,$20 */
     /* 083e */     ctx->a = 0x20;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0840 */     /* LD rr,nn */
+    /* 0840 */     /* LD HL,$d61a */
     /* 0840 */     ctx->hl = 0xd61a;
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 0843 */     /* LD r,n */
+    /* 0843 */     /* LD B,$14 */
     /* 0843 */     ctx->b = 0x14;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
@@ -7644,111 +2956,129 @@ loc_0845:
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
     /* 0845 */     ctx->hl--;
-    /* 0846 */     /* DEC r */
+    /* 0846 */     /* DEC B */
     /* 0846 */     ctx->b = gb_dec8(ctx, ctx->b);
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 0847 */     /* JR cc,n */
+    /* 0847 */     /* JR NZ,-4 */
     /* 0847 */     if (!ctx->f_z) goto loc_0845; /* NZ */
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
 loc_0849:
-    /* 0849 */     /* LD r,n */
+    /* 0849 */     /* LD A,$1b */
     /* 0849 */     ctx->a = 0x1b;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 084b */     /* LD (nn),A */
+    /* 084b */     /* LD ($d61b),A */
     /* 084b */     gb_write8(ctx, 0xd61b, ctx->a);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 084e */     /* POP */
+    /* 084e */     /* POP HL */
     /* 084e */     ctx->hl = gb_pop16(ctx);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 084f */     /* POP */
+    /* 084f */     /* POP BC */
     /* 084f */     ctx->bc = gb_pop16(ctx);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
     /* 0850 */     /* RET */
     /* 0850 */     gb_tick(ctx, 16);
-    return;
+    gb_ret(ctx); return;
 }
 
 /* Function at 0851 */
 static void func_0851(GBContext* ctx) {
+    switch (ctx->pc) {
+        case 0x0851: goto loc_0851;
+        case 0x0855: goto loc_0855;
+        case 0x0858: goto loc_0858;
+        default: break;
+    }
+
 loc_0851:
-    /* 0851 */     /* PUSH */
+    /* 0851 */     /* PUSH AF */
     /* 0851 */     gb_pack_flags(ctx); gb_push16(ctx, ctx->af & 0xFFF0);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 0852 */     /* CALL nn */
-    /* 0852 */     func_073a(ctx);
+    /* 0852 */     /* CALL $073a */
+    /* 0852 */     gb_push16(ctx, 0x855);
+    func_073a(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_0855:
-    /* 0855 */     /* CALL nn */
-    /* 0855 */     func_0861(ctx);
+    /* 0855 */     /* CALL $0861 */
+    /* 0855 */     gb_push16(ctx, 0x858);
+    func_0861(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_0858:
-    /* 0858 */     /* LD A,(nn) */
+    /* 0858 */     /* LD A,($d61d) */
     /* 0858 */     ctx->a = gb_read8(ctx, 0xd61d);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 085b */     /* SUB n */
+    /* 085b */     /* SUB $88 */
     /* 085b */     gb_sub8(ctx, 0x88);
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 085d */     /* LDH (n),A */
+    /* 085d */     /* LDH ($FF00+$42),A */
     /* 085d */     gb_write8(ctx, 0xff42, ctx->a);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 085f */     /* POP */
+    /* 085f */     /* POP AF */
     /* 085f */     ctx->af = gb_pop16(ctx) & 0xFFF0; gb_unpack_flags(ctx);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
     /* 0860 */     /* RET */
     /* 0860 */     gb_tick(ctx, 16);
-    return;
+    gb_ret(ctx); return;
 }
 
 /* Function at 0861 */
 static void func_0861(GBContext* ctx) {
+    switch (ctx->pc) {
+        case 0x0861: goto loc_0861;
+        case 0x086e: goto loc_086e;
+        case 0x0876: goto loc_0876;
+        default: break;
+    }
+
 loc_0861:
-    /* 0861 */     /* PUSH */
+    /* 0861 */     /* PUSH DE */
     /* 0861 */     gb_push16(ctx, ctx->de);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 0862 */     /* PUSH */
+    /* 0862 */     /* PUSH HL */
     /* 0862 */     gb_push16(ctx, ctx->hl);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 0863 */     /* LD A,(nn) */
+    /* 0863 */     /* LD A,($d61d) */
     /* 0863 */     ctx->a = gb_read8(ctx, 0xd61d);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 0866 */     /* LD r,r */
+    /* 0866 */     /* LD L,A */
     /* 0866 */     ctx->l = ctx->a;
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 0867 */     /* LD r,n */
+    /* 0867 */     /* LD H,$26 */
     /* 0867 */     ctx->h = 0x26;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0869 */     /* ADD HL,rr */
+    /* 0869 */     /* ADD HL,HL */
     /* 0869 */     gb_add16(ctx, ctx->hl);
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 086a */     /* ADD HL,rr */
+    /* 086a */     /* ADD HL,HL */
     /* 086a */     gb_add16(ctx, ctx->hl);
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 086b */     /* LD rr,nn */
+    /* 086b */     /* LD DE,$d61b */
     /* 086b */     ctx->de = 0xd61b;
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
 loc_086e:
-    /* 086e */     /* DEC r */
+    /* 086e */     /* DEC E */
     /* 086e */     ctx->e = gb_dec8(ctx, ctx->e);
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
@@ -7761,86 +3091,97 @@ loc_086e:
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
     /* 0870 */     ctx->hl++;
-    /* 0871 */     /* LD r,r */
+    /* 0871 */     /* LD A,E */
     /* 0871 */     ctx->a = ctx->e;
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 0872 */     /* CP n */
+    /* 0872 */     /* CP $07 */
     /* 0872 */     gb_cp8(ctx, 0x07);
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0874 */     /* JR cc,n */
+    /* 0874 */     /* JR NZ,-8 */
     /* 0874 */     if (!ctx->f_z) goto loc_086e; /* NZ */
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
 loc_0876:
-    /* 0876 */     /* POP */
+    /* 0876 */     /* POP HL */
     /* 0876 */     ctx->hl = gb_pop16(ctx);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 0877 */     /* POP */
+    /* 0877 */     /* POP DE */
     /* 0877 */     ctx->de = gb_pop16(ctx);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
     /* 0878 */     /* RET */
     /* 0878 */     gb_tick(ctx, 16);
-    return;
+    gb_ret(ctx); return;
 }
 
 /* Function at 0b79 */
 static void func_0b79(GBContext* ctx) {
+    switch (ctx->pc) {
+        case 0x0b79: goto loc_0b79;
+        case 0x0b7c: goto loc_0b7c;
+        case 0x0b80: goto loc_0b80;
+        default: break;
+    }
+
 loc_0b79:
-    /* 0b79 */     /* CALL nn */
-    /* 0b79 */     func_074b(ctx);
+    /* 0b79 */     /* CALL $074b */
+    /* 0b79 */     gb_push16(ctx, 0xb7c);
+    func_074b(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_0b7c:
-    /* 0b7c */     /* PUSH */
+    /* 0b7c */     /* PUSH HL */
     /* 0b7c */     gb_push16(ctx, ctx->hl);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 0b7d */     /* CALL nn */
-    /* 0b7d */     func_02d2(ctx);
+    /* 0b7d */     /* CALL $02d2 */
+    /* 0b7d */     gb_push16(ctx, 0xb80);
+    func_02d2(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_0b80:
-    /* 0b80 */     /* LD r,r */
+    /* 0b80 */     /* LD H,E */
     /* 0b80 */     ctx->h = ctx->e;
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 0b81 */     /* LD (HL),r */
+    /* 0b81 */     /* LD (HL),B */
     /* 0b81 */     gb_write8(ctx, ctx->hl, ctx->b);
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0b82 */     /* LD (HL),r */
+    /* 0b82 */     /* LD (HL),L */
     /* 0b82 */     gb_write8(ctx, ctx->hl, ctx->l);
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0b83 */     /* LD r,r */
+    /* 0b83 */     /* LD E,A */
     /* 0b83 */     ctx->e = ctx->a;
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 0b84 */     /* LD r,r */
+    /* 0b84 */     /* LD L,C */
     /* 0b84 */     ctx->l = ctx->c;
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 0b85 */     /* LD r,(HL) */
+    /* 0b85 */     /* LD L,(HL) */
     /* 0b85 */     ctx->l = gb_read8(ctx, ctx->hl);
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0b86 */     /* LD (HL),r */
+    /* 0b86 */     /* LD (HL),E */
     /* 0b86 */     gb_write8(ctx, ctx->hl, ctx->e);
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0b87 */     /* LD (HL),r */
+    /* 0b87 */     /* LD (HL),H */
     /* 0b87 */     gb_write8(ctx, ctx->hl, ctx->h);
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0b88 */     /* LD (HL),r */
+    /* 0b88 */     /* LD (HL),D */
     /* 0b88 */     gb_write8(ctx, ctx->hl, ctx->d);
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0b89 */     /* LD (HL),r */
+    /* 0b89 */     /* LD (HL),E */
     /* 0b89 */     gb_write8(ctx, ctx->hl, ctx->e);
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
@@ -7856,31 +3197,57 @@ loc_0b80:
     /* 0b8c */     /* NOP */
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 0b8d */     /* POP */
+    /* 0b8d */     /* POP HL */
     /* 0b8d */     ctx->hl = gb_pop16(ctx);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
     /* 0b8e */     /* RET */
     /* 0b8e */     gb_tick(ctx, 16);
-    return;
+    gb_ret(ctx); return;
 }
 
 /* Function at 0bb2 */
 static void func_0bb2(GBContext* ctx) {
+    switch (ctx->pc) {
+        case 0x0bb2: goto loc_0bb2;
+        default: break;
+    }
+
 loc_0bb2:
     /* 0bb2 */     /* RET */
     /* 0bb2 */     gb_tick(ctx, 16);
-    return;
+    gb_ret(ctx); return;
 }
 
 /* Function at 0100 */
 static void gb_main(GBContext* ctx) {
+    switch (ctx->pc) {
+        case 0x0100: goto loc_0100;
+        case 0x0430: goto loc_0430;
+        case 0x0459: goto loc_0459;
+        case 0x045c: goto loc_045c;
+        case 0x045f: goto loc_045f;
+        case 0x0462: goto loc_0462;
+        case 0x0468: goto loc_0468;
+        case 0x046d: goto loc_046d;
+        case 0x0472: goto loc_0472;
+        case 0x0476: goto loc_0476;
+        case 0x047b: goto loc_047b;
+        case 0x0482: goto loc_0482;
+        case 0x0637: goto loc_0637;
+        case 0x0ba6: goto loc_0ba6;
+        case 0x0ba9: goto loc_0ba9;
+        case 0x0bac: goto loc_0bac;
+        case 0x0bb0: goto loc_0bb0;
+        default: break;
+    }
+
 loc_0100:
     /* 0100 */     /* NOP */
     /* 0100 */     /* NOP */
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 0101 */     /* JP nn */
+    /* 0101 */     /* JP $0637 */
     /* 0101 */     gb_tick(ctx, 16);
     if (ctx->stopped) return;
     goto loc_0637;
@@ -7889,190 +3256,212 @@ loc_0430:
     /* 0430 */     ctx->ime = 0;
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
-    /* 0431 */     /* LD rr,nn */
+    /* 0431 */     /* LD SP,$dfff */
     /* 0431 */     ctx->sp = 0xdfff;
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 0434 */     /* LD (nn),A */
+    /* 0434 */     /* LD ($d600),A */
     /* 0434 */     gb_write8(ctx, 0xd600, ctx->a);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 0437 */     /* LD r,n */
+    /* 0437 */     /* LD A,$00 */
     /* 0437 */     ctx->a = 0x00;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0439 */     /* LDH (n),A */
+    /* 0439 */     /* LDH ($FF00+$07),A */
     /* 0439 */     gb_write8(ctx, 0xff07, ctx->a);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 043b */     /* LD r,n */
+    /* 043b */     /* LD A,$00 */
     /* 043b */     ctx->a = 0x00;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 043d */     /* LDH (n),A */
+    /* 043d */     /* LDH ($FF00+$0f),A */
     /* 043d */     gb_write8(ctx, 0xff0f, ctx->a);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 043f */     /* LD r,n */
+    /* 043f */     /* LD A,$00 */
     /* 043f */     ctx->a = 0x00;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0441 */     /* LDH (n),A */
+    /* 0441 */     /* LDH ($FF00+$ff),A */
     /* 0441 */     gb_write8(ctx, 0xffff, ctx->a);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 0443 */     /* LD r,n */
+    /* 0443 */     /* LD A,$00 */
     /* 0443 */     ctx->a = 0x00;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0445 */     /* LDH (n),A */
+    /* 0445 */     /* LDH ($FF00+$26),A */
     /* 0445 */     gb_write8(ctx, 0xff26, ctx->a);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 0447 */     /* LD r,n */
+    /* 0447 */     /* LD A,$80 */
     /* 0447 */     ctx->a = 0x80;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0449 */     /* LDH (n),A */
+    /* 0449 */     /* LDH ($FF00+$26),A */
     /* 0449 */     gb_write8(ctx, 0xff26, ctx->a);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 044b */     /* LD r,n */
+    /* 044b */     /* LD A,$ff */
     /* 044b */     ctx->a = 0xff;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 044d */     /* LDH (n),A */
+    /* 044d */     /* LDH ($FF00+$25),A */
     /* 044d */     gb_write8(ctx, 0xff25, ctx->a);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 044f */     /* LD r,n */
+    /* 044f */     /* LD A,$77 */
     /* 044f */     ctx->a = 0x77;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0451 */     /* LDH (n),A */
+    /* 0451 */     /* LDH ($FF00+$24),A */
     /* 0451 */     gb_write8(ctx, 0xff24, ctx->a);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 0453 */     /* LD rr,nn */
+    /* 0453 */     /* LD HL,$0b8f */
     /* 0453 */     ctx->hl = 0x0b8f;
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 0456 */     /* CALL nn */
-    /* 0456 */     func_02a3(ctx);
+    /* 0456 */     /* CALL $02a3 */
+    /* 0456 */     gb_push16(ctx, 0x459);
+    func_02a3(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_0459:
-    /* 0459 */     /* CALL nn */
-    /* 0459 */     func_038e(ctx);
+    /* 0459 */     /* CALL $038e */
+    /* 0459 */     gb_push16(ctx, 0x45c);
+    func_038e(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_045c:
-    /* 045c */     /* CALL nn */
-    /* 045c */     func_0b79(ctx);
+    /* 045c */     /* CALL $0b79 */
+    /* 045c */     gb_push16(ctx, 0x45f);
+    func_0b79(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_045f:
-    /* 045f */     /* CALL nn */
-    /* 045f */     func_025f(ctx);
+    /* 045f */     /* CALL $025f */
+    /* 045f */     gb_push16(ctx, 0x462);
+    func_025f(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_0462:
-    /* 0462 */     /* PUSH */
+    /* 0462 */     /* PUSH AF */
     /* 0462 */     gb_pack_flags(ctx); gb_push16(ctx, ctx->af & 0xFFF0);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 0463 */     /* LD r,n */
+    /* 0463 */     /* LD A,$03 */
     /* 0463 */     ctx->a = 0x03;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0465 */     /* CALL nn */
-    /* 0465 */     func_022f(ctx);
+    /* 0465 */     /* CALL $022f */
+    /* 0465 */     gb_push16(ctx, 0x468);
+    func_022f(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_0468:
-    /* 0468 */     /* LD r,n */
+    /* 0468 */     /* LD A,$ff */
     /* 0468 */     ctx->a = 0xff;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 046a */     /* CALL nn */
-    /* 046a */     func_0222(ctx);
+    /* 046a */     /* CALL $0222 */
+    /* 046a */     gb_push16(ctx, 0x46d);
+    func_0222(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_046d:
-    /* 046d */     /* LD r,n */
+    /* 046d */     /* LD A,$cd */
     /* 046d */     ctx->a = 0xcd;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 046f */     /* CALL nn */
-    /* 046f */     func_0213(ctx);
+    /* 046f */     /* CALL $0213 */
+    /* 046f */     gb_push16(ctx, 0x472);
+    func_0213(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_0472:
-    /* 0472 */     /* POP */
+    /* 0472 */     /* POP AF */
     /* 0472 */     ctx->af = gb_pop16(ctx) & 0xFFF0; gb_unpack_flags(ctx);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 0473 */     /* CALL nn */
-    /* 0473 */     func_063b(ctx);
+    /* 0473 */     /* CALL $063b */
+    /* 0473 */     gb_push16(ctx, 0x476);
+    func_063b(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_0476:
-    /* 0476 */     /* LD r,n */
+    /* 0476 */     /* LD A,$00 */
     /* 0476 */     ctx->a = 0x00;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0478 */     /* JP nn */
+    /* 0478 */     /* JP $047b */
     /* 0478 */     gb_tick(ctx, 16);
     if (ctx->stopped) return;
     goto loc_047b;
 loc_047b:
-    /* 047b */     /* LD rr,nn */
+    /* 047b */     /* LD SP,$dfff */
     /* 047b */     ctx->sp = 0xdfff;
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 047e */     /* PUSH */
+    /* 047e */     /* PUSH AF */
     /* 047e */     gb_pack_flags(ctx); gb_push16(ctx, ctx->af & 0xFFF0);
     gb_tick(ctx, 16);
     if (ctx->stopped) return;
-    /* 047f */     /* CALL nn */
-    /* 047f */     func_0486(ctx);
+    /* 047f */     /* CALL $0486 */
+    /* 047f */     gb_push16(ctx, 0x482);
+    func_0486(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_0482:
-    /* 0482 */     /* POP */
+    /* 0482 */     /* POP AF */
     /* 0482 */     ctx->af = gb_pop16(ctx) & 0xFFF0; gb_unpack_flags(ctx);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
-    /* 0483 */     /* JP nn */
+    /* 0483 */     /* JP $0ba6 */
     /* 0483 */     gb_tick(ctx, 16);
     if (ctx->stopped) return;
     goto loc_0ba6;
 loc_0637:
-    /* 0637 */     /* JP nn */
+    /* 0637 */     /* JP $0430 */
     /* 0637 */     gb_tick(ctx, 16);
     if (ctx->stopped) return;
     goto loc_0430;
 loc_0ba6:
-    /* 0ba6 */     /* CALL nn */
-    /* 0ba6 */     func_07db(ctx);
+    /* 0ba6 */     /* CALL $07db */
+    /* 0ba6 */     gb_push16(ctx, 0xba9);
+    func_07db(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_0ba9:
-    /* 0ba9 */     /* CALL nn */
-    /* 0ba9 */     func_0bb2(ctx);
+    /* 0ba9 */     /* CALL $0bb2 */
+    /* 0ba9 */     gb_push16(ctx, 0xbac);
+    func_0bb2(ctx);
+    return;
     gb_tick(ctx, 24);
     if (ctx->stopped) return;
 loc_0bac:
-    /* 0bac */     /* LD r,n */
+    /* 0bac */     /* LD A,$00 */
     /* 0bac */     ctx->a = 0x00;
     gb_tick(ctx, 8);
     if (ctx->stopped) return;
-    /* 0bae */     /* LDH (n),A */
+    /* 0bae */     /* LDH ($FF00+$26),A */
     /* 0bae */     gb_write8(ctx, 0xff26, ctx->a);
     gb_tick(ctx, 12);
     if (ctx->stopped) return;
 loc_0bb0:
-    /* 0bb0 */     /* JR n */
+    /* 0bb0 */     /* JR -2 */
     /* 0bb0 */     gb_tick(ctx, 12);
     if (ctx->stopped) return;
     goto loc_0bb0;
@@ -8080,6 +3469,11 @@ loc_0bb0:
 
 /* Function at 0060 */
 static void int_joypad(GBContext* ctx) {
+    switch (ctx->pc) {
+        case 0x0060: goto loc_0060;
+        default: break;
+    }
+
 loc_0060:
     /* 0060 */     /* NOP */
     /* 0060 */     /* NOP */
@@ -8728,146 +4122,206 @@ loc_0060:
 
 /* Function at 0048 */
 static void int_lcd_stat(GBContext* ctx) {
+    switch (ctx->pc) {
+        case 0x0048: goto loc_0048;
+        default: break;
+    }
+
 loc_0048:
-    /* 0048 */     /* INC r */
+    /* 0048 */     /* INC A */
     /* 0048 */     ctx->a = gb_inc8(ctx, ctx->a);
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
     /* 0049 */     /* RET */
     /* 0049 */     gb_tick(ctx, 16);
-    return;
+    gb_ret(ctx); return;
 }
 
 /* Function at 0058 */
 static void int_serial(GBContext* ctx) {
+    switch (ctx->pc) {
+        case 0x0058: goto loc_0058;
+        default: break;
+    }
+
 loc_0058:
-    /* 0058 */     /* INC r */
+    /* 0058 */     /* INC A */
     /* 0058 */     ctx->a = gb_inc8(ctx, ctx->a);
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
     /* 0059 */     /* RET */
     /* 0059 */     gb_tick(ctx, 16);
-    return;
+    gb_ret(ctx); return;
 }
 
 /* Function at 0050 */
 static void int_timer(GBContext* ctx) {
+    switch (ctx->pc) {
+        case 0x0050: goto loc_0050;
+        default: break;
+    }
+
 loc_0050:
-    /* 0050 */     /* INC r */
+    /* 0050 */     /* INC A */
     /* 0050 */     ctx->a = gb_inc8(ctx, ctx->a);
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
     /* 0051 */     /* RET */
     /* 0051 */     gb_tick(ctx, 16);
-    return;
+    gb_ret(ctx); return;
 }
 
 /* Function at 0040 */
 static void int_vblank(GBContext* ctx) {
+    switch (ctx->pc) {
+        case 0x0040: goto loc_0040;
+        default: break;
+    }
+
 loc_0040:
-    /* 0040 */     /* INC r */
+    /* 0040 */     /* INC A */
     /* 0040 */     ctx->a = gb_inc8(ctx, ctx->a);
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
     /* 0041 */     /* RET */
     /* 0041 */     gb_tick(ctx, 16);
-    return;
+    gb_ret(ctx); return;
 }
 
 /* Function at 0000 */
 static void rst_00(GBContext* ctx) {
+    switch (ctx->pc) {
+        case 0x0000: goto loc_0000;
+        default: break;
+    }
+
 loc_0000:
-    /* INC r */
+    /* INC A */
     ctx->a = gb_inc8(ctx, ctx->a);
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
     /* 0001 */     /* RET */
     /* 0001 */     gb_tick(ctx, 16);
-    return;
+    gb_ret(ctx); return;
 }
 
 /* Function at 0008 */
 static void rst_08(GBContext* ctx) {
+    switch (ctx->pc) {
+        case 0x0008: goto loc_0008;
+        default: break;
+    }
+
 loc_0008:
-    /* 0008 */     /* INC r */
+    /* 0008 */     /* INC A */
     /* 0008 */     ctx->a = gb_inc8(ctx, ctx->a);
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
     /* 0009 */     /* RET */
     /* 0009 */     gb_tick(ctx, 16);
-    return;
+    gb_ret(ctx); return;
 }
 
 /* Function at 0010 */
 static void rst_10(GBContext* ctx) {
+    switch (ctx->pc) {
+        case 0x0010: goto loc_0010;
+        default: break;
+    }
+
 loc_0010:
-    /* 0010 */     /* INC r */
+    /* 0010 */     /* INC A */
     /* 0010 */     ctx->a = gb_inc8(ctx, ctx->a);
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
     /* 0011 */     /* RET */
     /* 0011 */     gb_tick(ctx, 16);
-    return;
+    gb_ret(ctx); return;
 }
 
 /* Function at 0018 */
 static void rst_18(GBContext* ctx) {
+    switch (ctx->pc) {
+        case 0x0018: goto loc_0018;
+        default: break;
+    }
+
 loc_0018:
-    /* 0018 */     /* INC r */
+    /* 0018 */     /* INC A */
     /* 0018 */     ctx->a = gb_inc8(ctx, ctx->a);
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
     /* 0019 */     /* RET */
     /* 0019 */     gb_tick(ctx, 16);
-    return;
+    gb_ret(ctx); return;
 }
 
 /* Function at 0020 */
 static void rst_20(GBContext* ctx) {
+    switch (ctx->pc) {
+        case 0x0020: goto loc_0020;
+        default: break;
+    }
+
 loc_0020:
-    /* 0020 */     /* INC r */
+    /* 0020 */     /* INC A */
     /* 0020 */     ctx->a = gb_inc8(ctx, ctx->a);
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
     /* 0021 */     /* RET */
     /* 0021 */     gb_tick(ctx, 16);
-    return;
+    gb_ret(ctx); return;
 }
 
 /* Function at 0028 */
 static void rst_28(GBContext* ctx) {
+    switch (ctx->pc) {
+        case 0x0028: goto loc_0028;
+        default: break;
+    }
+
 loc_0028:
-    /* 0028 */     /* INC r */
+    /* 0028 */     /* INC A */
     /* 0028 */     ctx->a = gb_inc8(ctx, ctx->a);
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
     /* 0029 */     /* RET */
     /* 0029 */     gb_tick(ctx, 16);
-    return;
+    gb_ret(ctx); return;
 }
 
 /* Function at 0030 */
 static void rst_30(GBContext* ctx) {
+    switch (ctx->pc) {
+        case 0x0030: goto loc_0030;
+        default: break;
+    }
+
 loc_0030:
-    /* 0030 */     /* INC r */
+    /* 0030 */     /* INC A */
     /* 0030 */     ctx->a = gb_inc8(ctx, ctx->a);
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
     /* 0031 */     /* RET */
     /* 0031 */     gb_tick(ctx, 16);
-    return;
+    gb_ret(ctx); return;
 }
 
 /* Function at 0038 */
 static void rst_38(GBContext* ctx) {
+    switch (ctx->pc) {
+        case 0x0038: goto loc_0038;
+        default: break;
+    }
+
 loc_0038:
-    /* 0038 */     /* INC r */
+    /* 0038 */     /* INC A */
     /* 0038 */     ctx->a = gb_inc8(ctx, ctx->a);
     gb_tick(ctx, 4);
     if (ctx->stopped) return;
     /* 0039 */     /* RET */
     /* 0039 */     gb_tick(ctx, 16);
-    return;
+    gb_ret(ctx); return;
 }
 
 /* Extern reference to ROM data */
@@ -8879,5 +4333,6 @@ void cpu_instrs_init(GBContext* ctx) {
 }
 
 void cpu_instrs_run(GBContext* ctx) {
-    gb_main(ctx);
+    // Start the trampoline loop - execution will stay here until stopped
+    gb_dispatch(ctx, ctx->pc);
 }

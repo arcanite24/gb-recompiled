@@ -44,3 +44,9 @@ To ensure `tetris_test` reflects the latest recompiler/runtime changes, follow t
 - **Sync**: "Make sure the recompiled project is always up to date." If you modify `recompiler` logic or `runtime` headers, trigger the *Test ROM Recompilation* workflow.
 - **Resources**: Consult `ROADMAP.md` for current progress and `ARCH.md` for architectural constraints.
 - **Paths**: Usage of absolute paths is preferred for tool calls, but shell commands should be executed from the workspace root for clarity.
+
+## Debugging
+- **Crash/Stuck Analysis**: If the recompiler hangs or produces invalid code:
+  - Use `--trace` to log every instruction analyzed: `./build/bin/gbrecomp roms/game.gb --trace`
+  - Use `--limit <N>` to stop after N instructions to prevent infinite loops (useful for finding where analysis gets stuck): `./build/bin/gbrecomp roms/game.gb --limit 10000`
+  - Watch for `[ERROR] Undefined instruction` logs to identify invalid code paths or data misinterpreted as code.

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(cpu_instrs C)
+project(_01_special C)
 
 # Set C standard
 set(CMAKE_C_STANDARD 11)
@@ -24,10 +24,10 @@ target_link_libraries(gbrt PUBLIC SDL2::SDL2)
 target_compile_definitions(gbrt PUBLIC GB_HAS_SDL2)
 
 # Main executable
-add_executable(cpu_instrs
-    cpu_instrs_main.c
-    cpu_instrs.c
-    cpu_instrs_rom.c
+add_executable(_01_special
+    _01_special_main.c
+    _01_special.c
+    _01_special_rom.c
 )
 
-target_link_libraries(cpu_instrs gbrt)
+target_link_libraries(_01_special gbrt)

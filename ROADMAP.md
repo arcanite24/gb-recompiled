@@ -231,6 +231,29 @@ Frame Rate: ~40 FPS
 
 ---
 
+## Recent Implementation (January 5, 2026)
+
+### Hybrid Static/Dynamic Architecture 🎉
+
+**Problem**: The `cpu_instrs.gb` test ROM (and many other ROMs) copies test code to RAM and jumps to it. The static recompiler can't know about this code at compile time.
+
+**Solution Implemented**:
+1. **Interpreter fallback in dispatcher**: The generated `gb_dispatch()` already had `gb_interpret()` fallback for unknown addresses
+2. **Fixed interpreter ROM handling**: The interpreter was incorrectly returning when `pc < 0x8000`. Now it runs ALL uncompiled code (RAM AND undiscovered ROM paths)
+3. **Serial output working**: Test results are output via serial port (0xFF01/0xFF02)
+
+**Test Results**:
+```
+01-special.gb → Passed ✅
+cpu_instrs.gb → 01:ok (Test 01 "special" passed)
+```
+
+**Files Modified**:
+- `runtime/src/interpreter.c`: Removed early return for ROM addresses
+- `runtime/src/gbrt.c`: Serial output via printf on SB register write
+
+---
+
 ## Legend
 
 | Symbol | Meaning |

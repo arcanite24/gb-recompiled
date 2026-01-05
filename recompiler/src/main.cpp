@@ -37,6 +37,8 @@ void print_usage(const char* program) {
     std::cout << "  -d, --disasm          Disassemble only (don't generate code)\n";
     std::cout << "  -a, --analyze         Analyze control flow only\n";
     std::cout << "  -v, --verbose         Verbose output\n";
+    std::cout << "  --trace               Trace execution analysis (very verbose)\n";
+    std::cout << "  --limit <n>           Limit analysis to n instructions\n";
     std::cout << "  --single-function     Generate all code in a single function\n";
     std::cout << "  --no-comments         Don't include disassembly comments\n";
     std::cout << "  --bank <n>            Only process bank n\n";
@@ -69,6 +71,8 @@ int main(int argc, char* argv[]) {
     bool disasm_only = false;
     bool analyze_only = false;
     bool verbose = false;
+    bool trace_log = false;
+    size_t limit_instructions = 0;
     bool single_function = false;
     bool emit_comments = true;
     int specific_bank = -1;
@@ -89,6 +93,12 @@ int main(int argc, char* argv[]) {
             analyze_only = true;
         } else if (arg == "-v" || arg == "--verbose") {
             verbose = true;
+        } else if (arg == "--trace") {
+            trace_log = true;
+        } else if (arg == "--limit") {
+            if (i + 1 < argc) {
+                limit_instructions = std::stoul(argv[++i]);
+            }
         } else if (arg == "--single-function") {
             single_function = true;
         } else if (arg == "--no-comments") {
@@ -155,6 +165,8 @@ int main(int argc, char* argv[]) {
     std::cout << "\nAnalyzing control flow...\n";
     
     gbrecomp::AnalyzerOptions analyze_opts;
+    analyze_opts.trace_log = trace_log;
+    analyze_opts.max_instructions = limit_instructions;
     auto analysis = gbrecomp::analyze(rom, analyze_opts);
     
     std::cout << "  Found " << analysis.stats.total_functions << " functions\n";

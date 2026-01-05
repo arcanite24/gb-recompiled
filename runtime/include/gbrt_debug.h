@@ -27,11 +27,12 @@ extern "C" {
  * ========================================================================== */
 
 /* Uncomment to enable specific debug categories */
-#define GB_DEBUG_PPU
-#define GB_DEBUG_MEM  
-#define GB_DEBUG_VRAM
-#define GB_DEBUG_FRAME
-#define GB_DEBUG_REGS
+/* All debug disabled for performance in cpu_instrs testing */
+// #define GB_DEBUG_PPU
+// #define GB_DEBUG_MEM  
+// #define GB_DEBUG_VRAM
+// #define GB_DEBUG_FRAME
+// #define GB_DEBUG_REGS
 // #define GB_DEBUG_ALL
 
 #ifdef GB_DEBUG_ALL

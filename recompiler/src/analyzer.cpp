@@ -285,11 +285,6 @@ AnalysisResult analyze(const ROM& rom, const AnalyzerOptions& options) {
     
     // Start from entry point
     work_queue.push(make_address(0, 0x100));
-
-    // Manual seed for Tetris indirect jump target
-    // 0x6AA5 is target of JP HL in bank 1
-    result.call_targets.insert(make_address(1, 0x6AA5));
-    work_queue.push(make_address(1, 0x6AA5));
     
     // For MBC games, also analyze code at entry point in each bank
     // This catches trampoline code that jumps from bank 0 to banked code
@@ -344,6 +339,25 @@ AnalysisResult analyze(const ROM& rom, const AnalyzerOptions& options) {
         
         // Decode instruction
         Instruction instr = decoder.decode(offset, bank);
+
+        // Trace logging
+        if (options.trace_log) {
+            std::cout << "[TRACE] " << std::hex << std::setfill('0') << std::setw(2) << (int)bank
+                      << ":" << std::setw(4) << offset << " " << instr.disassemble() << std::dec << "\n";
+        }
+
+        // Check for undefined instructions
+        if (instr.type == InstructionType::UNDEFINED) {
+             std::cout << "[ERROR] Undefined instruction at " 
+                       << std::hex << std::setfill('0') << std::setw(2) << (int)bank << ":" << std::setw(4) << offset 
+                       << " Opcode: " << std::setw(2) << (int)instr.opcode << std::dec << "\n";
+        }
+
+        // Limit check
+        if (options.max_instructions > 0 && result.instructions.size() >= options.max_instructions) {
+            std::cerr << "Reached instruction limit (" << options.max_instructions << ")\n";
+            break;
+        }
         
         // Store instruction
         size_t idx = result.instructions.size();
@@ -389,8 +403,10 @@ AnalysisResult analyze(const ROM& rom, const AnalyzerOptions& options) {
                 
                 // DON'T push fallthrough - the bytes after RST 28 are table data
             } else {
-                // Normal RST call - push fallthrough
-                work_queue.push(make_address(bank, offset + instr.length));
+                // Normal RST call - push fallthrough and mark as label
+                uint32_t fall_through = make_address(bank, offset + instr.length);
+                result.label_addresses.insert(fall_through);
+                work_queue.push(fall_through);
             }
         } else if (instr.is_call) {
             uint16_t target = instr.imm16;

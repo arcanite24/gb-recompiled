@@ -145,6 +145,11 @@ struct AnalyzerOptions {
     bool detect_computed_jumps = true;  // Try to resolve JP HL targets
     bool track_bank_switches = true;    // Track bank switch operations
     bool mark_unreachable = true;       // Mark unreachable code
+    
+    // Debugging options
+    bool trace_log = false;             // Print detailed execution trace
+    size_t max_instructions = 0;        // Max instructions to analyze (0 = infinite)
+    size_t max_functions = 0;           // Max functions to discover (0 = infinite)
 };
 
 /**

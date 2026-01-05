@@ -367,13 +367,11 @@ void gb_write8(GBContext* ctx, uint16_t addr, uint8_t value) {
         uint16_t offset = addr - VRAM_START + ctx->vram_bank * VRAM_SIZE;
         ctx->vram[offset] = value;
         
-        /* Debug: log significant VRAM writes (TEMPORARY: log all VRAM writes) */
-        //static int vram_write_count = 0;
-        //vram_write_count++;
-        //if (vram_write_count <= 10 || (addr == 0x8000) || (addr == 0x9800)) {
-            DBG_VRAM("Write 0x%04X = 0x%02X (offset=0x%04X, A=0x%02X)", 
-                     addr, value, offset, ctx->a);
-        //}
+        /* Debug: log tilemap writes */
+        if (addr >= 0x9800 && addr <= 0x9BFF) {
+            // Disabled - too noisy for cpu_instrs testing
+            // printf("[DEBUG] VRAM Map Write 0x%04X = 0x%02X\n", addr, value);
+        }
     }
     else if (addr <= ERAM_END) {
         /* External RAM */
@@ -407,6 +405,7 @@ void gb_write8(GBContext* ctx, uint16_t addr, uint8_t value) {
         /* I/O Registers */
         /* LCD registers 0xFF40-0xFF4B are handled by PPU */
         if (addr >= 0xFF40 && addr <= 0xFF4B && ctx->ppu) {
+            /* LCDC debug disabled for cpu_instrs testing */
             ppu_write_register((GBPPU*)ctx->ppu, ctx, addr, value);
             return;
         }
@@ -478,6 +477,8 @@ void gb_write16(GBContext* ctx, uint16_t addr, uint16_t value) {
  * Stack Operations
  * ========================================================================== */
 
+/* Stack Operations */
+
 void gb_push16(GBContext* ctx, uint16_t value) {
     ctx->sp -= 2;
     gb_write16(ctx, ctx->sp, value);
@@ -486,6 +487,12 @@ void gb_push16(GBContext* ctx, uint16_t value) {
 uint16_t gb_pop16(GBContext* ctx) {
     uint16_t value = gb_read16(ctx, ctx->sp);
     ctx->sp += 2;
+    /* Debug logging disabled - too noisy for cpu_instrs which uses RAM for code */
+#if 0
+    if (value > 0x8000 && value < 0xFF80) {
+        fprintf(stderr, "[DEBUG] Popped suspicious address 0x%04X from SP=0x%04X\n", value, ctx->sp - 2);
+    }
+#endif
     return value;
 }
 
@@ -617,6 +624,17 @@ void gb_add_sp(GBContext* ctx, int8_t offset) {
     ctx->f_c = ((ctx->sp & 0xFF) + (offset & 0xFF)) > 0xFF;
     
     ctx->sp = (uint16_t)result;
+}
+
+void gb_ld_hl_sp_n(GBContext* ctx, int8_t offset) {
+    uint32_t result = ctx->sp + offset;
+    
+    ctx->f_z = 0;
+    ctx->f_n = 0;
+    ctx->f_h = ((ctx->sp & 0x0F) + (offset & 0x0F)) > 0x0F;
+    ctx->f_c = ((ctx->sp & 0xFF) + (offset & 0xFF)) > 0xFF;
+    
+    ctx->hl = (uint16_t)result;
 }
 
 /* ============================================================================
@@ -778,22 +796,28 @@ void gb_bit(GBContext* ctx, uint8_t bit, uint8_t value) {
  * ========================================================================== */
 
 void gb_daa(GBContext* ctx) {
-    uint8_t a = ctx->a;
-    uint8_t adjust = 0;
+    int a = ctx->a;
     
-    if (ctx->f_h || (!ctx->f_n && (a & 0x0F) > 0x09)) {
-        adjust |= 0x06;
+    if (!ctx->f_n) {
+        if (ctx->f_h || (a & 0x0F) > 0x09) {
+            a += 0x06;
+        }
+        if (ctx->f_c || a > 0x9F) {
+            a += 0x60;
+            ctx->f_c = 1;
+        }
+    } else {
+        if (ctx->f_h) {
+            a = (a - 0x06) & 0xFF;
+        }
+        if (ctx->f_c) {
+            a -= 0x60;
+        }
     }
     
-    if (ctx->f_c || (!ctx->f_n && a > 0x99)) {
-        adjust |= 0x60;
-        ctx->f_c = 1;
-    }
-    
-    ctx->a = ctx->f_n ? (a - adjust) : (a + adjust);
-    
-    ctx->f_z = (ctx->a == 0);
+    ctx->f_z = ((a & 0xFF) == 0);
     ctx->f_h = 0;
+    ctx->a = a & 0xFF;
 }
 
 /* ============================================================================
@@ -810,6 +834,10 @@ void gb_call(GBContext* ctx, uint16_t addr) {
 void gb_ret(GBContext* ctx) {
     ctx->pc = gb_pop16(ctx);
     /* Dispatch continues from caller */
+}
+
+void gbrt_jump_hl(GBContext* ctx) {
+    ctx->pc = ctx->hl;
 }
 
 void gb_rst(GBContext* ctx, uint8_t vector) {
@@ -885,8 +913,62 @@ void gb_halt(GBContext* ctx) {
 }
 
 void gb_stop(GBContext* ctx) {
-    ctx->stopped = 1;
-    /* CPU will wake on joypad press */
+    /* STOP instruction behavior:
+     * - On DMG: Halt CPU and LCD until joypad button pressed
+     * - On CGB: If KEY1 bit 0 is set, this triggers a speed switch, then continues
+     * 
+     * For cpu_instrs.gb compatibility, we treat STOP like HALT for now,
+     * waiting for any interrupt rather than exiting the emulator.
+     */
+    
+    /* Check if this is a CGB speed switch attempt */
+    uint8_t key1 = ctx->io[0x4D];  /* KEY1 register */
+    if (key1 & 0x01) {
+        /* CGB speed switch requested - toggle speed and clear prepare bit */
+        ctx->io[0x4D] = (key1 ^ 0x80) & 0x80;  /* Toggle bit 7, clear bit 0 */
+        /* Continue execution, don't actually stop */
+        return;
+    }
+    
+    /* Normal STOP - wait for joypad interrupt (like HALT but deeper) */
+    ctx->halted = 1;
+    
+    /* Spin until joypad interrupt is pending */
+    int max_cycles = 70224 * 10;  /* Multiple frames maximum */
+    while (ctx->halted && max_cycles > 0) {
+        gb_tick(ctx, 4);
+        max_cycles -= 4;
+        
+        /* Check for joypad interrupt specifically (bit 4 of IF/IE) */
+        uint8_t ie = ctx->io[IO_SIZE];
+        uint8_t if_reg = ctx->io[0x0F];
+        if ((ie & if_reg) & 0x10) {  /* Joypad interrupt */
+            ctx->halted = 0;
+            break;
+        }
+        
+        /* Also wake on any interrupt for compatibility */
+        if (ie & if_reg) {
+            ctx->halted = 0;
+            break;
+        }
+        
+        /* Handle frame rendering */
+        if (ctx->ppu && ppu_frame_ready((GBPPU*)ctx->ppu)) {
+#ifdef GB_HAS_SDL2
+            if (!gb_platform_poll_events(ctx)) {
+                ctx->stopped = 1;  /* Only stop if user quits */
+                ctx->halted = 0;
+                break;
+            }
+            const uint32_t* fb = ppu_get_framebuffer((GBPPU*)ctx->ppu);
+            if (fb) {
+                gb_platform_render_frame(fb);
+            }
+#endif
+            ppu_clear_frame_ready((GBPPU*)ctx->ppu);
+        }
+    }
 }
 
 /* ============================================================================
@@ -936,12 +1018,13 @@ void gb_tick(GBContext* ctx, uint32_t cycles) {
     
     /* Handle pending IME enable (from EI instruction) */
     if (ctx->ime_pending) {
-        DBG_GENERAL("[INT] IME enabled via EI instruction");
+        /* DBG_GENERAL("[INT] IME enabled via EI instruction"); */
         ctx->ime = 1;
         ctx->ime_pending = 0;
     }
     
-    /* Debug: periodically check interrupt state */
+    /* Debug logging disabled for performance */
+#if 0
     int_check_count++;
     if (int_check_count % 100000 == 1) {
         uint8_t if_reg = ctx->io[0x0F];
@@ -950,6 +1033,7 @@ void gb_tick(GBContext* ctx, uint32_t cycles) {
                     int_check_count, ctx->ime, if_reg, ie_reg, if_reg & ie_reg & 0x1F,
                     ctx->io[0x04], ctx->io[0x05], ctx->pc, gb_read8(ctx, ctx->pc));
     }
+#endif
     
     /* Check and dispatch interrupts */
     if (ctx->ime) {
@@ -1050,7 +1134,7 @@ void gb_tick(GBContext* ctx, uint32_t cycles) {
             if (ctx->io[0x05] == 0xFF) { /* TIMA overflow */
                 ctx->io[0x05] = ctx->io[0x06]; /* Reload from TMA */
                 ctx->io[0x0F] |= 0x04;        /* Request Timer interrupt */
-                DBG_GENERAL("TIMER OVERFLOW! Reloading 0x%02X", ctx->io[0x06]);
+                /* DBG_GENERAL("TIMER OVERFLOW! Reloading 0x%02X", ctx->io[0x06]); */
             } else {
                 ctx->io[0x05]++;
             }

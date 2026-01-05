@@ -1050,7 +1050,123 @@ const char* instruction_type_name(InstructionType type) {
 
 std::string disassemble(const Instruction& instr) {
     std::ostringstream ss;
+    
+    // Helper for formatting hex
+    auto hex8 = [](uint8_t v) { 
+        std::ostringstream s; s << "$" << std::hex << std::setfill('0') << std::setw(2) << (int)v; return s.str(); 
+    };
+    auto hex16 = [](uint16_t v) { 
+        std::ostringstream s; s << "$" << std::hex << std::setfill('0') << std::setw(4) << v; return s.str(); 
+    };
+    
+    switch (instr.type) {
+        case InstructionType::NOP: return "NOP";
+        case InstructionType::HALT: return "HALT";
+        case InstructionType::STOP: return "STOP";
+        case InstructionType::DI: return "DI";
+        case InstructionType::EI: return "EI";
+        case InstructionType::RET: return "RET";
+        case InstructionType::RETI: return "RETI";
+        case InstructionType::RLCA: return "RLCA";
+        case InstructionType::RRCA: return "RRCA";
+        case InstructionType::RLA: return "RLA";
+        case InstructionType::RRA: return "RRA";
+        case InstructionType::DAA: return "DAA";
+        case InstructionType::CPL: return "CPL";
+        case InstructionType::SCF: return "SCF";
+        case InstructionType::CCF: return "CCF";
+        case InstructionType::JP_HL: return "JP HL";
+        case InstructionType::LD_SP_HL: return "LD SP,HL";
+        
+        // Jumps / Calls
+        case InstructionType::JP_NN: return "JP " + hex16(instr.imm16);
+        case InstructionType::CALL_NN: return "CALL " + hex16(instr.imm16);
+        case InstructionType::JP_CC_NN: return "JP " + std::string(condition_name(instr.condition)) + "," + hex16(instr.imm16);
+        case InstructionType::CALL_CC_NN: return "CALL " + std::string(condition_name(instr.condition)) + "," + hex16(instr.imm16);
+        case InstructionType::RET_CC: return "RET " + std::string(condition_name(instr.condition));
+        case InstructionType::RST: return "RST " + hex8(instr.rst_vector);
+        
+        // Relative Jumps
+        case InstructionType::JR_N: return "JR " + std::to_string((int)instr.offset);
+        case InstructionType::JR_CC_N: return "JR " + std::string(condition_name(instr.condition)) + "," + std::to_string((int)instr.offset);
+        
+        // 8-bit Loads
+        case InstructionType::LD_R_N: return "LD " + std::string(reg8_name(instr.reg8_dst)) + "," + hex8(instr.imm8);
+        case InstructionType::LD_R_R: return "LD " + std::string(reg8_name(instr.reg8_dst)) + "," + std::string(reg8_name(instr.reg8_src));
+        case InstructionType::LD_R_HL: return "LD " + std::string(reg8_name(instr.reg8_dst)) + ",(HL)";
+        case InstructionType::LD_HL_R: return "LD (HL)," + std::string(reg8_name(instr.reg8_src));
+        case InstructionType::LD_HL_N: return "LD (HL)," + hex8(instr.imm8);
+        case InstructionType::LD_A_BC: return "LD A,(BC)";
+        case InstructionType::LD_A_DE: return "LD A,(DE)";
+        case InstructionType::LD_BC_A: return "LD (BC),A";
+        case InstructionType::LD_DE_A: return "LD (DE),A";
+        case InstructionType::LD_A_NN: return "LD A,(" + hex16(instr.imm16) + ")";
+        case InstructionType::LD_NN_A: return "LD (" + hex16(instr.imm16) + "),A";
+        case InstructionType::LDH_A_N: return "LDH A,($FF00+" + hex8(instr.imm8) + ")";
+        case InstructionType::LDH_N_A: return "LDH ($FF00+" + hex8(instr.imm8) + "),A";
+        case InstructionType::LDH_A_C: return "LDH A,(C)";
+        case InstructionType::LDH_C_A: return "LDH (C),A";
+        case InstructionType::LD_A_HLI: return "LD A,(HL+)";
+        case InstructionType::LD_A_HLD: return "LD A,(HL-)";
+        case InstructionType::LD_HLI_A: return "LD (HL+),A";
+        case InstructionType::LD_HLD_A: return "LD (HL-),A";
+        
+        // 16-bit Loads
+        case InstructionType::LD_RR_NN: return "LD " + std::string(reg16_name(instr.reg16)) + "," + hex16(instr.imm16);
+        case InstructionType::LD_NN_SP: return "LD (" + hex16(instr.imm16) + "),SP";
+        case InstructionType::LD_HL_SP_N: return "LD HL,SP+" + std::to_string((int)instr.offset);
+        case InstructionType::PUSH: return "PUSH " + std::string(reg16_name(instr.reg16));
+        case InstructionType::POP: return "POP " + std::string(reg16_name(instr.reg16));
+        
+        // ALU
+        case InstructionType::ADD_A_N: return "ADD A," + hex8(instr.imm8);
+        case InstructionType::ADC_A_N: return "ADC A," + hex8(instr.imm8);
+        case InstructionType::SUB_A_N: return "SUB " + hex8(instr.imm8);
+        case InstructionType::SBC_A_N: return "SBC A," + hex8(instr.imm8);
+        case InstructionType::AND_A_N: return "AND " + hex8(instr.imm8);
+        case InstructionType::XOR_A_N: return "XOR " + hex8(instr.imm8);
+        case InstructionType::OR_A_N: return "OR " + hex8(instr.imm8);
+        case InstructionType::CP_A_N: return "CP " + hex8(instr.imm8);
+        
+        case InstructionType::ADD_A_R: return "ADD A," + std::string(reg8_name(instr.reg8_src));
+        case InstructionType::ADC_A_R: return "ADC A," + std::string(reg8_name(instr.reg8_src));
+        case InstructionType::SUB_A_R: return "SUB " + std::string(reg8_name(instr.reg8_src));
+        case InstructionType::SBC_A_R: return "SBC A," + std::string(reg8_name(instr.reg8_src));
+        case InstructionType::AND_A_R: return "AND " + std::string(reg8_name(instr.reg8_src));
+        case InstructionType::XOR_A_R: return "XOR " + std::string(reg8_name(instr.reg8_src));
+        case InstructionType::OR_A_R: return "OR " + std::string(reg8_name(instr.reg8_src));
+        case InstructionType::CP_A_R: return "CP " + std::string(reg8_name(instr.reg8_src));
+        
+        case InstructionType::ADD_A_HL: return "ADD A,(HL)";
+        case InstructionType::ADC_A_HL: return "ADC A,(HL)";
+        case InstructionType::SUB_A_HL: return "SUB (HL)";
+        case InstructionType::SBC_A_HL: return "SBC A,(HL)";
+        case InstructionType::AND_A_HL: return "AND (HL)";
+        case InstructionType::XOR_A_HL: return "XOR (HL)";
+        case InstructionType::OR_A_HL: return "OR (HL)";
+        case InstructionType::CP_A_HL: return "CP (HL)";
+        
+        case InstructionType::INC_R: return "INC " + std::string(reg8_name(instr.reg8_dst));
+        case InstructionType::DEC_R: return "DEC " + std::string(reg8_name(instr.reg8_dst));
+        case InstructionType::INC_HL_IND: return "INC (HL)";
+        case InstructionType::DEC_HL_IND: return "DEC (HL)";
+        case InstructionType::INC_RR: return "INC " + std::string(reg16_name(instr.reg16));
+        case InstructionType::DEC_RR: return "DEC " + std::string(reg16_name(instr.reg16));
+        
+        case InstructionType::ADD_HL_RR: return "ADD HL," + std::string(reg16_name(instr.reg16));
+        case InstructionType::ADD_SP_N: return "ADD SP," + std::to_string((int)instr.offset);
+        
+        // CB Prefix - simplified
+        case InstructionType::BIT_N_R: return "BIT " + std::to_string((int)instr.bit_index) + "," + std::string(reg8_name(instr.reg8_dst));
+        case InstructionType::BIT_N_HL: return "BIT " + std::to_string((int)instr.bit_index) + ",(HL)";
+        // ... (others similar, using defaults for now if not explicit)
+        
+        default: break;
+    }
+    
+    // Fallback to type name if not handled above
     ss << instruction_type_name(instr.type);
+    
     return ss.str();
 }
 

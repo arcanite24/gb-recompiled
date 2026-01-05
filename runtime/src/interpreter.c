@@ -37,13 +37,22 @@ void gb_interpret(GBContext* ctx, uint16_t addr) {
     /* Set PC to the address we want to execute */
     ctx->pc = addr;
     
-    /* int instructions_executed = 0; */
-    /* const int MAX_INTERPRET_INSTRUCTIONS = 50000; */ /* Limit removed for continuous execution */
+    /* Interpreter entry logging disabled for performance */
+#if 0
+    static int entry_count = 0;
+    entry_count++;
+    if (entry_count <= 100) {
+        fprintf(stderr, "[INTERP] Enter interpreter at 0x%04X (entry #%d)\n", addr, entry_count);
+    }
+#endif
 
     uint32_t instructions_executed = 0;
 
     while (!ctx->stopped) {
         instructions_executed++;
+        
+        /* Debug logging disabled for performance */
+#if 0
         if (instructions_executed % 100000 == 1) {
             DBG_GENERAL("Interpreter (0x%04X): Regs A=%02X B=%02X C=%02X D=%02X E=%02X H=%02X L=%02X SP=%04X HL=%04X",
                         ctx->pc, ctx->a, ctx->b, ctx->c, ctx->d, ctx->e, ctx->h, ctx->l, ctx->sp, ctx->hl);
@@ -60,16 +69,15 @@ void gb_interpret(GBContext* ctx, uint16_t addr) {
                 }
             }
         }
-        /* Check if we are back in ROM (likely compiled code) */
-        /* Note: ROM is 0x0000-0x7FFF. 
-           However, some ROM banks might be mapped elsewhere? No.
-           But we must ensure we are not in a position where we *should* be interpreting ROM code 
-           that wasn't compiled (unlikely for static recompiler unless incomplete coverage).
-           For now, assume returning to < 0x8000 means "go back to compiled code".
-        */
-        if (ctx->pc < 0x8000) {
-            return;
-        }
+#endif
+        (void)instructions_executed; /* Avoid unused warning */
+        
+        /* NOTE: Previously we returned immediately when pc < 0x8000 (ROM area),
+         * expecting the dispatcher to have compiled code for all ROM addresses.
+         * However, static analysis may miss code paths (like cpu_instrs.gb's 
+         * callback tables), so we MUST interpret ROM code too when called.
+         * The interpreter is now a universal fallback for ANY uncompiled code.
+         */
 
         /* HRAM DMA Interception */
         /* Check for standard HRAM DMA routine: LDH (0xFF46), A */
@@ -542,6 +550,12 @@ void gb_interpret(GBContext* ctx, uint16_t addr) {
                 return;
         }
         
-        gb_tick(ctx, 4); /* Approximate timing */
+        /* Batch timing updates for performance - tick every 16 instructions instead of every one */
+        static uint32_t pending_cycles = 0;
+        pending_cycles += 4;
+        if (pending_cycles >= 64) {  /* 16 instructions * 4 cycles */
+            gb_tick(ctx, pending_cycles);
+            pending_cycles = 0;
+        }
     }
 }
