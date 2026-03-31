@@ -2393,7 +2393,7 @@ static void render_frame_internal(const uint32_t* framebuffer, bool count_guest_
     }
 
     ImGui::Render();
-    ImGui_ImplSDLRenderer2_RenderDrawData(ImGui::GetDrawData());
+    ImGui_ImplSDLRenderer2_RenderDrawData(ImGui::GetDrawData(), g_renderer);
     g_last_timing.compose_ms = sdl_now_ms() - compose_start_ms;
 
     double present_start_ms = sdl_now_ms();
