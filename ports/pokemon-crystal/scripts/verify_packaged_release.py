@@ -13,6 +13,9 @@ import sys
 from pathlib import Path
 
 
+COMMAND_TIMEOUT_SECONDS = 1800
+
+
 def sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -34,7 +37,7 @@ def run(
         stdout=subprocess.PIPE if capture else subprocess.DEVNULL,
         stderr=subprocess.STDOUT if capture else subprocess.DEVNULL,
         check=False,
-        timeout=900,
+        timeout=COMMAND_TIMEOUT_SECONDS,
     )
     if completed.returncode != 0:
         raise RuntimeError("packaged release command failed")
