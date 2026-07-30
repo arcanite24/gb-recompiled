@@ -40,7 +40,8 @@ def normalized_text_bytes(path: Path) -> bytes:
 
 def tree_sha256(root: Path, *, clean_source: bool = False) -> str:
     digest = hashlib.sha256()
-    for path in sorted(candidate for candidate in root.rglob("*") if candidate.is_file()):
+    paths = (candidate for candidate in root.rglob("*") if candidate.is_file())
+    for path in sorted(paths, key=lambda candidate: candidate.relative_to(root).as_posix()):
         relative = path.relative_to(root)
         if ".DS_Store" in relative.parts or "__pycache__" in relative.parts:
             continue

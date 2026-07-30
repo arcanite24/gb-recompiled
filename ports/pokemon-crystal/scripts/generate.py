@@ -63,7 +63,8 @@ def sha256_file(path: Path) -> str:
 def tree_sha256(root: Path, *, excluded_names: frozenset[str] = frozenset()) -> str:
     """Hash a directory by relative path, file size, and file content."""
     digest = hashlib.sha256()
-    for path in sorted(candidate for candidate in root.rglob("*") if candidate.is_file()):
+    paths = (candidate for candidate in root.rglob("*") if candidate.is_file())
+    for path in sorted(paths, key=lambda candidate: candidate.relative_to(root).as_posix()):
         relative = path.relative_to(root)
         if any(part in {".DS_Store", "__pycache__"} for part in relative.parts):
             continue
