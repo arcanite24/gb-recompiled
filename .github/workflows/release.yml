@@ -340,7 +340,7 @@ jobs:
             --license LICENSE `
             --readme README.md `
             --extra-file "SDL2/lib/x64/SDL2.dll=SDL2.dll" `
-            --extra-file "SDL2/LICENSE.txt=THIRD_PARTY/SDL2-LICENSE.txt" `
+            --extra-file "SDL2/COPYING.txt=THIRD_PARTY/SDL2-LICENSE.txt" `
             --output package/gb-recompiled-windows `
             --platform windows `
             --architecture x64

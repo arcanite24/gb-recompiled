@@ -25,8 +25,11 @@ def decode_payload(
 ) -> bytes:
     if not encoded or not encoded.isascii():
         raise RuntimeError("private ROM secret payload is incomplete")
+    normalized = "".join(encoded.split())
+    if not normalized:
+        raise RuntimeError("private ROM secret payload is incomplete")
     try:
-        compressed = base64.b64decode(encoded, validate=True)
+        compressed = base64.b64decode(normalized, validate=True)
         payload = lzma.decompress(compressed, format=lzma.FORMAT_XZ)
     except (ValueError, lzma.LZMAError) as error:
         raise RuntimeError("private ROM secret payload is malformed") from error

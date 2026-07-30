@@ -54,6 +54,17 @@ def main() -> int:
         expected_sha256=digest,
     ) != payload:
         raise RuntimeError("valid secret shards did not reconstruct")
+    wrapped = parts.copy()
+    wrapped[2] = "\n".join(
+        wrapped[2][offset : offset + 76]
+        for offset in range(0, len(wrapped[2]), 76)
+    )
+    if module.reconstruct(
+        wrapped,
+        expected_size=len(payload),
+        expected_sha256=digest,
+    ) != payload:
+        raise RuntimeError("wrapped Base64 secret shards did not reconstruct")
 
     missing = parts.copy()
     missing[3] = ""
