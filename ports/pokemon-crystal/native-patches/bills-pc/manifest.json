@@ -1,0 +1,19 @@
+{
+  "schema": "gbrecomp.native-patch",
+  "version": 1,
+  "patch_id": "org.gbrecompiled.crystal.bills-pc",
+  "rom": {
+    "sha256": "fdcc3c8c43813cf8731fc037d2a6d191bac75439c34b24ba1c27526e6acdc8a2",
+    "size": 2097152
+  },
+  "sources": [
+    "bills_pc_patch.c"
+  ],
+  "bindings": [
+    {
+      "function": "gbfn:v1:0005:5668",
+      "replace": "crystal_native_bills_pc",
+      "entry_contract": "return-stack"
+    }
+  ]
+}

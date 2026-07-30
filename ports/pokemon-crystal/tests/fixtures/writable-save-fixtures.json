@@ -1,0 +1,41 @@
+{
+  "schema": "crystal-recompiled.writable-save-fixtures",
+  "version": 1,
+  "base": {
+    "kind": "user-provided-save",
+    "required_bytes": 32768,
+    "committed": false
+  },
+  "fixtures": [
+    {
+      "id": "baseline",
+      "operation": "identity-export",
+      "expected_selected_copy": "primary",
+      "pkhex_input": "fixture"
+    },
+    {
+      "id": "party-nickname",
+      "operation": "validated-party-transaction",
+      "expected_selected_copy": "primary",
+      "pkhex_input": "fixture"
+    },
+    {
+      "id": "active-box-add",
+      "operation": "validated-active-box-transaction",
+      "expected_selected_copy": "primary",
+      "pkhex_input": "fixture"
+    },
+    {
+      "id": "backup-fallback",
+      "operation": "interrupted-primary-after-valid-transaction",
+      "expected_selected_copy": "backup",
+      "pkhex_input": "guest-repaired-fixture"
+    }
+  ],
+  "negative_controls": [
+    {
+      "id": "both-checksums-invalid",
+      "expected": "rejected-before-writable-ui"
+    }
+  ]
+}

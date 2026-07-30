@@ -1,0 +1,1294 @@
+[
+  {
+    "cycle": 7997616,
+    "buttons": "S",
+    "duration": 280896
+  },
+  {
+    "cycle": 43390512,
+    "buttons": "S",
+    "duration": 842688
+  },
+  {
+    "cycle": 46480368,
+    "buttons": "S",
+    "duration": 1264032
+  },
+  {
+    "cycle": 50272464,
+    "buttons": "S",
+    "duration": 1825876
+  },
+  {
+    "cycle": 53849860,
+    "buttons": "S",
+    "duration": 983124
+  },
+  {
+    "cycle": 66700840,
+    "buttons": "S",
+    "duration": 1404480
+  },
+  {
+    "cycle": 76672648,
+    "buttons": "A",
+    "duration": 1825824
+  },
+  {
+    "cycle": 87978712,
+    "buttons": "A",
+    "duration": 2317392
+  },
+  {
+    "cycle": 100000000,
+    "buttons": "R",
+    "duration": 800000
+  },
+  {
+    "cycle": 102000000,
+    "buttons": "U",
+    "duration": 800000
+  },
+  {
+    "start_cycle": 120000000,
+    "end_cycle": 445000000,
+    "step_cycles": 3000000,
+    "buttons": "A",
+    "duration": 700000
+  },
+  {
+    "cycle": 455000000,
+    "buttons": "U",
+    "duration": 800000
+  },
+  {
+    "cycle": 457000000,
+    "buttons": "R",
+    "duration": 800000
+  },
+  {
+    "cycle": 460000000,
+    "buttons": "A",
+    "duration": 700000
+  },
+  {
+    "start_cycle": 470000000,
+    "end_cycle": 668000000,
+    "step_cycles": 3000000,
+    "buttons": "A",
+    "duration": 700000
+  },
+  {
+    "cycle": 680000000,
+    "buttons": "D",
+    "duration": 5000000
+  },
+  {
+    "cycle": 700000000,
+    "buttons": "D",
+    "duration": 2000000
+  },
+  {
+    "start_cycle": 710000000,
+    "end_cycle": 820000000,
+    "step_cycles": 3000000,
+    "buttons": "A",
+    "duration": 700000
+  },
+  {
+    "cycle": 840000000,
+    "buttons": "D",
+    "duration": 6000000
+  },
+  {
+    "cycle": 870000000,
+    "buttons": "D",
+    "duration": 5000000
+  },
+  {
+    "cycle": 878000000,
+    "buttons": "L",
+    "duration": 8000000
+  },
+  {
+    "cycle": 900000000,
+    "buttons": "D",
+    "duration": 2000000
+  },
+  {
+    "cycle": 904000000,
+    "buttons": "L",
+    "duration": 4000000
+  },
+  {
+    "cycle": 930000000,
+    "buttons": "L",
+    "duration": 30000000
+  },
+  {
+    "cycle": 970000000,
+    "buttons": "D",
+    "duration": 3000000
+  },
+  {
+    "start_cycle": 975000000,
+    "step_cycles": 9000000,
+    "count": 20,
+    "buttons_sequence": [
+      "L",
+      "R"
+    ],
+    "duration": 6000000
+  },
+  {
+    "start_cycle": 1170000000,
+    "end_cycle": 1500000000,
+    "step_cycles": 3000000,
+    "buttons": "A",
+    "duration": 700000
+  },
+  {
+    "cycle": 1520000000,
+    "buttons": "D",
+    "duration": 15000000
+  },
+  {
+    "start_cycle": 1620000000,
+    "end_cycle": 1950000000,
+    "step_cycles": 3000000,
+    "buttons": "A",
+    "duration": 700000
+  },
+  {
+    "cycle": 1970000000,
+    "buttons": "L",
+    "duration": 50000000
+  },
+  {
+    "cycle": 2060000000,
+    "buttons": "A",
+    "duration": 700000
+  },
+  {
+    "cycle": 2080000000,
+    "buttons": "D",
+    "duration": 700000
+  },
+  {
+    "cycle": 2082000000,
+    "buttons": "R",
+    "duration": 700000
+  },
+  {
+    "cycle": 2084000000,
+    "buttons": "A",
+    "duration": 700000
+  },
+  {
+    "cycle": 2120000000,
+    "buttons": "A",
+    "duration": 700000
+  },
+  {
+    "cycle": 2130000000,
+    "buttons": "L",
+    "duration": 50000000
+  },
+  {
+    "cycle": 2220000000,
+    "buttons": "D",
+    "duration": 10000000
+  },
+  {
+    "cycle": 2240000000,
+    "buttons": "L",
+    "duration": 50000000
+  },
+  {
+    "cycle": 2400000000,
+    "buttons": "U",
+    "duration": 15000000
+  },
+  {
+    "cycle": 2430000000,
+    "buttons": "L",
+    "duration": 50000000
+  },
+  {
+    "start_cycle": 2650000000,
+    "step_cycles": 2000000,
+    "count": 28,
+    "buttons_sequence": [
+      "R",
+      "R",
+      "R",
+      "D",
+      "D",
+      "D",
+      "D",
+      "R",
+      "R",
+      "R",
+      "R",
+      "U",
+      "U",
+      "U",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "U",
+      "U",
+      "U",
+      "U",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L"
+    ],
+    "duration": 800000
+  },
+  {
+    "start_cycle": 2720000000,
+    "end_cycle": 3100000000,
+    "step_cycles": 3000000,
+    "buttons": "A",
+    "duration": 700000
+  },
+  {
+    "start_cycle": 3150000000,
+    "step_cycles": 2000000,
+    "count": 12,
+    "buttons_sequence": [
+      "L"
+    ],
+    "duration": 800000
+  },
+  {
+    "start_cycle": 3200000000,
+    "end_cycle": 3550000000,
+    "step_cycles": 3000000,
+    "buttons": "A",
+    "duration": 700000
+  },
+  {
+    "start_cycle": 3700000000,
+    "step_cycles": 2000000,
+    "count": 10,
+    "buttons_sequence": [
+      "U",
+      "L",
+      "L",
+      "U",
+      "U",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L"
+    ],
+    "duration": 800000
+  },
+  {
+    "start_cycle": 3750000000,
+    "end_cycle": 4100000000,
+    "step_cycles": 3000000,
+    "buttons": "A",
+    "duration": 700000
+  },
+  {
+    "start_cycle": 4250000000,
+    "step_cycles": 2000000,
+    "count": 16,
+    "buttons_sequence": [
+      "D",
+      "D",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L"
+    ],
+    "duration": 800000
+  },
+  {
+    "cycle": 4400000000,
+    "buttons": "A",
+    "duration": 700000
+  },
+  {
+    "cycle": 4420000000,
+    "buttons": "D",
+    "duration": 700000
+  },
+  {
+    "cycle": 4422000000,
+    "buttons": "R",
+    "duration": 700000
+  },
+  {
+    "cycle": 4424000000,
+    "buttons": "A",
+    "duration": 700000
+  },
+  {
+    "cycle": 4460000000,
+    "buttons": "A",
+    "duration": 700000
+  },
+  {
+    "start_cycle": 4700000000,
+    "step_cycles": 2000000,
+    "count": 13,
+    "buttons_sequence": [
+      "L"
+    ],
+    "duration": 800000
+  },
+  {
+    "cycle": 4850000000,
+    "buttons": "A",
+    "duration": 700000
+  },
+  {
+    "cycle": 4870000000,
+    "buttons": "D",
+    "duration": 700000
+  },
+  {
+    "cycle": 4872000000,
+    "buttons": "R",
+    "duration": 700000
+  },
+  {
+    "cycle": 4874000000,
+    "buttons": "A",
+    "duration": 700000
+  },
+  {
+    "cycle": 4910000000,
+    "buttons": "A",
+    "duration": 700000
+  },
+  {
+    "start_cycle": 5200000000,
+    "step_cycles": 5000000,
+    "count": 10,
+    "buttons_sequence": [
+      "L"
+    ],
+    "duration": 1200000
+  },
+  {
+    "start_cycle": 5300000000,
+    "step_cycles": 3000000,
+    "count": 8,
+    "buttons_sequence": [
+      "U",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "U",
+      "U"
+    ],
+    "duration": 900000
+  },
+  {
+    "start_cycle": 5350000000,
+    "step_cycles": 3000000,
+    "count": 5,
+    "buttons_sequence": [
+      "U",
+      "U",
+      "U",
+      "U",
+      "U"
+    ],
+    "duration": 900000
+  },
+  {
+    "start_cycle": 5400000000,
+    "end_cycle": 5900000000,
+    "step_cycles": 3000000,
+    "buttons": "A",
+    "duration": 700000
+  },
+  {
+    "start_cycle": 5950000000,
+    "step_cycles": 5000000,
+    "count": 6,
+    "buttons_sequence": [
+      "D"
+    ],
+    "duration": 1200000
+  },
+  {
+    "start_cycle": 6100000000,
+    "step_cycles": 5000000,
+    "count": 16,
+    "buttons_sequence": [
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "U",
+      "U",
+      "U",
+      "U"
+    ],
+    "duration": 1200000
+  },
+  {
+    "start_cycle": 6850000000,
+    "step_cycles": 3000000,
+    "count": 2,
+    "buttons_sequence": [
+      "R",
+      "U"
+    ],
+    "duration": 900000
+  },
+  {
+    "start_cycle": 6950000000,
+    "step_cycles": 3000000,
+    "count": 5,
+    "buttons_sequence": [
+      "U"
+    ],
+    "duration": 900000
+  },
+  {
+    "start_cycle": 7000000000,
+    "end_cycle": 7600000000,
+    "step_cycles": 3000000,
+    "buttons": "A",
+    "duration": 700000
+  },
+  {
+    "cycle": 8300000000,
+    "buttons": "A",
+    "duration": 700000
+  },
+  {
+    "start_cycle": 8400000000,
+    "step_cycles": 5000000,
+    "count": 6,
+    "buttons_sequence": [
+      "D"
+    ],
+    "duration": 1200000
+  },
+  {
+    "start_cycle": 8600000000,
+    "step_cycles": 5000000,
+    "count": 16,
+    "buttons_sequence": [
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "U",
+      "U",
+      "U",
+      "U"
+    ],
+    "duration": 1200000
+  },
+  {
+    "start_cycle": 9800000000,
+    "step_cycles": 5000000,
+    "count": 11,
+    "buttons_sequence": [
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "U",
+      "U",
+      "U",
+      "U"
+    ],
+    "duration": 1200000
+  },
+  {
+    "start_cycle": 10700000000,
+    "step_cycles": 3000000,
+    "count": 7,
+    "buttons_sequence": [
+      "R",
+      "R",
+      "R",
+      "U",
+      "U",
+      "U",
+      "U"
+    ],
+    "duration": 500000
+  },
+  {
+    "start_cycle": 11150000000,
+    "step_cycles": 2500000,
+    "count": 11,
+    "buttons_sequence": [
+      "R",
+      "U",
+      "U",
+      "U",
+      "U",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R"
+    ],
+    "duration": 1000000
+  },
+  {
+    "start_cycle": 11200000000,
+    "end_cycle": 11700000000,
+    "step_cycles": 3000000,
+    "buttons": "A",
+    "duration": 700000
+  },
+  {
+    "start_cycle": 12100000000,
+    "step_cycles": 2500000,
+    "count": 14,
+    "buttons_sequence": [
+      "R",
+      "R",
+      "U",
+      "U",
+      "U",
+      "U",
+      "U",
+      "U",
+      "U",
+      "U",
+      "U",
+      "U",
+      "U",
+      "U"
+    ],
+    "duration": 1000000
+  },
+  {
+    "start_cycle": 12150000000,
+    "end_cycle": 12650000000,
+    "step_cycles": 3000000,
+    "buttons": "A",
+    "duration": 700000
+  },
+  {
+    "start_cycle": 13100000000,
+    "step_cycles": 2500000,
+    "count": 18,
+    "buttons_sequence": [
+      "R",
+      "R",
+      "U",
+      "U",
+      "U",
+      "U",
+      "U",
+      "U",
+      "U",
+      "U",
+      "U",
+      "U",
+      "U",
+      "U",
+      "U",
+      "U",
+      "U",
+      "U"
+    ],
+    "duration": 1000000
+  },
+  {
+    "start_cycle": 13150000000,
+    "end_cycle": 13650000000,
+    "step_cycles": 3000000,
+    "buttons": "A",
+    "duration": 700000
+  },
+  {
+    "start_cycle": 14100000000,
+    "step_cycles": 2500000,
+    "count": 18,
+    "buttons_sequence": [
+      "R",
+      "R",
+      "U",
+      "U",
+      "U",
+      "U",
+      "U",
+      "U",
+      "U",
+      "U",
+      "U",
+      "U",
+      "U",
+      "U",
+      "U",
+      "U",
+      "U",
+      "U"
+    ],
+    "duration": 1000000
+  },
+  {
+    "start_cycle": 14150000000,
+    "end_cycle": 14650000000,
+    "step_cycles": 3000000,
+    "buttons": "A",
+    "duration": 700000
+  },
+  {
+    "start_cycle": 15200000000,
+    "step_cycles": 2500000,
+    "count": 11,
+    "buttons_sequence": [
+      "R",
+      "R",
+      "R",
+      "R",
+      "U",
+      "R",
+      "U",
+      "U",
+      "U",
+      "U",
+      "L"
+    ],
+    "duration": 1000000
+  },
+  {
+    "start_cycle": 15250000000,
+    "end_cycle": 15750000000,
+    "step_cycles": 3000000,
+    "buttons": "A",
+    "duration": 700000
+  },
+  {
+    "start_cycle": 16200000000,
+    "step_cycles": 2500000,
+    "count": 16,
+    "buttons_sequence": [
+      "L",
+      "U",
+      "U",
+      "U",
+      "R",
+      "R",
+      "R",
+      "R",
+      "U",
+      "U",
+      "U",
+      "U",
+      "U",
+      "U",
+      "U",
+      "U"
+    ],
+    "duration": 1000000
+  },
+  {
+    "start_cycle": 16250000000,
+    "end_cycle": 17000000000,
+    "step_cycles": 3000000,
+    "buttons": "A",
+    "duration": 700000
+  },
+  {
+    "start_cycle": 17700000000,
+    "step_cycles": 2500000,
+    "count": 4,
+    "buttons_sequence": [
+      "U",
+      "U",
+      "R",
+      "R"
+    ],
+    "duration": 1000000
+  },
+  {
+    "start_cycle": 17750000000,
+    "end_cycle": 18250000000,
+    "step_cycles": 3000000,
+    "buttons": "A",
+    "duration": 700000
+  },
+  {
+    "start_cycle": 18400000000,
+    "step_cycles": 2500000,
+    "count": 18,
+    "buttons_sequence": [
+      "U"
+    ],
+    "duration": 1000000
+  },
+  {
+    "start_cycle": 18450000000,
+    "end_cycle": 19000000000,
+    "step_cycles": 3000000,
+    "buttons": "A",
+    "duration": 700000
+  },
+  {
+    "start_cycle": 19200000000,
+    "step_cycles": 2500000,
+    "count": 10,
+    "buttons_sequence": [
+      "R",
+      "R",
+      "U",
+      "U",
+      "R",
+      "U",
+      "U",
+      "U",
+      "U",
+      "L"
+    ],
+    "duration": 1000000
+  },
+  {
+    "start_cycle": 19250000000,
+    "end_cycle": 19800000000,
+    "step_cycles": 3000000,
+    "buttons": "A",
+    "duration": 700000
+  },
+  {
+    "start_cycle": 20000000000,
+    "step_cycles": 2500000,
+    "count": 10,
+    "buttons_sequence": [
+      "U"
+    ],
+    "duration": 1000000
+  },
+  {
+    "start_cycle": 20050000000,
+    "end_cycle": 21000000000,
+    "step_cycles": 3000000,
+    "buttons": "A",
+    "duration": 700000
+  },
+  {
+    "start_cycle": 21500000000,
+    "step_cycles": 2500000,
+    "count": 10,
+    "buttons_sequence": [
+      "L",
+      "U",
+      "U",
+      "U",
+      "U",
+      "U",
+      "U",
+      "U",
+      "U",
+      "U"
+    ],
+    "duration": 1000000
+  },
+  {
+    "start_cycle": 21550000000,
+    "end_cycle": 23000000000,
+    "step_cycles": 3000000,
+    "buttons": "A",
+    "duration": 700000
+  },
+  {
+    "start_cycle": 23600000000,
+    "step_cycles": 3000000,
+    "count": 2,
+    "buttons_sequence": [
+      "D"
+    ],
+    "duration": 1000000
+  },
+  {
+    "start_cycle": 23800000000,
+    "step_cycles": 2500000,
+    "count": 13,
+    "buttons_sequence": [
+      "D",
+      "D",
+      "D",
+      "D",
+      "D",
+      "D",
+      "D",
+      "D",
+      "R",
+      "D",
+      "D",
+      "D",
+      "D"
+    ],
+    "duration": 1000000
+  },
+  {
+    "start_cycle": 23850000000,
+    "end_cycle": 24400000000,
+    "step_cycles": 3000000,
+    "buttons": "A",
+    "duration": 700000
+  },
+  {
+    "start_cycle": 24600000000,
+    "step_cycles": 2500000,
+    "count": 16,
+    "buttons_sequence": [
+      "L",
+      "L",
+      "D",
+      "D",
+      "L",
+      "L",
+      "D",
+      "D",
+      "D",
+      "D",
+      "D",
+      "D",
+      "D",
+      "D",
+      "L",
+      "L"
+    ],
+    "duration": 1000000
+  },
+  {
+    "start_cycle": 24650000000,
+    "end_cycle": 25200000000,
+    "step_cycles": 3000000,
+    "buttons": "A",
+    "duration": 700000
+  },
+  {
+    "start_cycle": 25400000000,
+    "step_cycles": 2500000,
+    "count": 20,
+    "buttons_sequence": [
+      "D"
+    ],
+    "duration": 1000000
+  },
+  {
+    "start_cycle": 25450000000,
+    "end_cycle": 26000000000,
+    "step_cycles": 3000000,
+    "buttons": "A",
+    "duration": 700000
+  },
+  {
+    "start_cycle": 26200000000,
+    "step_cycles": 2500000,
+    "count": 10,
+    "buttons_sequence": [
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "D",
+      "D",
+      "D",
+      "D",
+      "D"
+    ],
+    "duration": 1000000
+  },
+  {
+    "start_cycle": 26250000000,
+    "end_cycle": 27000000000,
+    "step_cycles": 3000000,
+    "buttons": "A",
+    "duration": 700000
+  },
+  {
+    "start_cycle": 27600000000,
+    "step_cycles": 2500000,
+    "count": 10,
+    "buttons_sequence": [
+      "R",
+      "R",
+      "R",
+      "R",
+      "D",
+      "D",
+      "D",
+      "D",
+      "D",
+      "D"
+    ],
+    "duration": 1000000
+  },
+  {
+    "start_cycle": 27650000000,
+    "end_cycle": 28200000000,
+    "step_cycles": 3000000,
+    "buttons": "A",
+    "duration": 700000
+  },
+  {
+    "start_cycle": 28400000000,
+    "step_cycles": 2500000,
+    "count": 14,
+    "buttons_sequence": [
+      "L",
+      "L",
+      "D",
+      "D",
+      "D",
+      "D",
+      "D",
+      "D",
+      "D",
+      "D",
+      "D",
+      "D",
+      "D",
+      "D"
+    ],
+    "duration": 1000000
+  },
+  {
+    "start_cycle": 28450000000,
+    "end_cycle": 29000000000,
+    "step_cycles": 3000000,
+    "buttons": "A",
+    "duration": 700000
+  },
+  {
+    "start_cycle": 29200000000,
+    "step_cycles": 2500000,
+    "count": 16,
+    "buttons_sequence": [
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "D",
+      "D",
+      "D",
+      "D",
+      "D",
+      "D",
+      "D",
+      "D",
+      "D",
+      "D",
+      "D"
+    ],
+    "duration": 1000000
+  },
+  {
+    "start_cycle": 29250000000,
+    "end_cycle": 30000000000,
+    "step_cycles": 3000000,
+    "buttons": "A",
+    "duration": 700000
+  },
+  {
+    "start_cycle": 30600000000,
+    "step_cycles": 2500000,
+    "count": 5,
+    "buttons_sequence": [
+      "R",
+      "R",
+      "D",
+      "D",
+      "D"
+    ],
+    "duration": 1000000
+  },
+  {
+    "start_cycle": 30650000000,
+    "end_cycle": 31200000000,
+    "step_cycles": 3000000,
+    "buttons": "A",
+    "duration": 700000
+  },
+  {
+    "start_cycle": 31400000000,
+    "step_cycles": 2500000,
+    "count": 14,
+    "buttons_sequence": [
+      "L",
+      "L",
+      "D",
+      "D",
+      "D",
+      "D",
+      "D",
+      "D",
+      "D",
+      "D",
+      "D",
+      "D",
+      "D",
+      "D"
+    ],
+    "duration": 1000000
+  },
+  {
+    "start_cycle": 31450000000,
+    "end_cycle": 32000000000,
+    "step_cycles": 3000000,
+    "buttons": "A",
+    "duration": 700000
+  },
+  {
+    "start_cycle": 32200000000,
+    "step_cycles": 2500000,
+    "count": 16,
+    "buttons_sequence": [
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "D",
+      "D",
+      "D",
+      "D",
+      "D",
+      "D",
+      "D",
+      "D",
+      "D",
+      "D",
+      "D"
+    ],
+    "duration": 1000000
+  },
+  {
+    "start_cycle": 32250000000,
+    "end_cycle": 33000000000,
+    "step_cycles": 3000000,
+    "buttons": "A",
+    "duration": 700000
+  },
+  {
+    "cycle": 33600000000,
+    "buttons": "D",
+    "duration": 5000000
+  },
+  {
+    "start_cycle": 34000000000,
+    "step_cycles": 2500000,
+    "count": 30,
+    "buttons_sequence": [
+      "D",
+      "D",
+      "D",
+      "D",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "D",
+      "D",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R"
+    ],
+    "duration": 1000000
+  },
+  {
+    "start_cycle": 34100000000,
+    "end_cycle": 36000000000,
+    "step_cycles": 3000000,
+    "buttons": "A",
+    "duration": 700000
+  },
+  {
+    "start_cycle": 36600000000,
+    "step_cycles": 2500000,
+    "count": 7,
+    "buttons_sequence": [
+      "U",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R",
+      "R"
+    ],
+    "duration": 1000000
+  },
+  {
+    "start_cycle": 36650000000,
+    "end_cycle": 38500000000,
+    "step_cycles": 3000000,
+    "buttons": "A",
+    "duration": 700000
+  },
+  {
+    "cycle": 39000000000,
+    "buttons": "S",
+    "duration": 1000000
+  },
+  {
+    "cycle": 39100000000,
+    "buttons": "A",
+    "duration": 1000000
+  },
+  {
+    "cycle": 39500000000,
+    "buttons": "B",
+    "duration": 1000000
+  },
+  {
+    "cycle": 39600000000,
+    "buttons": "B",
+    "duration": 1000000
+  },
+  {
+    "start_cycle": 40000000000,
+    "step_cycles": 2500000,
+    "count": 14,
+    "buttons_sequence": [
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "L",
+      "U",
+      "U",
+      "U",
+      "U"
+    ],
+    "duration": 1000000
+  },
+  {
+    "start_cycle": 40300000000,
+    "step_cycles": 2500000,
+    "count": 9,
+    "buttons_sequence": [
+      "R",
+      "R",
+      "R",
+      "R",
+      "U",
+      "U",
+      "U",
+      "U",
+      "U"
+    ],
+    "duration": 1000000
+  },
+  {
+    "start_cycle": 40350000000,
+    "end_cycle": 41100000000,
+    "step_cycles": 3000000,
+    "buttons": "A",
+    "duration": 700000
+  },
+  {
+    "cycle": 40500000000,
+    "buttons": "R",
+    "duration": 1000000
+  },
+  {
+    "cycle": 40550000000,
+    "buttons": "U",
+    "duration": 1000000
+  },
+  {
+    "cycle": 40700000000,
+    "buttons": "R",
+    "duration": 1000000
+  },
+  {
+    "start_cycle": 41200000000,
+    "end_cycle": 41800000000,
+    "step_cycles": 3000000,
+    "buttons": "B",
+    "duration": 700000
+  },
+  {
+    "cycle": 42000000000,
+    "buttons": "S",
+    "duration": 1000000
+  },
+  {
+    "start_cycle": 42100000000,
+    "step_cycles": 3000000,
+    "count": 5,
+    "buttons_sequence": [
+      "D"
+    ],
+    "duration": 1000000
+  },
+  {
+    "start_cycle": 42200000000,
+    "end_cycle": 43200000000,
+    "step_cycles": 3000000,
+    "buttons": "A",
+    "duration": 700000
+  }
+]

@@ -1,0 +1,43 @@
+{
+  "schema": "gbrecompiled.port-module",
+  "version": 1,
+  "module": {
+    "id": "crystal-workbench",
+    "version": 8,
+    "abi_version": 2
+  },
+  "rom": {
+    "size": 2097152,
+    "sha256": "fdcc3c8c43813cf8731fc037d2a6d191bac75439c34b24ba1c27526e6acdc8a2"
+  },
+  "sources": [
+    {
+      "path": "crystal_port.c",
+      "sha256": "218496cc00965c899f541491b93f7762871a8cae665eef33af21404d4712b08e"
+    },
+    {
+      "path": "crystal_pc.c",
+      "sha256": "7c07d98845f37ca60adf3eaf446dfb0dc53602d164c71826b60ef7312c144356"
+    },
+    {
+      "path": "crystal_pc.h",
+      "sha256": "cc490335d33225568f4dbea1740ce808a8bbf4e10f9afb5ccda48e8197375485"
+    },
+    {
+      "path": "crystal_overworld.c",
+      "sha256": "1071a761c2ed809ad56965f33378423d1a097edb6685802b2611f0152f23d9f4"
+    },
+    {
+      "path": "crystal_overworld.h",
+      "sha256": "3bfa6e0866d891d78ff4a88386188801f580f2d0ba9d31c9491636f94abbd26f"
+    },
+    {
+      "path": "crystal_battle.c",
+      "sha256": "693f945280d2e79cd2fbc8999651b8294b47c6f401f28ed6b0a471a9e437c9e7"
+    },
+    {
+      "path": "crystal_battle.h",
+      "sha256": "f61c69baee9d910b47e0ff38d19f04b6ea6a571ebab965b9e7b8a1e55b995f26"
+    }
+  ]
+}

@@ -1,0 +1,45 @@
+# Reviewed exact-ROM annotations for Crystal Recompiled.
+# Function identities are pinned pokecrystal11 global symbols exercised by the
+# M2 route. Mid-function recovery roots remain in analysis-entry-points.json.
+
+function 01:403f OAMDMACode
+function 01:5e9a DisplaySaveInfoOnSave
+function 01:6508 LearnMove
+function 01:7282 DayCareStep
+function 02:41ca CheckObjectEnteringVisibleRange
+function 03:49e7 TrySurfOW
+function 05:54f7 CheckUpdatePlayerSprite
+function 09:454f LoadObjectMasks
+function 0d:43db BattleCommand_CheckObedience
+function 0d:4f57 BattleCommand_MoveAnim
+function 0d:4fdb BattleCommand_StatDownAnim
+function 0d:5250 BattleCommand_BuildOpponentRage
+function 0d:62b1 BattleCommand_DefenseDown
+function 0d:62b5 BattleCommand_SpeedDown
+function 0f:5123 IsKantoGymLeader
+function 0f:72eb PrepareBattleMonNicknameText
+function 10:4000 Pokedex
+function 20:4648 _GetVarAction
+function 22:4258 MovePlayerPicRight
+function 3a:4ca6 PlayStereoSFX
+function 41:402d HDMATransferTilemapToWRAMBank3
+function 41:4047 HDMATransferAttrmapToWRAMBank3
+function 41:4303 HDMATransfer_OnlyTopFourRows
+function 41:47eb LoadMapPalettes
+function 41:602e StubbedTrainerRankings_StepCount
+function 41:60d3 StubbedTrainerRankings_PhoneCalls
+
+# Reviewed read-only semantic ranges. Widths match semantic/anchors.json.
+data 01:dcb5 1 wMapGroup
+data 01:dcb6 1 wMapNumber
+data 01:dcb7 1 wYCoord
+data 01:dcb8 1 wXCoord
+data 01:dcd7 1 wPartyCount
+data 01:dcd8 6 wPartySpecies
+data 01:dcdf 288 wPartyMons
+data 01:de99 32 wPokedexCaught
+data 01:deb9 32 wPokedexSeen
+data 00:bf0d 2 sBackupChecksum
+data 01:ad0d 2 sChecksum
+data 01:ad10 1 sBoxCount
+data 01:ad11 21 sBoxSpecies

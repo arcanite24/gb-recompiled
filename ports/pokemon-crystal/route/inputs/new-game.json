@@ -1,0 +1,952 @@
+[
+  {
+    "cycle": 7997616,
+    "buttons": "S",
+    "duration": 280896
+  },
+  {
+    "cycle": 43390512,
+    "buttons": "S",
+    "duration": 842688
+  },
+  {
+    "cycle": 46480368,
+    "buttons": "S",
+    "duration": 1264032
+  },
+  {
+    "cycle": 50272464,
+    "buttons": "S",
+    "duration": 1825876
+  },
+  {
+    "cycle": 53849860,
+    "buttons": "S",
+    "duration": 983124
+  },
+  {
+    "cycle": 66700840,
+    "buttons": "S",
+    "duration": 1404480
+  },
+  {
+    "cycle": 76672648,
+    "buttons": "A",
+    "duration": 1825824
+  },
+  {
+    "cycle": 87978712,
+    "buttons": "A",
+    "duration": 2317392
+  },
+  {
+    "cycle": 99144344,
+    "buttons": "A",
+    "duration": 1474688
+  },
+  {
+    "cycle": 103638664,
+    "buttons": "A",
+    "duration": 1404480
+  },
+  {
+    "cycle": 106517896,
+    "buttons": "A",
+    "duration": 1685328
+  },
+  {
+    "cycle": 109186360,
+    "buttons": "A",
+    "duration": 1896048
+  },
+  {
+    "cycle": 111854928,
+    "buttons": "A",
+    "duration": 1966216
+  },
+  {
+    "cycle": 114523384,
+    "buttons": "A",
+    "duration": 1896048
+  },
+  {
+    "cycle": 116981224,
+    "buttons": "A",
+    "duration": 1755600
+  },
+  {
+    "cycle": 119649788,
+    "buttons": "A",
+    "duration": 4353836
+  },
+  {
+    "cycle": 124635640,
+    "buttons": "A",
+    "duration": 1896084
+  },
+  {
+    "cycle": 127374432,
+    "buttons": "A",
+    "duration": 1685320
+  },
+  {
+    "cycle": 130253568,
+    "buttons": "A",
+    "duration": 1615144
+  },
+  {
+    "cycle": 132992296,
+    "buttons": "A",
+    "duration": 1685376
+  },
+  {
+    "cycle": 136082152,
+    "buttons": "A",
+    "duration": 1474704
+  },
+  {
+    "cycle": 146966936,
+    "buttons": "A",
+    "duration": 1966208
+  },
+  {
+    "cycle": 150478072,
+    "buttons": "A",
+    "duration": 1474704
+  },
+  {
+    "cycle": 153216860,
+    "buttons": "A",
+    "duration": 1685324
+  },
+  {
+    "cycle": 156095992,
+    "buttons": "A",
+    "duration": 1896048
+  },
+  {
+    "cycle": 159115684,
+    "buttons": "A",
+    "duration": 1685316
+  },
+  {
+    "cycle": 162345928,
+    "buttons": "A",
+    "duration": 1404480
+  },
+  {
+    "cycle": 165365580,
+    "buttons": "A",
+    "duration": 1615132
+  },
+  {
+    "cycle": 168174520,
+    "buttons": "A",
+    "duration": 1544928
+  },
+  {
+    "cycle": 171194152,
+    "buttons": "A",
+    "duration": 1685376
+  },
+  {
+    "cycle": 174564944,
+    "buttons": "A",
+    "duration": 1615112
+  },
+  {
+    "cycle": 177584536,
+    "buttons": "A",
+    "duration": 1825824
+  },
+  {
+    "cycle": 180744616,
+    "buttons": "A",
+    "duration": 1896080
+  },
+  {
+    "cycle": 184326060,
+    "buttons": "A",
+    "duration": 1755580
+  },
+  {
+    "cycle": 187345672,
+    "buttons": "A",
+    "duration": 1755600
+  },
+  {
+    "cycle": 190505792,
+    "buttons": "A",
+    "duration": 1755560
+  },
+  {
+    "cycle": 193595608,
+    "buttons": "A",
+    "duration": 1685376
+  },
+  {
+    "cycle": 196825928,
+    "buttons": "A",
+    "duration": 1755584
+  },
+  {
+    "cycle": 200126440,
+    "buttons": "A",
+    "duration": 1685376
+  },
+  {
+    "cycle": 203146156,
+    "buttons": "A",
+    "duration": 1966188
+  },
+  {
+    "cycle": 206235928,
+    "buttons": "A",
+    "duration": 1685376
+  },
+  {
+    "cycle": 209466232,
+    "buttons": "A",
+    "duration": 1896048
+  },
+  {
+    "cycle": 212836984,
+    "buttons": "A",
+    "duration": 1474704
+  },
+  {
+    "cycle": 215856616,
+    "buttons": "A",
+    "duration": 1755600
+  },
+  {
+    "cycle": 219086940,
+    "buttons": "A",
+    "duration": 1896028
+  },
+  {
+    "cycle": 222247000,
+    "buttons": "A",
+    "duration": 1825824
+  },
+  {
+    "cycle": 225336856,
+    "buttons": "A",
+    "duration": 2247168
+  },
+  {
+    "cycle": 228426752,
+    "buttons": "A",
+    "duration": 1896008
+  },
+  {
+    "cycle": 231727240,
+    "buttons": "A",
+    "duration": 1966272
+  },
+  {
+    "cycle": 235238440,
+    "buttons": "A",
+    "duration": 1474704
+  },
+  {
+    "cycle": 238258088,
+    "buttons": "A",
+    "duration": 1404464
+  },
+  {
+    "cycle": 241207480,
+    "buttons": "A",
+    "duration": 1544928
+  },
+  {
+    "cycle": 244016440,
+    "buttons": "A",
+    "duration": 2036496
+  },
+  {
+    "cycle": 247457416,
+    "buttons": "A",
+    "duration": 1825824
+  },
+  {
+    "cycle": 250828208,
+    "buttons": "A",
+    "duration": 1896008
+  },
+  {
+    "cycle": 254198920,
+    "buttons": "A",
+    "duration": 1896048
+  },
+  {
+    "cycle": 257499448,
+    "buttons": "A",
+    "duration": 1755600
+  },
+  {
+    "cycle": 261080932,
+    "buttons": "A",
+    "duration": 1581904
+  },
+  {
+    "cycle": 265190900,
+    "buttons": "A",
+    "duration": 1264032
+  },
+  {
+    "cycle": 272775092,
+    "buttons": "A",
+    "duration": 2176944
+  },
+  {
+    "cycle": 275864948,
+    "buttons": "A",
+    "duration": 2036496
+  },
+  {
+    "cycle": 279025028,
+    "buttons": "S",
+    "duration": 1544928
+  },
+  {
+    "cycle": 285766532,
+    "buttons": "S",
+    "duration": 1825824
+  },
+  {
+    "cycle": 293280500,
+    "buttons": "S",
+    "duration": 2036496
+  },
+  {
+    "cycle": 300864692,
+    "buttons": "S",
+    "duration": 1825824
+  },
+  {
+    "cycle": 307184852,
+    "buttons": "A",
+    "duration": 1966272
+  },
+  {
+    "cycle": 317437556,
+    "buttons": "A",
+    "duration": 983136
+  },
+  {
+    "cycle": 320035844,
+    "buttons": "A",
+    "duration": 1544928
+  },
+  {
+    "cycle": 323055476,
+    "buttons": "A",
+    "duration": 1755600
+  },
+  {
+    "cycle": 326426228,
+    "buttons": "A",
+    "duration": 1755600
+  },
+  {
+    "cycle": 329797052,
+    "buttons": "A",
+    "duration": 1685304
+  },
+  {
+    "cycle": 332746388,
+    "buttons": "A",
+    "duration": 1685376
+  },
+  {
+    "cycle": 335976692,
+    "buttons": "A",
+    "duration": 1966272
+  },
+  {
+    "cycle": 338575000,
+    "buttons": "A",
+    "duration": 2036476
+  },
+  {
+    "cycle": 341945732,
+    "buttons": "A",
+    "duration": 1896048
+  },
+  {
+    "cycle": 345246280,
+    "buttons": "A",
+    "duration": 2317372
+  },
+  {
+    "cycle": 348055220,
+    "buttons": "A",
+    "duration": 2176944
+  },
+  {
+    "cycle": 352058032,
+    "buttons": "A",
+    "duration": 1334212
+  },
+  {
+    "cycle": 355077620,
+    "buttons": "A",
+    "duration": 1966272
+  },
+  {
+    "cycle": 358659044,
+    "buttons": "A",
+    "duration": 1825824
+  },
+  {
+    "cycle": 362240504,
+    "buttons": "A",
+    "duration": 1640784
+  },
+  {
+    "cycle": 373501976,
+    "buttons": "R",
+    "duration": 3370752
+  },
+  {
+    "cycle": 376872728,
+    "buttons": "UR",
+    "duration": 491568
+  },
+  {
+    "cycle": 377364296,
+    "buttons": "U",
+    "duration": 5056128
+  },
+  {
+    "cycle": 382420424,
+    "buttons": "UR",
+    "duration": 210672
+  },
+  {
+    "cycle": 382631096,
+    "buttons": "R",
+    "duration": 2457840
+  },
+  {
+    "cycle": 385088936,
+    "buttons": "UR",
+    "duration": 632020
+  },
+  {
+    "cycle": 385720956,
+    "buttons": "U",
+    "duration": 4453648
+  },
+  {
+    "cycle": 396354316,
+    "buttons": "D",
+    "duration": 4424112
+  },
+  {
+    "cycle": 400778428,
+    "buttons": "DL",
+    "duration": 983136
+  },
+  {
+    "cycle": 401761564,
+    "buttons": "L",
+    "duration": 2879184
+  },
+  {
+    "cycle": 405062100,
+    "buttons": "D",
+    "duration": 3160100
+  },
+  {
+    "cycle": 408222200,
+    "buttons": "DA",
+    "duration": 280868
+  },
+  {
+    "cycle": 408503068,
+    "buttons": "A",
+    "duration": 1264032
+  },
+  {
+    "cycle": 411452476,
+    "buttons": "A",
+    "duration": 1474704
+  },
+  {
+    "cycle": 414542340,
+    "buttons": "A",
+    "duration": 1334248
+  },
+  {
+    "cycle": 417281068,
+    "buttons": "A",
+    "duration": 1615152
+  },
+  {
+    "cycle": 420090108,
+    "buttons": "A",
+    "duration": 1544848
+  },
+  {
+    "cycle": 422898988,
+    "buttons": "A",
+    "duration": 1755600
+  },
+  {
+    "cycle": 425988844,
+    "buttons": "A",
+    "duration": 1615152
+  },
+  {
+    "cycle": 428727616,
+    "buttons": "A",
+    "duration": 1544892
+  },
+  {
+    "cycle": 431747212,
+    "buttons": "A",
+    "duration": 1193808
+  },
+  {
+    "cycle": 434486004,
+    "buttons": "A",
+    "duration": 1474648
+  },
+  {
+    "cycle": 437224696,
+    "buttons": "A",
+    "duration": 1544916
+  },
+  {
+    "cycle": 440244396,
+    "buttons": "A",
+    "duration": 1825744
+  },
+  {
+    "cycle": 443544844,
+    "buttons": "A",
+    "duration": 1053436
+  },
+  {
+    "cycle": 446143148,
+    "buttons": "A",
+    "duration": 1755620
+  },
+  {
+    "cycle": 449303296,
+    "buttons": "A",
+    "duration": 1615096
+  },
+  {
+    "cycle": 452463360,
+    "buttons": "A",
+    "duration": 1615100
+  },
+  {
+    "cycle": 455412736,
+    "buttons": "A",
+    "duration": 1755628
+  },
+  {
+    "cycle": 458432348,
+    "buttons": "A",
+    "duration": 2176928
+  },
+  {
+    "cycle": 461030632,
+    "buttons": "A",
+    "duration": 2317380
+  },
+  {
+    "cycle": 464331148,
+    "buttons": "A",
+    "duration": 2036496
+  },
+  {
+    "cycle": 467350792,
+    "buttons": "A",
+    "duration": 1825812
+  },
+  {
+    "cycle": 470370412,
+    "buttons": "A",
+    "duration": 2106720
+  },
+  {
+    "cycle": 473460268,
+    "buttons": "A",
+    "duration": 1966272
+  },
+  {
+    "cycle": 476831052,
+    "buttons": "A",
+    "duration": 1615120
+  },
+  {
+    "cycle": 479710204,
+    "buttons": "A",
+    "duration": 1825824
+  },
+  {
+    "cycle": 482729892,
+    "buttons": "A",
+    "duration": 2106664
+  },
+  {
+    "cycle": 486170812,
+    "buttons": "A",
+    "duration": 2036496
+  },
+  {
+    "cycle": 489541564,
+    "buttons": "A",
+    "duration": 2106744
+  },
+  {
+    "cycle": 493403900,
+    "buttons": "A",
+    "duration": 561776
+  },
+  {
+    "cycle": 500145412,
+    "buttons": "A",
+    "duration": 2176928
+  },
+  {
+    "cycle": 503797072,
+    "buttons": "A",
+    "duration": 2317356
+  },
+  {
+    "cycle": 509274544,
+    "buttons": "A",
+    "duration": 2106684
+  },
+  {
+    "cycle": 514962684,
+    "buttons": "A",
+    "duration": 2106688
+  },
+  {
+    "cycle": 518122732,
+    "buttons": "A",
+    "duration": 1966272
+  },
+  {
+    "cycle": 521142388,
+    "buttons": "A",
+    "duration": 2247144
+  },
+  {
+    "cycle": 525004684,
+    "buttons": "A",
+    "duration": 1896048
+  },
+  {
+    "cycle": 528726612,
+    "buttons": "A",
+    "duration": 2668456
+  },
+  {
+    "cycle": 533220892,
+    "buttons": "A",
+    "duration": 2317428
+  },
+  {
+    "cycle": 539892216,
+    "buttons": "A",
+    "duration": 2879140
+  },
+  {
+    "cycle": 546001660,
+    "buttons": "A",
+    "duration": 2528064
+  },
+  {
+    "cycle": 550355636,
+    "buttons": "A",
+    "duration": 1895960
+  },
+  {
+    "cycle": 553866748,
+    "buttons": "A",
+    "duration": 2528064
+  },
+  {
+    "cycle": 562855420,
+    "buttons": "A",
+    "duration": 3019632
+  },
+  {
+    "cycle": 569316028,
+    "buttons": "A",
+    "duration": 2387616
+  },
+  {
+    "cycle": 576408652,
+    "buttons": "A",
+    "duration": 2668512
+  },
+  {
+    "cycle": 584835532,
+    "buttons": "D",
+    "duration": 3230304
+  },
+  {
+    "cycle": 588065836,
+    "buttons": "DL",
+    "duration": 1053360
+  },
+  {
+    "cycle": 589119196,
+    "buttons": "L",
+    "duration": 3721872
+  },
+  {
+    "cycle": 592841068,
+    "buttons": "D",
+    "duration": 3720144
+  },
+  {
+    "cycle": 602108908,
+    "buttons": "D",
+    "duration": 2949408
+  },
+  {
+    "cycle": 605901004,
+    "buttons": "R",
+    "duration": 2106720
+  },
+  {
+    "cycle": 611870044,
+    "buttons": "L",
+    "duration": 7443756
+  },
+  {
+    "cycle": 619313800,
+    "buttons": "UL",
+    "duration": 702228
+  },
+  {
+    "cycle": 620016028,
+    "buttons": "U",
+    "duration": 5969040
+  },
+  {
+    "cycle": 625985068,
+    "buttons": "UL",
+    "duration": 421344
+  },
+  {
+    "cycle": 626406412,
+    "buttons": "L",
+    "duration": 3440976
+  },
+  {
+    "cycle": 630479404,
+    "buttons": "U",
+    "duration": 7654416
+  },
+  {
+    "cycle": 644032636,
+    "buttons": "S",
+    "duration": 1334256
+  },
+  {
+    "cycle": 651757276,
+    "buttons": "D",
+    "duration": 1685376
+  },
+  {
+    "cycle": 654987580,
+    "buttons": "D",
+    "duration": 1685376
+  },
+  {
+    "cycle": 658077436,
+    "buttons": "D",
+    "duration": 1825824
+  },
+  {
+    "cycle": 662993116,
+    "buttons": "S",
+    "duration": 1334256
+  },
+  {
+    "cycle": 678442396,
+    "buttons": "S",
+    "duration": 1615152
+  },
+  {
+    "cycle": 684270988,
+    "buttons": "D",
+    "duration": 1404480
+  },
+  {
+    "cycle": 686939500,
+    "buttons": "D",
+    "duration": 1474704
+  },
+  {
+    "cycle": 690029356,
+    "buttons": "D",
+    "duration": 1825824
+  },
+  {
+    "cycle": 692978764,
+    "buttons": "A",
+    "duration": 2387616
+  },
+  {
+    "cycle": 697543336,
+    "buttons": "A",
+    "duration": 1404504
+  },
+  {
+    "cycle": 701054556,
+    "buttons": "A",
+    "duration": 1544920
+  },
+  {
+    "cycle": 704706220,
+    "buttons": "A",
+    "duration": 1615140
+  },
+  {
+    "cycle": 708006720,
+    "buttons": "A",
+    "duration": 2387624
+  },
+  {
+    "cycle": 712992604,
+    "buttons": "A",
+    "duration": 1615152
+  },
+  {
+    "cycle": 725352028,
+    "buttons": "A",
+    "duration": 2808960
+  },
+  {
+    "cycle": 734481148,
+    "buttons": "D",
+    "duration": 5266820
+  },
+  {
+    "cycle": 740169292,
+    "buttons": "R",
+    "duration": 7162848
+  },
+  {
+    "cycle": 747332140,
+    "buttons": "UR",
+    "duration": 983136
+  },
+  {
+    "cycle": 748315276,
+    "buttons": "U",
+    "duration": 2036496
+  },
+  {
+    "cycle": 750351772,
+    "buttons": "UL",
+    "duration": 491568
+  },
+  {
+    "cycle": 750843340,
+    "buttons": "L",
+    "duration": 9339792
+  },
+  {
+    "cycle": 766713964,
+    "buttons": "B",
+    "duration": 2387616
+  },
+  {
+    "cycle": 769733596,
+    "buttons": "D",
+    "duration": 2738736
+  },
+  {
+    "cycle": 772472332,
+    "buttons": "DL",
+    "duration": 632016
+  },
+  {
+    "cycle": 773104348,
+    "buttons": "L",
+    "duration": 9269568
+  },
+  {
+    "cycle": 782373916,
+    "buttons": "LA",
+    "duration": 280928
+  },
+  {
+    "cycle": 782654844,
+    "buttons": "A",
+    "duration": 2457808
+  },
+  {
+    "cycle": 786095788,
+    "buttons": "A",
+    "duration": 1685376
+  },
+  {
+    "cycle": 789677212,
+    "buttons": "A",
+    "duration": 1474704
+  },
+  {
+    "cycle": 793820480,
+    "buttons": "A",
+    "duration": 983084
+  },
+  {
+    "cycle": 796699612,
+    "buttons": "A",
+    "duration": 1825824
+  },
+  {
+    "cycle": 800070364,
+    "buttons": "A",
+    "duration": 1966272
+  },
+  {
+    "cycle": 810955088,
+    "buttons": "A",
+    "duration": 1474700
+  },
+  {
+    "cycle": 813974716,
+    "buttons": "A",
+    "duration": 1615152
+  },
+  {
+    "cycle": 817134796,
+    "buttons": "A",
+    "duration": 1825824
+  },
+  {
+    "cycle": 820435344,
+    "buttons": "A",
+    "duration": 1755580
+  },
+  {
+    "cycle": 825912796,
+    "buttons": "A",
+    "duration": 1896048
+  },
+  {
+    "cycle": 832865004,
+    "buttons": "A",
+    "duration": 2247136
+  },
+  {
+    "cycle": 839325580,
+    "buttons": "A",
+    "duration": 2808960
+  }
+]

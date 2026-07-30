@@ -1,0 +1,167 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gbrecompiled.example/schemas/data-mod-package-v1.json",
+  "title": "GB Recompiled deterministic data-mod package",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "package",
+    "runtime_abi",
+    "compatibility",
+    "load",
+    "provenance",
+    "content"
+  ],
+  "properties": {
+    "schema": {"const": "gbrecompiled.data-mod-package"},
+    "schema_version": {"const": 1},
+    "package": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version"],
+      "properties": {
+        "id": {"$ref": "#/$defs/package_id"},
+        "version": {"$ref": "#/$defs/semver"}
+      }
+    },
+    "runtime_abi": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": {"const": "gbrecomp.data-mod"},
+        "version": {"const": 1}
+      }
+    },
+    "compatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["port", "rom", "semantic"],
+      "properties": {
+        "port": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "version"],
+          "properties": {
+            "id": {"type": "string", "minLength": 1},
+            "version": {"type": "integer", "minimum": 1}
+          }
+        },
+        "rom": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["size", "sha256"],
+          "properties": {
+            "size": {"type": "integer", "minimum": 1},
+            "sha256": {"$ref": "#/$defs/sha256"}
+          }
+        },
+        "semantic": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "package_id",
+            "package_version",
+            "manifest_sha256",
+            "schema_sha256"
+          ],
+          "properties": {
+            "package_id": {"type": "string", "minLength": 1},
+            "package_version": {"type": "integer", "minimum": 1},
+            "manifest_sha256": {"$ref": "#/$defs/sha256"},
+            "schema_sha256": {"$ref": "#/$defs/sha256"}
+          }
+        }
+      }
+    },
+    "load": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["order", "dependencies", "conflicts"],
+      "properties": {
+        "order": {"type": "integer", "minimum": 0, "maximum": 65535},
+        "dependencies": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "version"],
+            "properties": {
+              "id": {"$ref": "#/$defs/package_id"},
+              "version": {"$ref": "#/$defs/semver"}
+            }
+          }
+        },
+        "conflicts": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/package_id"}
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["license", "authors", "source", "content_origin"],
+      "properties": {
+        "license": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9.+-]*(?: OR [A-Za-z0-9][A-Za-z0-9.+-]*)*$"
+        },
+        "authors": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "source": {
+          "type": "string",
+          "pattern": "^https://"
+        },
+        "content_origin": {
+          "enum": ["project-original", "compatible-license"]
+        }
+      }
+    },
+    "content": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "target", "path", "sha256"],
+        "properties": {
+          "id": {"$ref": "#/$defs/content_id"},
+          "target": {"$ref": "#/$defs/content_id"},
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+$"
+          },
+          "sha256": {"$ref": "#/$defs/sha256"}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "package_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)+$"
+    },
+    "content_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+    },
+    "semver": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

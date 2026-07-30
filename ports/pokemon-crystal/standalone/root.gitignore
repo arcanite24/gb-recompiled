@@ -1,0 +1,18 @@
+# User inputs and all ROM-derived/private output
+roms/
+output/
+saves/
+logs/
+
+# Acquired GB Recompiled SDK and reference checkouts
+build/
+runtime/
+.crystal/
+ports/pokemon-crystal/references/vendor/
+ports/pokemon-crystal/references/generated/
+ports/pokemon-crystal/references/cache/
+
+# Local tooling state
+__pycache__/
+*.pyc
+.DS_Store

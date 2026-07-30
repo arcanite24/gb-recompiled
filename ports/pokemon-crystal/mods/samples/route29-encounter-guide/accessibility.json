@@ -1,0 +1,15 @@
+{
+  "schema": "crystal.accessibility",
+  "version": 1,
+  "signs": [
+    {
+      "map": "ROUTE_29",
+      "sign": "WEST_SIGN",
+      "title": "ROUTE 29",
+      "lines": [
+        "AM/DAY: PIDGEY",
+        "NITE: HOOTHOOT"
+      ]
+    }
+  ]
+}

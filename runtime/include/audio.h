@@ -47,6 +47,27 @@ void gb_audio_write(GBContext* ctx, uint16_t addr, uint8_t value);
 void gb_audio_step(GBContext* ctx, uint32_t cycles);
 
 /**
+ * @brief Return system cycles until the next exact output-sample deadline
+ *
+ * Returns UINT32_MAX while the APU is powered off.
+ */
+uint32_t gb_audio_cycles_until_sample(const void* apu);
+
+/**
+ * @brief Step audio while preserving DIV-APU event ordering across a CPU batch
+ *
+ * @param old_div Divider value before the CPU batch
+ * @param cpu_cycles CPU T-cycles in the batch
+ * @param double_speed Whether the CPU batch ran in CGB double-speed mode
+ * @param system_cycle_remainder System-cycle half-step carried into the batch
+ */
+void gb_audio_step_timed(GBContext* ctx,
+                         uint16_t old_div,
+                         uint32_t cpu_cycles,
+                         bool double_speed,
+                         uint8_t system_cycle_remainder);
+
+/**
  * @brief Advance frame-sequencer timing from DIV transitions
  * @param old_div Divider value before the CPU step
  * @param new_div Divider value after the CPU step

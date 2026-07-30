@@ -1,0 +1,140 @@
+{
+  "schema": "gbrecompiled.pokemon-crystal.route",
+  "version": 1,
+  "rom_sha256": "fdcc3c8c43813cf8731fc037d2a6d191bac75439c34b24ba1c27526e6acdc8a2",
+  "rtc_unix_time": 1700000000,
+  "ignore_rtc_persistence": true,
+  "segments": [
+    {
+      "id": "new-game",
+      "input": "inputs/new-game.json",
+      "frame_limit": 12050,
+      "checkpoints": [
+        {
+          "id": "title",
+          "frame": 750,
+          "frame_sha256": "aaa47b9bf5e9e4f1b787fad8a143a3d4ce32a0f888445509680770b08b1c2b24"
+        },
+        {
+          "id": "new_game",
+          "frame": 2500,
+          "frame_sha256": "4482d6a384e6baa7a5a14d41bfa33b0d31d681d907eb1b69e30fb23fb57e0e7f"
+        },
+        {
+          "id": "overworld",
+          "frame": 8250,
+          "frame_sha256": "4fe548730b50523e70f4d7d71b54c94a9747896e368774d715165539570a9b7a"
+        },
+        {
+          "id": "map_transition",
+          "frame": 8500,
+          "frame_sha256": "23a315127bf0c41bbc56b9b168cd086621b633eb2b6c3ff5545159f4f93686dc"
+        }
+      ],
+      "final_state": {
+        "completed_frames": 12049,
+        "total_cycles": 850491400,
+        "wram_bank_1_d000_dfff.557": 0,
+        "wram_bank_1_d000_dfff.2124": 16,
+        "wram_bank_1_d000_dfff.3253": 24,
+        "wram_bank_1_d000_dfff.3254": 4,
+        "wram_bank_1_d000_dfff.3255": 8,
+        "wram_bank_1_d000_dfff.3256": 5
+      }
+    },
+    {
+      "id": "adventure",
+      "input": "inputs/adventure.json",
+      "frame_limit": 620000,
+      "checkpoints": [
+        {
+          "id": "wild_battle",
+          "frame": 14000,
+          "frame_sha256": "f017ebea694dd3c9e225717fa390fb002f74dfea1dff39c7e728e71da2fd2693"
+        },
+        {
+          "id": "trainer_battle",
+          "frame": 488000,
+          "frame_sha256": "e0fd398c6baa6fe24c99d051f6ea4e90a2b668f8e8edbabe03f6ee5a3817f2e9"
+        },
+        {
+          "id": "start_menu",
+          "frame": 556000,
+          "frame_sha256": "9140e8eaa8c6bb52bd0f7e28b95b6be1f86056676bfd1c96e22c15397d303cef"
+        },
+        {
+          "id": "pokedex",
+          "frame": 557000,
+          "frame_sha256": "ac6cb204ddbe69f0ef4e888d1ab19dce87b397e52cadaf45a293b56e966c2da1"
+        }
+      ],
+      "final_state": {
+        "completed_frames": 619999,
+        "total_cycles": 43590070944,
+        "wram_bank_1_d000_dfff.557": 0,
+        "wram_bank_1_d000_dfff.2124": 17,
+        "wram_bank_1_d000_dfff.2442": 0,
+        "wram_bank_1_d000_dfff.3253": 26,
+        "wram_bank_1_d000_dfff.3254": 5,
+        "wram_bank_1_d000_dfff.3255": 1,
+        "wram_bank_1_d000_dfff.3256": 8
+      }
+    },
+    {
+      "id": "pc-save",
+      "input": "inputs/pc-save.json",
+      "frame_limit": 15000,
+      "checkpoints": [
+        {
+          "id": "pc",
+          "frame": 5000,
+          "frame_sha256": "16001b95ef8b9ad34979025c0bee2a89fade57dffcf48dd9e1a00604b4194390"
+        },
+        {
+          "id": "save",
+          "frame": 13300,
+          "frame_sha256": "b1b6ae745ab5b4a519b9e83e74c7fb5e77182cc39db11715c1eeba80d946580f"
+        }
+      ],
+      "final_state": {
+        "completed_frames": 14999,
+        "total_cycles": 1061655860,
+        "wram_bank_1_d000_dfff.557": 0,
+        "wram_bank_1_d000_dfff.2124": 17,
+        "wram_bank_1_d000_dfff.2442": 0,
+        "wram_bank_1_d000_dfff.3253": 26,
+        "wram_bank_1_d000_dfff.3254": 5,
+        "wram_bank_1_d000_dfff.3255": 1,
+        "wram_bank_1_d000_dfff.3256": 8
+      }
+    },
+    {
+      "id": "restart-continue",
+      "input": "inputs/restart-continue.json",
+      "frame_limit": 3500,
+      "checkpoints": [
+        {
+          "id": "restart",
+          "frame": 750,
+          "frame_sha256": "aaa47b9bf5e9e4f1b787fad8a143a3d4ce32a0f888445509680770b08b1c2b24"
+        },
+        {
+          "id": "continue",
+          "frame": 1500,
+          "frame_sha256": "8b986495fd45d4715efa1bf77a1eb19a00fd2f2cc2502b76226426687ecd89ea"
+        }
+      ],
+      "final_state": {
+        "completed_frames": 3499,
+        "total_cycles": 248070120,
+        "wram_bank_1_d000_dfff.557": 0,
+        "wram_bank_1_d000_dfff.2124": 17,
+        "wram_bank_1_d000_dfff.2442": 0,
+        "wram_bank_1_d000_dfff.3253": 26,
+        "wram_bank_1_d000_dfff.3254": 5,
+        "wram_bank_1_d000_dfff.3255": 1,
+        "wram_bank_1_d000_dfff.3256": 8
+      }
+    }
+  ]
+}

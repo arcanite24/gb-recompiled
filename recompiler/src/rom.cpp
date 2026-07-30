@@ -351,10 +351,14 @@ uint8_t ROM::read(uint16_t addr) const {
     return 0xFF;
 }
 
-uint8_t ROM::read_banked(uint8_t bank, uint16_t addr) const {
+uint8_t ROM::read_banked(BankId bank, uint16_t addr) const {
     if (addr < 0x4000) {
-        // Fixed bank 0
-        return read(addr);
+        // Usually physical bank 0. MBC1 advanced mode can map another
+        // physical bank into this CPU window, represented by bank > 0.
+        size_t offset = (static_cast<size_t>(bank) * 0x4000) + addr;
+        if (offset < data_.size()) {
+            return data_[offset];
+        }
     } else if (addr < 0x8000) {
         // Switchable bank
         size_t offset = (static_cast<size_t>(bank) * 0x4000) + (addr - 0x4000);

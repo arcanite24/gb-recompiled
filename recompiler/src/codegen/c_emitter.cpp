@@ -7,9 +7,11 @@
 #include <iomanip>
 #include <iostream>
 #include <fstream>
+#include <sstream>
 #include <filesystem>
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <exception>
 #include <mutex>
 #include <set>
@@ -17,6 +19,11 @@
 
 namespace gbrecomp {
 namespace codegen {
+
+/* Keep generated translation units small enough for bounded-memory parallel
+ * compilation. A compiler's optimizer memory grows superlinearly on the
+ * multi-megabyte switch/function units emitted by mapper-heavy ROMs. */
+static constexpr size_t GENERATED_CHUNK_TARGET_BYTES = 1024u * 1024u;
 
 static size_t resolve_parallel_job_count(size_t requested_jobs, size_t work_items) {
     if (work_items <= 1) {
@@ -98,7 +105,7 @@ void CEmitter::end_program() {
     out_ << "\n/* End of generated code */\n";
 }
 
-void CEmitter::begin_function(const std::string& name, uint8_t bank, uint16_t addr) {
+void CEmitter::begin_function(const std::string& name, BankId bank, uint16_t addr) {
     out_ << "\n/* Function at ";
     if (bank > 0) {
         out_ << std::hex << std::setfill('0') << std::setw(2) << (int)bank << ":";
@@ -472,7 +479,7 @@ void CEmitter::emit_reti() {
     emit_line("return;");
 }
 
-void CEmitter::emit_bank_call(uint8_t target_bank, const std::string& func_name) {
+void CEmitter::emit_bank_call(BankId target_bank, const std::string& func_name) {
     emit_indent();
     out_ << "gbrt_bank_call(ctx, " << (int)target_bank << ", " << func_name << ");\n";
 }
@@ -565,7 +572,7 @@ void CEmitter::emit_comment(const std::string& comment) {
     }
 }
 
-void CEmitter::emit_source_location(uint8_t bank, uint16_t addr) {
+void CEmitter::emit_source_location(BankId bank, uint16_t addr) {
     if (options_.emit_address_comments) {
         emit_indent();
         out_ << "/* ";
@@ -585,7 +592,7 @@ void CEmitter::emit_add_cycles(uint8_t cycles) {
         emit_indent();
         out_ << "gb_tick(ctx, " << (int)cycles << ");\n";
         emit_indent();
-        out_ << "if (ctx->stopped) return;\n";
+        out_ << "if (gbrt_generated_safepoint(ctx)) return;\n";
     }
 }
 
@@ -646,6 +653,40 @@ static std::string json_escape(const std::string& input) {
     return ss.str();
 }
 
+static void emit_source_symbol_metadata_fields(
+    std::ostringstream& output,
+    const ir::AddressSymbol& symbol) {
+    if (!symbol.source_name.empty()) {
+        output << ",\n      \"source_symbol\": \""
+               << json_escape(symbol.source_name) << "\"";
+    }
+    if (!symbol.source_names.empty()) {
+        output << ",\n      \"source_symbols\": [";
+        for (size_t i = 0; i < symbol.source_names.size(); ++i) {
+            output << "\"" << json_escape(symbol.source_names[i]) << "\"";
+            if (i + 1 < symbol.source_names.size()) {
+                output << ", ";
+            }
+        }
+        output << "]";
+    }
+}
+
+static void emit_address_semantic_metadata_fields(
+    std::ostringstream& output,
+    const ir::AddressSymbol* symbol,
+    const char* fallback_space) {
+    const std::string memory_space =
+        symbol != nullptr && !symbol->memory_space.empty()
+            ? symbol->memory_space
+            : fallback_space;
+    const uint32_t width =
+        symbol != nullptr && symbol->width > 0 ? symbol->width : 1;
+    output << ",\n      \"memory_space\": \""
+           << json_escape(memory_space) << "\"";
+    output << ",\n      \"width\": " << width;
+}
+
 static std::string module_link_name(const GeneratorOptions& options, const std::string& symbol) {
     if (!options.use_prefixed_symbols) {
         return symbol;
@@ -676,6 +717,31 @@ static std::string rom_size_symbol_name(const GeneratorOptions& options) {
 
 static std::string module_main_name(const GeneratorOptions& options) {
     return options.output_prefix + "_main";
+}
+
+static const NativePatchBinding* native_patch_binding(const GeneratorOptions& options,
+                                                      BankId bank,
+                                                      uint16_t address) {
+    if (!options.native_patch.enabled) return nullptr;
+    for (const NativePatchBinding& binding : options.native_patch.bindings) {
+        if (binding.bank == bank && binding.address == address) return &binding;
+    }
+    return nullptr;
+}
+
+static std::string native_binding_symbol(const GeneratorOptions& options,
+                                         BankId bank,
+                                         uint16_t address) {
+    std::ostringstream name;
+    name << "native_binding_" << std::hex << std::setfill('0')
+         << std::setw(4) << static_cast<unsigned>(bank) << '_'
+         << std::setw(4) << static_cast<unsigned>(address);
+    return module_link_name(options, name.str());
+}
+
+static std::string native_body_key_symbol(const GeneratorOptions& options,
+                                          const std::string& body_name) {
+    return module_link_name(options, body_name + "_native_key");
 }
 
 struct BuiltinAddressConstant {
@@ -821,9 +887,12 @@ static std::string format_builtin_memory_address(uint16_t addr) {
 
 static const ir::AddressSymbol* find_address_symbol(const ir::Program& program,
                                                     uint16_t addr,
-                                                    uint8_t source_bank) {
+                                                    BankId source_bank) {
     if (addr < 0x4000) {
-        auto symbol_it = program.address_symbols.find(addr);
+        const uint32_t full_addr = source_bank > 0
+            ? (static_cast<uint32_t>(source_bank) << 16) | addr
+            : addr;
+        auto symbol_it = program.address_symbols.find(full_addr);
         if (symbol_it != program.address_symbols.end()) {
             return &symbol_it->second;
         }
@@ -856,7 +925,7 @@ static const ir::AddressSymbol* find_address_symbol(const ir::Program& program,
 
 static std::string format_memory_address(const ir::Program& program,
                                          uint16_t addr,
-                                         uint8_t source_bank) {
+                                         BankId source_bank) {
     if (const ir::AddressSymbol* symbol = find_address_symbol(program, addr, source_bank)) {
         if (should_emit_named_rom_data_symbol(*symbol)) {
             return make_rom_address_constant_name(*symbol);
@@ -868,13 +937,13 @@ static std::string format_memory_address(const ir::Program& program,
     return format_builtin_memory_address(addr);
 }
 
-static bool try_get_rom_storage_index(uint8_t bank,
+static bool try_get_rom_storage_index(BankId bank,
                                       uint16_t addr,
                                       size_t rom_size,
                                       size_t* out_index) {
     size_t index = 0;
     if (addr < 0x4000) {
-        index = static_cast<size_t>(addr);
+        index = static_cast<size_t>(bank) * 0x4000u + static_cast<size_t>(addr);
     } else if (addr < 0x8000) {
         index = static_cast<size_t>(bank) * 0x4000u + static_cast<size_t>(addr - 0x4000u);
     } else {
@@ -891,25 +960,25 @@ static bool try_get_rom_storage_index(uint8_t bank,
 
 static std::string format_io_offset_address(const ir::Program& program,
                                             uint8_t offset,
-                                            uint8_t source_bank) {
+                                            BankId source_bank) {
     return format_memory_address(program, static_cast<uint16_t>(0xFF00u + offset), source_bank);
 }
 
 struct EmittedBody {
     std::string name;
-    uint8_t bank = 0;
+    BankId bank = 0;
     uint16_t entry_address = 0;
     std::vector<uint32_t> block_ids;
     bool may_switch_rom_bank = false;
 };
 
-static uint32_t make_full_address(uint8_t bank, uint16_t addr) {
+static uint32_t make_full_address(BankId bank, uint16_t addr) {
     return (static_cast<uint32_t>(bank) << 16) | static_cast<uint32_t>(addr);
 }
 
 static const ir::BasicBlock* find_block_in_body(const ir::Program& program,
                                                 const EmittedBody* current_body,
-                                                uint8_t bank,
+                                                BankId bank,
                                                 uint16_t addr) {
     if (current_body == nullptr || current_body->bank != bank) {
         return nullptr;
@@ -927,7 +996,7 @@ static const ir::BasicBlock* find_block_in_body(const ir::Program& program,
 
 static const ir::BasicBlock* find_safe_local_target_block(const ir::Program& program,
                                                           const EmittedBody* current_body,
-                                                          uint8_t bank,
+                                                          BankId bank,
                                                           uint16_t addr) {
     if (current_body == nullptr || current_body->bank != bank || current_body->may_switch_rom_bank) {
         return nullptr;
@@ -979,6 +1048,7 @@ static std::set<uint16_t> collect_dispatchable_pcs_for_body(const ir::Program& p
         for (const auto& instr : block.instructions) {
             if (instr.has_source_location) {
                 available_pcs.insert(instr.source_address);
+                dispatchable_pcs.insert(instr.source_address);
             }
         }
     }
@@ -1191,6 +1261,59 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
     auto emit_indent = [&out, indent]() {
         for (int i = 0; i < indent; i++) out << "    ";
     };
+    auto emit_native_call_marker = [&](BankId bank, uint16_t address, uint16_t return_pc) {
+        out << "gbrt_native_patch_mark_call(ctx, GB_NATIVE_FUNCTION_ID(0x"
+            << std::hex << static_cast<unsigned>(bank) << ", 0x" << address
+            << "), 0x" << return_pc << std::dec << ");\n";
+    };
+    bool owns_cycle_timing = false;
+    auto begin_last_mcycle_access = [&]() {
+        if (!options.emit_cycle_counting || instr.cycles < 4) {
+            return;
+        }
+        owns_cycle_timing = true;
+        /* Opcode/immediate fetches consume the preceding machine cycles.  The
+         * data bus is sampled late in the final M-cycle, leaving its last
+         * T-cycle to retire the instruction.  Interrupts are still only
+         * serviced after retirement. */
+        if (instr.cycles > 1) {
+            out << "gb_tick(ctx, " << (int)(instr.cycles - 1) << ");\n";
+            emit_indent();
+        }
+    };
+    auto end_last_mcycle_access = [&]() {
+        if (!owns_cycle_timing) {
+            return;
+        }
+        emit_indent();
+        out << "gb_tick(ctx, 1);\n";
+    };
+    auto emit_hl_rmw = [&](const std::string& transformed_value) {
+        out << "{\n";
+        emit_indent();
+        out << "    const uint16_t gbrt_rmw_addr = ctx->hl;\n";
+        emit_indent();
+        if (options.emit_cycle_counting && instr.cycles >= 5) {
+            owns_cycle_timing = true;
+            out << "    uint8_t gbrt_rmw_value = "
+                << "gbrt_timed_bus_read8(ctx, gbrt_rmw_addr, "
+                << (int)(instr.cycles - 5) << ");\n";
+        } else {
+            out << "    uint8_t gbrt_rmw_value = "
+                << "gb_read8(ctx, gbrt_rmw_addr);\n";
+        }
+        emit_indent();
+        out << "    gbrt_rmw_value = " << transformed_value << ";\n";
+        emit_indent();
+        if (options.emit_cycle_counting && instr.cycles >= 5) {
+            out << "    gbrt_timed_bus_rmw_write8(ctx, gbrt_rmw_addr, "
+                << "gbrt_rmw_value);\n";
+        } else {
+            out << "    gb_write8(ctx, gbrt_rmw_addr, gbrt_rmw_value);\n";
+        }
+        emit_indent();
+        out << "}\n";
+    };
     
     // Emit source location comment if enabled
     if (options.emit_address_comments && instr.has_source_location) {
@@ -1219,6 +1342,20 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
         case ir::Opcode::MOV_REG_REG:
             out << "ctx->" << reg8_names[instr.dst.value.reg8] 
                 << " = ctx->" << reg8_names[instr.src.value.reg8] << ";\n";
+            if (instr.dst.value.reg8 == 0 && instr.src.value.reg8 == 0) {
+                emit_indent();
+                out << "if (gbrt_test_breakpoint_enabled) {\n";
+                emit_indent();
+                out << "    ctx->pc = 0x" << std::hex << std::setfill('0')
+                    << std::setw(4) << static_cast<unsigned>(instr.source_address + 1u)
+                    << std::dec << ";\n";
+                emit_indent();
+                out << "    ctx->stopped = 1;\n";
+                emit_indent();
+                out << "    return;\n";
+                emit_indent();
+                out << "}\n";
+            }
             break;
             
         case ir::Opcode::MOV_REG_IMM8:
@@ -1236,6 +1373,7 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
         case ir::Opcode::LOAD8: {
             const char* dst_name = get_reg8_name(instr.dst.value.reg8);
             if (!dst_name) dst_name = "a";
+            begin_last_mcycle_access();
             
             if (instr.src.type == ir::OperandType::IMM16) {
                 out << "ctx->" << dst_name << " = gb_read8(ctx, "
@@ -1249,10 +1387,28 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
             } else {
                 out << "ctx->a = gb_read8(ctx, ctx->hl);\n";
             }
+            end_last_mcycle_access();
+            break;
+        }
+
+        case ir::Opcode::LOAD8_HL_AUTO: {
+            const char* dst_name = get_reg8_name(instr.dst.value.reg8);
+            if (!dst_name) dst_name = "a";
+            const int delta = (int)instr.src.value.offset;
+            if (options.emit_cycle_counting) {
+                owns_cycle_timing = true;
+                out << "ctx->" << dst_name
+                    << " = gbrt_timed_hl_read_auto(ctx, " << delta << ");\n";
+            } else {
+                out << "ctx->" << dst_name << " = gb_read8(ctx, ctx->hl);\n";
+                emit_indent();
+                out << "ctx->hl = (uint16_t)(ctx->hl + (" << delta << "));\n";
+            }
             break;
         }
             
         case ir::Opcode::STORE8:
+            begin_last_mcycle_access();
             if (instr.dst.type == ir::OperandType::IMM16) {
                 if (instr.src.type == ir::OperandType::IMM8) {
                     out << "gb_write8(ctx, " << format_memory_address(program, instr.dst.value.imm16, instr.source_bank)
@@ -1282,14 +1438,33 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
                     }
                 }
             }
+            end_last_mcycle_access();
             break;
+
+        case ir::Opcode::STORE8_HL_AUTO: {
+            const char* src_name = get_reg8_name(instr.src.value.reg8);
+            if (!src_name) src_name = "a";
+            const int delta = (int)instr.dst.value.offset;
+            if (options.emit_cycle_counting) {
+                owns_cycle_timing = true;
+                out << "gbrt_timed_hl_write_auto(ctx, ctx->" << src_name
+                    << ", " << delta << ");\n";
+            } else {
+                out << "gb_write8(ctx, ctx->hl, ctx->" << src_name << ");\n";
+                emit_indent();
+                out << "ctx->hl = (uint16_t)(ctx->hl + (" << delta << "));\n";
+            }
+            break;
+        }
             
         case ir::Opcode::ADD8:
             if (instr.src.type == ir::OperandType::IMM8) {
                 out << "gb_add8(ctx, 0x" << std::hex << std::setfill('0') 
                     << std::setw(2) << (int)instr.src.value.imm8 << std::dec << ");\n";
             } else if (instr.src.value.reg8 == 6) {
+                begin_last_mcycle_access();
                 out << "gb_add8(ctx, gb_read8(ctx, ctx->hl));\n";
+                end_last_mcycle_access();
             } else {
                 out << "gb_add8(ctx, ctx->" << reg8_names[instr.src.value.reg8] << ");\n";
             }
@@ -1300,7 +1475,9 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
                 out << "gb_adc8(ctx, 0x" << std::hex << std::setfill('0') 
                     << std::setw(2) << (int)instr.src.value.imm8 << std::dec << ");\n";
             } else if (instr.src.value.reg8 == 6) {
+                begin_last_mcycle_access();
                 out << "gb_adc8(ctx, gb_read8(ctx, ctx->hl));\n";
+                end_last_mcycle_access();
             } else {
                 out << "gb_adc8(ctx, ctx->" << reg8_names[instr.src.value.reg8] << ");\n";
             }
@@ -1311,7 +1488,9 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
                 out << "gb_sub8(ctx, 0x" << std::hex << std::setfill('0') 
                     << std::setw(2) << (int)instr.src.value.imm8 << std::dec << ");\n";
             } else if (instr.src.value.reg8 == 6) {
+                begin_last_mcycle_access();
                 out << "gb_sub8(ctx, gb_read8(ctx, ctx->hl));\n";
+                end_last_mcycle_access();
             } else {
                 out << "gb_sub8(ctx, ctx->" << reg8_names[instr.src.value.reg8] << ");\n";
             }
@@ -1322,7 +1501,9 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
                 out << "gb_sbc8(ctx, 0x" << std::hex << std::setfill('0') 
                     << std::setw(2) << (int)instr.src.value.imm8 << std::dec << ");\n";
             } else if (instr.src.value.reg8 == 6) {
+                begin_last_mcycle_access();
                 out << "gb_sbc8(ctx, gb_read8(ctx, ctx->hl));\n";
+                end_last_mcycle_access();
             } else {
                 out << "gb_sbc8(ctx, ctx->" << reg8_names[instr.src.value.reg8] << ");\n";
             }
@@ -1333,7 +1514,9 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
                 out << "gb_and8(ctx, 0x" << std::hex << std::setfill('0') 
                     << std::setw(2) << (int)instr.src.value.imm8 << std::dec << ");\n";
             } else if (instr.src.value.reg8 == 6) {
+                begin_last_mcycle_access();
                 out << "gb_and8(ctx, gb_read8(ctx, ctx->hl));\n";
+                end_last_mcycle_access();
             } else {
                 out << "gb_and8(ctx, ctx->" << reg8_names[instr.src.value.reg8] << ");\n";
             }
@@ -1344,7 +1527,9 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
                 out << "gb_or8(ctx, 0x" << std::hex << std::setfill('0') 
                     << std::setw(2) << (int)instr.src.value.imm8 << std::dec << ");\n";
             } else if (instr.src.value.reg8 == 6) {
+                begin_last_mcycle_access();
                 out << "gb_or8(ctx, gb_read8(ctx, ctx->hl));\n";
+                end_last_mcycle_access();
             } else {
                 out << "gb_or8(ctx, ctx->" << reg8_names[instr.src.value.reg8] << ");\n";
             }
@@ -1355,7 +1540,9 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
                 out << "gb_xor8(ctx, 0x" << std::hex << std::setfill('0') 
                     << std::setw(2) << (int)instr.src.value.imm8 << std::dec << ");\n";
             } else if (instr.src.value.reg8 == 6) {
+                begin_last_mcycle_access();
                 out << "gb_xor8(ctx, gb_read8(ctx, ctx->hl));\n";
+                end_last_mcycle_access();
             } else {
                 out << "gb_xor8(ctx, ctx->" << reg8_names[instr.src.value.reg8] << ");\n";
             }
@@ -1366,7 +1553,9 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
                 out << "gb_cp8(ctx, 0x" << std::hex << std::setfill('0') 
                     << std::setw(2) << (int)instr.src.value.imm8 << std::dec << ");\n";
             } else if (instr.src.value.reg8 == 6) {
+                begin_last_mcycle_access();
                 out << "gb_cp8(ctx, gb_read8(ctx, ctx->hl));\n";
+                end_last_mcycle_access();
             } else {
                 out << "gb_cp8(ctx, ctx->" << reg8_names[instr.src.value.reg8] << ");\n";
             }
@@ -1375,7 +1564,7 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
         case ir::Opcode::INC8:
             if (instr.dst.value.reg8 == 6) {
                 // INC (HL) - read-modify-write memory at address HL
-                out << "gb_write8(ctx, ctx->hl, gb_inc8(ctx, gb_read8(ctx, ctx->hl)));\n";
+                emit_hl_rmw("gb_inc8(ctx, gbrt_rmw_value)");
             } else {
                 out << "ctx->" << reg8_names[instr.dst.value.reg8] 
                     << " = gb_inc8(ctx, ctx->" << reg8_names[instr.dst.value.reg8] << ");\n";
@@ -1385,7 +1574,7 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
         case ir::Opcode::DEC8:
             if (instr.dst.value.reg8 == 6) {
                 // DEC (HL) - read-modify-write memory at address HL
-                out << "gb_write8(ctx, ctx->hl, gb_dec8(ctx, gb_read8(ctx, ctx->hl)));\n";
+                emit_hl_rmw("gb_dec8(ctx, gbrt_rmw_value)");
             } else {
                 out << "ctx->" << reg8_names[instr.dst.value.reg8] 
                     << " = gb_dec8(ctx, ctx->" << reg8_names[instr.dst.value.reg8] << ");\n";
@@ -1393,11 +1582,23 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
             break;
             
         case ir::Opcode::INC16:
-            out << "ctx->" << reg16_names[instr.dst.value.reg16] << "++;\n";
+            if (options.emit_cycle_counting && instr.cycles > 0) {
+                owns_cycle_timing = true;
+                out << "gbrt_timed_inc16(ctx, &ctx->"
+                    << reg16_names[instr.dst.value.reg16] << ");\n";
+            } else {
+                out << "ctx->" << reg16_names[instr.dst.value.reg16] << "++;\n";
+            }
             break;
             
         case ir::Opcode::DEC16:
-            out << "ctx->" << reg16_names[instr.dst.value.reg16] << "--;\n";
+            if (options.emit_cycle_counting && instr.cycles > 0) {
+                owns_cycle_timing = true;
+                out << "gbrt_timed_dec16(ctx, &ctx->"
+                    << reg16_names[instr.dst.value.reg16] << ");\n";
+            } else {
+                out << "ctx->" << reg16_names[instr.dst.value.reg16] << "--;\n";
+            }
             break;
             
         case ir::Opcode::ADD16:
@@ -1405,37 +1606,60 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
             break;
             
         case ir::Opcode::ADD_SP_IMM8:
-            out << "gb_add_sp(ctx, " << (int)instr.src.value.offset << ");\n";
-                break;
+            if (options.emit_cycle_counting) {
+                owns_cycle_timing = true;
+                out << "gbrt_timed_add_sp(ctx, 0x"
+                    << std::hex << std::setfill('0') << std::setw(4)
+                    << (uint16_t)(instr.source_address + 1u)
+                    << std::dec << ");\n";
+            } else {
+                out << "gb_add_sp(ctx, " << (int)instr.src.value.offset << ");\n";
+            }
+            break;
                 
             case ir::Opcode::PUSH16:
+                if (options.emit_cycle_counting) {
+                    owns_cycle_timing = true;
+                }
                 if (instr.dst.value.reg16 == 4) { // AF
-                    out << "gb_pack_flags(ctx); gb_push16(ctx, ctx->af & 0xFFF0);\n";
+                    out << "gb_pack_flags(ctx); "
+                        << (options.emit_cycle_counting ? "gbrt_timed_push16" : "gb_push16")
+                        << "(ctx, ctx->af & 0xFFF0);\n";
                 } else {
-                    out << "gb_push16(ctx, ctx->" << reg16_names[instr.dst.value.reg16] << ");\n";
+                    out << (options.emit_cycle_counting ? "gbrt_timed_push16" : "gb_push16")
+                        << "(ctx, ctx->" << reg16_names[instr.dst.value.reg16] << ");\n";
                 }
                 break;
                 
             case ir::Opcode::POP16:
+                if (options.emit_cycle_counting) {
+                    owns_cycle_timing = true;
+                }
                 if (instr.dst.value.reg16 == 4) { // AF
-                    out << "ctx->af = gb_pop16(ctx) & 0xFFF0; gb_unpack_flags(ctx);\n";
+                    out << "ctx->af = "
+                        << (options.emit_cycle_counting ? "gbrt_timed_pop16" : "gb_pop16")
+                        << "(ctx) & 0xFFF0; gb_unpack_flags(ctx);\n";
                 } else {
-                    out << "ctx->" << reg16_names[instr.dst.value.reg16] << " = gb_pop16(ctx);\n";
+                    out << "ctx->" << reg16_names[instr.dst.value.reg16] << " = "
+                        << (options.emit_cycle_counting ? "gbrt_timed_pop16" : "gb_pop16")
+                        << "(ctx);\n";
                 }
                 break;
                 
         case ir::Opcode::JUMP:
             if (instr.dst.type == ir::OperandType::IMM16) {
                 uint16_t target = instr.dst.value.imm16;
-                uint8_t tbank = instr.dst.bank;
+                BankId tbank = instr.dst.bank;
                 
-                if (tbank == 255) {
+                if (tbank == UNKNOWN_BANK) {
                     if (options.emit_cycle_counting && instr.cycles > 0) {
-                        out << "gb_tick(ctx, " << (int)instr.cycles << ");\n";
-                        emit_indent();
+                        out << "gbrt_timed_jump(ctx, 0x" << std::hex
+                            << std::setfill('0') << std::setw(4) << target << std::dec
+                            << ", " << (int)instr.cycles << "); return;\n";
+                    } else {
+                        out << "ctx->pc = 0x" << std::hex << std::setfill('0')
+                            << std::setw(4) << target << std::dec << "; return;\n";
                     }
-                    out << "ctx->pc = 0x" << std::hex << std::setfill('0') 
-                        << std::setw(4) << target << std::dec << "; return;\n";
                 } else {
                     std::string target_func = program.make_function_name(tbank, target);
                     bool func_exists = program.functions.find(target_func) != program.functions.end();
@@ -1444,11 +1668,10 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
                     
                     if (local_target_block != nullptr) {
                         if (options.emit_cycle_counting && group_cycles > 0) {
-                            out << "ctx->pc = 0x" << std::hex << target << std::dec << ";\n";
+                            out << "gbrt_timed_jump(ctx, 0x" << std::hex << target
+                                << std::dec << ", " << (int)group_cycles << ");\n";
                             emit_indent();
-                            out << "gb_tick(ctx, " << (int)group_cycles << ");\n";
-                            emit_indent();
-                            out << "if (ctx->stopped) return;\n";
+                            out << "if (gbrt_generated_safepoint(ctx)) return;\n";
                         } else {
                             out << "ctx->pc = 0x" << std::hex << target << std::dec << ";\n";
                         }
@@ -1459,10 +1682,11 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
                     } else if (func_exists) {
                         // Different function or cross-bank: call and return
                         if (options.emit_cycle_counting && instr.cycles > 0) {
-                            out << "gb_tick(ctx, " << (int)instr.cycles << ");\n";
-                            emit_indent();
+                            out << "gbrt_timed_jump(ctx, 0x" << std::hex << target
+                                << std::dec << ", " << (int)instr.cycles << ");\n";
+                        } else {
+                            out << "ctx->pc = 0x" << std::hex << target << std::dec << ";\n";
                         }
-                        out << "ctx->pc = 0x" << std::hex << target << std::dec << ";\n";
                         emit_indent();
                         out << "if (ctx->single_step_mode) return;\n";
                         emit_indent();
@@ -1486,7 +1710,7 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
 
                             if (options.emit_cycle_counting) {
                                  emit_indent(); out << "    gb_tick(ctx, " << (int)inline_cycles << ");\n";
-                                 emit_indent(); out << "    if (ctx->stopped) return;\n";
+                                 emit_indent(); out << "    if (gbrt_generated_safepoint(ctx)) return;\n";
                             }
                             
                             // JUMP inlining requires executing the RET (pop) because we jumped to a function that returns
@@ -1501,29 +1725,31 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
                     } else {
                         // Not a recompiled function, use dispatcher
                         if (options.emit_cycle_counting && instr.cycles > 0) {
-                            out << "gb_tick(ctx, " << (int)instr.cycles << ");\n";
-                            emit_indent();
+                            out << "gbrt_timed_jump(ctx, 0x" << std::hex
+                                << std::setfill('0') << std::setw(4) << target << std::dec
+                                << ", " << (int)instr.cycles << "); return;\n";
+                        } else {
+                            out << "ctx->pc = 0x" << std::hex << std::setfill('0')
+                                << std::setw(4) << target << std::dec << "; return;\n";
                         }
-                        out << "ctx->pc = 0x" << std::hex << std::setfill('0') 
-                            << std::setw(4) << target << std::dec << "; return;\n";
                     }
                 }
             } else if (instr.dst.type == ir::OperandType::REG16) {
                 // Indirect jump via register (JP HL)
-                out << "gbrt_jump_hl(ctx);\n";
                 if (options.emit_cycle_counting && group_cycles > 0) {
-                    emit_indent();
-                    out << "gb_tick(ctx, " << (int)group_cycles << ");\n";
-                    emit_indent(); out << "if (ctx->stopped) return;\n";
+                    out << "gbrt_timed_jump(ctx, ctx->hl, " << (int)group_cycles << ");\n";
+                    emit_indent(); out << "if (gbrt_generated_safepoint(ctx)) return;\n";
+                } else {
+                    out << "gbrt_jump_hl(ctx);\n";
                 }
                 emit_indent();
                 out << "return;\n";
             } else {
-                out << "gbrt_jump_hl(ctx);\n";
                 if (options.emit_cycle_counting && group_cycles > 0) {
-                    emit_indent();
-                    out << "gb_tick(ctx, " << (int)group_cycles << ");\n";
-                    emit_indent(); out << "if (ctx->stopped) return;\n";
+                    out << "gbrt_timed_jump(ctx, ctx->hl, " << (int)group_cycles << ");\n";
+                    emit_indent(); out << "if (gbrt_generated_safepoint(ctx)) return;\n";
+                } else {
+                    out << "gbrt_jump_hl(ctx);\n";
                 }
                 emit_indent();
                 out << "return;\n";
@@ -1532,19 +1758,21 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
             
         case ir::Opcode::JUMP_CC: {
             uint16_t target = instr.dst.value.imm16;
-            uint8_t tbank = instr.dst.bank; // Use instr.dst.bank for target bank
+            BankId tbank = instr.dst.bank; // Use instr.dst.bank for target bank
             const char* cond = cond_names[instr.src.value.condition];
             const char* expr = (instr.src.value.condition == 0) ? "!ctx->f_z" :
                                (instr.src.value.condition == 1) ? "ctx->f_z" :
                                (instr.src.value.condition == 2) ? "!ctx->f_c" : "ctx->f_c";
 
-            if (tbank == 255) {
+            if (tbank == UNKNOWN_BANK) {
                 // Cross-bank or unknown, call dispatcher
                 out << "if (" << expr << ") {\n";
-                emit_indent(); out << "    ctx->pc = 0x" << std::hex << target << std::dec << ";\n";
                 if (options.emit_cycle_counting) {
-                    emit_indent(); out << "    gb_tick(ctx, " << (int)instr.cycles_branch_taken << ");\n";
-                    emit_indent(); out << "    if (ctx->stopped) return;\n";
+                    emit_indent(); out << "    gbrt_timed_jump(ctx, 0x" << std::hex << target
+                                       << std::dec << ", " << (int)instr.cycles_branch_taken << ");\n";
+                    emit_indent(); out << "    if (gbrt_generated_safepoint(ctx)) return;\n";
+                } else {
+                    emit_indent(); out << "    ctx->pc = 0x" << std::hex << target << std::dec << ";\n";
                 }
                 emit_indent(); out << "    return;\n";
                 emit_indent(); out << "} /* " << cond << " */\n";
@@ -1556,10 +1784,12 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
 
                 if (local_target_block != nullptr) {
                     out << "if (" << expr << ") {\n";
-                    emit_indent(); out << "    ctx->pc = 0x" << std::hex << target << std::dec << ";\n";
                     if (options.emit_cycle_counting) {
-                        emit_indent(); out << "    gb_tick(ctx, " << (int)instr.cycles_branch_taken << ");\n";
-                        emit_indent(); out << "    if (ctx->stopped) return;\n";
+                        emit_indent(); out << "    gbrt_timed_jump(ctx, 0x" << std::hex << target
+                                           << std::dec << ", " << (int)instr.cycles_branch_taken << ");\n";
+                        emit_indent(); out << "    if (gbrt_generated_safepoint(ctx)) return;\n";
+                    } else {
+                        emit_indent(); out << "    ctx->pc = 0x" << std::hex << target << std::dec << ";\n";
                     }
                     emit_indent(); out << "    if (ctx->single_step_mode) return;\n";
                     emit_indent(); out << "    goto " << local_target_block->label << ";\n";
@@ -1567,10 +1797,12 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
                 } else if (func_exists) {
                     // Different function: call and return
                     out << "if (" << expr << ") {\n";
-                    emit_indent(); out << "    ctx->pc = 0x" << std::hex << target << std::dec << ";\n";
                     if (options.emit_cycle_counting) {
-                        emit_indent(); out << "    gb_tick(ctx, " << (int)instr.cycles_branch_taken << ");\n";
-                        emit_indent(); out << "    if (ctx->stopped) return;\n";
+                        emit_indent(); out << "    gbrt_timed_jump(ctx, 0x" << std::hex << target
+                                           << std::dec << ", " << (int)instr.cycles_branch_taken << ");\n";
+                        emit_indent(); out << "    if (gbrt_generated_safepoint(ctx)) return;\n";
+                    } else {
+                        emit_indent(); out << "    ctx->pc = 0x" << std::hex << target << std::dec << ";\n";
                     }
                     emit_indent(); out << "    if (ctx->single_step_mode) return;\n";
                     
@@ -1592,7 +1824,7 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
 
                         if (options.emit_cycle_counting) {
                              emit_indent(); out << "    gb_tick(ctx, " << (int)inline_cycles << ");\n";
-                             emit_indent(); out << "    if (ctx->stopped) return;\n";
+                             emit_indent(); out << "    if (gbrt_generated_safepoint(ctx)) return;\n";
                         }
                         
                         // JUMP_CC inlining requires executing the RET (pop)
@@ -1608,38 +1840,42 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
                 } else {
                     // Fallback to dispatcher
                     out << "if (" << expr << ") {\n";
-                    emit_indent(); out << "    ctx->pc = 0x" << std::hex << target << std::dec << ";\n";
                     if (options.emit_cycle_counting) {
-                        emit_indent(); out << "    gb_tick(ctx, " << (int)instr.cycles_branch_taken << ");\n";
-                        emit_indent(); out << "    if (ctx->stopped) return;\n";
+                        emit_indent(); out << "    gbrt_timed_jump(ctx, 0x" << std::hex << target
+                                           << std::dec << ", " << (int)instr.cycles_branch_taken << ");\n";
+                        emit_indent(); out << "    if (gbrt_generated_safepoint(ctx)) return;\n";
+                    } else {
+                        emit_indent(); out << "    ctx->pc = 0x" << std::hex << target << std::dec << ";\n";
                     }
                     emit_indent(); out << "    return;\n";
                     emit_indent(); out << "} /* " << cond << " */\n";
                 }
             }
             // Branch NOT taken: update PC to next and tick with base cycles
-            if (next_pc_val != 0) {
-                emit_indent(); out << "ctx->pc = 0x" << std::hex << next_pc_val << std::dec << ";\n";
-            }
             if (options.emit_cycle_counting && group_cycles > 0) {
-                emit_indent(); out << "gb_tick(ctx, " << (int)group_cycles << ");\n";
-                emit_indent(); out << "if (ctx->stopped) return;\n";
+                emit_indent(); out << "gbrt_timed_jump(ctx, 0x" << std::hex << next_pc_val
+                                   << std::dec << ", " << (int)group_cycles << ");\n";
+                emit_indent(); out << "if (gbrt_generated_safepoint(ctx)) return;\n";
+            } else if (next_pc_val != 0) {
+                emit_indent(); out << "ctx->pc = 0x" << std::hex << next_pc_val << std::dec << ";\n";
             }
             break;
         }
             
         case ir::Opcode::CALL: {
             uint16_t target = instr.dst.value.imm16;
-            uint8_t target_bank = instr.dst.bank;
+            BankId target_bank = instr.dst.bank;
             uint16_t return_addr = instr.source_address + 3;
 
-            if (target_bank == 255) {
+            if (target_bank == UNKNOWN_BANK) {
                 // Cross-bank or unknown, call dispatcher
-                out << "gb_push16(ctx, 0x" << std::hex << return_addr << std::dec << ");\n";
-                emit_indent(); out << "ctx->pc = 0x" << std::hex << target << std::dec << ";\n";
                 if (options.emit_cycle_counting && group_cycles > 0) {
-                    emit_indent(); out << "gb_tick(ctx, " << (int)group_cycles << ");\n";
-                    emit_indent(); out << "if (ctx->stopped) return;\n";
+                    out << "gbrt_timed_call(ctx, 0x" << std::hex << target
+                        << ", 0x" << return_addr << std::dec << ");\n";
+                    emit_indent(); out << "if (gbrt_generated_safepoint(ctx)) return;\n";
+                } else {
+                    out << "gb_push16(ctx, 0x" << std::hex << return_addr << std::dec << ");\n";
+                    emit_indent(); out << "ctx->pc = 0x" << std::hex << target << std::dec << ";\n";
                 }
                 emit_indent(); out << "return;\n";
             } else {
@@ -1652,7 +1888,7 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
                      // Emit ticks for group_cycles (CALL cost)
                      if (options.emit_cycle_counting && group_cycles > 0) {
                          emit_indent(); out << "gb_tick(ctx, " << (int)group_cycles << ");\n";
-                         emit_indent(); out << "if (ctx->stopped) return;\n";
+                         emit_indent(); out << "if (gbrt_generated_safepoint(ctx)) return;\n";
                      }
                      emit_indent(); out << "if (ctx->single_step_mode) return;\n";
 
@@ -1682,7 +1918,7 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
                     // Emit single tick for the whole inlined body
                     if (options.emit_cycle_counting) {
                          emit_indent(); out << "    gb_tick(ctx, " << (int)inline_cycles << ");\n";
-                         emit_indent(); out << "    if (ctx->stopped) return;\n";
+                         emit_indent(); out << "    if (gbrt_generated_safepoint(ctx)) return;\n";
                     }
                     
                     // Manually update PC to return address (since RET was skipped)
@@ -1693,11 +1929,21 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
                 }
                 
                 if (!did_inline) {
-                    out << "gb_push16(ctx, 0x" << std::hex << return_addr << std::dec << ");\n";
-                    emit_indent(); out << "ctx->pc = 0x" << std::hex << target << std::dec << ";\n";
                     if (options.emit_cycle_counting && group_cycles > 0) {
-                        emit_indent(); out << "gb_tick(ctx, " << (int)group_cycles << ");\n";
-                        emit_indent(); out << "if (ctx->stopped) return;\n";
+                        out << "gbrt_timed_call(ctx, 0x" << std::hex << target
+                            << ", 0x" << return_addr << std::dec << ");\n";
+                        if (native_patch_binding(options, target_bank, target) != nullptr) {
+                            emit_indent();
+                            emit_native_call_marker(target_bank, target, return_addr);
+                        }
+                        emit_indent(); out << "if (gbrt_generated_safepoint(ctx)) return;\n";
+                    } else {
+                        out << "gb_push16(ctx, 0x" << std::hex << return_addr << std::dec << ");\n";
+                        emit_indent(); out << "ctx->pc = 0x" << std::hex << target << std::dec << ";\n";
+                        if (native_patch_binding(options, target_bank, target) != nullptr) {
+                            emit_indent();
+                            emit_native_call_marker(target_bank, target, return_addr);
+                        }
                     }
                     emit_indent(); out << "if (ctx->single_step_mode) return;\n";
                     emit_indent();
@@ -1715,20 +1961,22 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
 
         case ir::Opcode::CALL_CC: {
             uint16_t target = instr.dst.value.imm16;
-            uint8_t target_bank = instr.dst.bank;
+            BankId target_bank = instr.dst.bank;
             uint16_t return_addr = instr.source_address + 3;
             const char* cond = cond_names[instr.src.value.condition];
             const char* expr = (instr.src.value.condition == 0) ? "!ctx->f_z" :
                                (instr.src.value.condition == 1) ? "ctx->f_z" :
                                (instr.src.value.condition == 2) ? "!ctx->f_c" : "ctx->f_c";
             
-            if (target_bank == 255) {
+            if (target_bank == UNKNOWN_BANK) {
                 out << "if (" << expr << ") {\n";
-                emit_indent(); out << "    gb_push16(ctx, 0x" << std::hex << return_addr << std::dec << ");\n";
-                emit_indent(); out << "    ctx->pc = 0x" << std::hex << target << std::dec << ";\n";
                 if (options.emit_cycle_counting) {
-                    emit_indent(); out << "    gb_tick(ctx, " << (int)instr.cycles_branch_taken << ");\n";
-                    emit_indent(); out << "    if (ctx->stopped) return;\n";
+                    emit_indent(); out << "    gbrt_timed_call(ctx, 0x" << std::hex << target
+                                       << ", 0x" << return_addr << std::dec << ");\n";
+                    emit_indent(); out << "    if (gbrt_generated_safepoint(ctx)) return;\n";
+                } else {
+                    emit_indent(); out << "    gb_push16(ctx, 0x" << std::hex << return_addr << std::dec << ");\n";
+                    emit_indent(); out << "    ctx->pc = 0x" << std::hex << target << std::dec << ";\n";
                 }
                 emit_indent(); out << "    return;\n";
                 emit_indent(); out << "} /* " << cond << " */\n";
@@ -1745,7 +1993,7 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
                      // INLINE logic
                      if (options.emit_cycle_counting) {
                         emit_indent(); out << "    gb_tick(ctx, " << (int)taken_cycles << ");\n";
-                        emit_indent(); out << "    if (ctx->stopped) return;\n";
+                        emit_indent(); out << "    if (gbrt_generated_safepoint(ctx)) return;\n";
                      }
                      emit_indent(); out << "    if (ctx->single_step_mode) return;\n";
 
@@ -1765,7 +2013,7 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
  
                     if (options.emit_cycle_counting) {
                          emit_indent(); out << "    gb_tick(ctx, " << (int)inline_cycles << ");\n";
-                         emit_indent(); out << "    if (ctx->stopped) return;\n";
+                         emit_indent(); out << "    if (gbrt_generated_safepoint(ctx)) return;\n";
                     }
                     
                     // Manually update PC to return address
@@ -1776,11 +2024,21 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
                 }
                 
                 if (!did_inline) {
-                    emit_indent(); out << "    gb_push16(ctx, 0x" << std::hex << return_addr << std::dec << ");\n";
-                    emit_indent(); out << "    ctx->pc = 0x" << std::hex << target << std::dec << ";\n";
                     if (options.emit_cycle_counting) {
-                        emit_indent(); out << "    gb_tick(ctx, " << (int)taken_cycles << ");\n";
-                        emit_indent(); out << "    if (ctx->stopped) return;\n";
+                        emit_indent(); out << "    gbrt_timed_call(ctx, 0x" << std::hex << target
+                                           << ", 0x" << return_addr << std::dec << ");\n";
+                        if (native_patch_binding(options, target_bank, target) != nullptr) {
+                            emit_indent(); out << "    ";
+                            emit_native_call_marker(target_bank, target, return_addr);
+                        }
+                        emit_indent(); out << "    if (gbrt_generated_safepoint(ctx)) return;\n";
+                    } else {
+                        emit_indent(); out << "    gb_push16(ctx, 0x" << std::hex << return_addr << std::dec << ");\n";
+                        emit_indent(); out << "    ctx->pc = 0x" << std::hex << target << std::dec << ";\n";
+                        if (native_patch_binding(options, target_bank, target) != nullptr) {
+                            emit_indent(); out << "    ";
+                            emit_native_call_marker(target_bank, target, return_addr);
+                        }
                     }
                     emit_indent(); out << "    if (ctx->single_step_mode) return;\n";
                     if (func_exists) {
@@ -1792,21 +2050,21 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
             }
             
             // Branch NOT taken
-            if (next_pc_val != 0) {
-                emit_indent(); out << "ctx->pc = 0x" << std::hex << next_pc_val << std::dec << ";\n";
-            }
             if (options.emit_cycle_counting && group_cycles > 0) {
-                emit_indent(); out << "gb_tick(ctx, " << (int)group_cycles << ");\n";
-                emit_indent(); out << "if (ctx->stopped) return;\n";
+                emit_indent(); out << "gbrt_timed_jump(ctx, 0x" << std::hex << next_pc_val
+                                   << std::dec << ", " << (int)group_cycles << ");\n";
+                emit_indent(); out << "if (gbrt_generated_safepoint(ctx)) return;\n";
+            } else if (next_pc_val != 0) {
+                emit_indent(); out << "ctx->pc = 0x" << std::hex << next_pc_val << std::dec << ";\n";
             }
             break;
         }
             
         case ir::Opcode::RET:
-            out << "gb_ret(ctx);\n";
             if (options.emit_cycle_counting && group_cycles > 0) {
-                emit_indent();
-                out << "gb_tick(ctx, " << (int)group_cycles << ");\n";
+                out << "gbrt_timed_ret(ctx);\n";
+            } else {
+                out << "gb_ret(ctx);\n";
             }
             emit_indent();
             out << "return;\n";
@@ -1818,28 +2076,30 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
                                (instr.src.value.condition == 1) ? "ctx->f_z" :
                                (instr.src.value.condition == 2) ? "!ctx->f_c" : "ctx->f_c";
             out << "if (" << expr << ") {\n";
-            emit_indent(); out << "    gb_ret(ctx);\n";
             if (options.emit_cycle_counting) {
-                emit_indent(); out << "    gb_tick(ctx, 20); /* RET_CC cycles always 20 if taken */\n";
+                emit_indent(); out << "    gbrt_timed_ret_cc(ctx);\n";
+            } else {
+                emit_indent(); out << "    gb_ret(ctx);\n";
             }
             emit_indent(); out << "    return;\n";
             emit_indent(); out << "} /* " << cond << " */\n";
             // Not taken: update PC and tick
-            if (next_pc_val != 0) {
-                emit_indent(); out << "ctx->pc = 0x" << std::hex << next_pc_val << std::dec << ";\n";
-            }
             if (options.emit_cycle_counting && group_cycles > 0) {
-                emit_indent(); out << "gb_tick(ctx, " << (int)group_cycles << ");\n";
-                emit_indent(); out << "if (ctx->stopped) return;\n";
+                emit_indent(); out << "gbrt_timed_jump(ctx, 0x" << std::hex << next_pc_val
+                                   << std::dec << ", " << (int)group_cycles << ");\n";
+                emit_indent(); out << "if (gbrt_generated_safepoint(ctx)) return;\n";
+            } else if (next_pc_val != 0) {
+                emit_indent(); out << "ctx->pc = 0x" << std::hex << next_pc_val << std::dec << ";\n";
             }
             break;
         }
             
         case ir::Opcode::RETI:
-            out << "ctx->ime = 1;\n";
-            emit_indent(); out << "gb_ret(ctx);\n";
             if (options.emit_cycle_counting && group_cycles > 0) {
-                emit_indent(); out << "gb_tick(ctx, " << (int)group_cycles << ");\n";
+                out << "gbrt_timed_reti(ctx);\n";
+            } else {
+                out << "ctx->ime = 1;\n";
+                emit_indent(); out << "gb_ret(ctx);\n";
             }
             emit_indent(); out << "return;\n";
             break;
@@ -1863,7 +2123,7 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
                 if (func_exists && inlineable_functions.count(func_name)) {
                     if (options.emit_cycle_counting && group_cycles > 0) {
                         emit_indent(); out << "gb_tick(ctx, " << (int)group_cycles << ");\n";
-                        emit_indent(); out << "if (ctx->stopped) return;\n";
+                        emit_indent(); out << "if (gbrt_generated_safepoint(ctx)) return;\n";
                     }
                     emit_indent(); out << "if (ctx->single_step_mode) return;\n";
                     out << "/* Inline: " << func_name << " */ {\n";
@@ -1896,7 +2156,7 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
 
                     if (options.emit_cycle_counting) {
                         emit_indent(); out << "    gb_tick(ctx, " << (int)inline_cycles << ");\n";
-                        emit_indent(); out << "    if (ctx->stopped) return;\n";
+                        emit_indent(); out << "    if (gbrt_generated_safepoint(ctx)) return;\n";
                     }
 
                     emit_indent(); out << "    ctx->pc = 0x" << std::hex << next_pc << std::dec << ";\n";
@@ -1905,14 +2165,23 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
                 }
 
                 if (!did_inline) {
-                    out << "gb_push16(ctx, 0x" << std::hex << next_pc << std::dec << ");\n";
-                    emit_indent();
-                    out << "ctx->pc = 0x" << std::hex << std::setfill('0') << std::setw(2)
-                        << (int)vector << std::dec << ";\n";
-
                     if (options.emit_cycle_counting && group_cycles > 0) {
-                        emit_indent(); out << "gb_tick(ctx, " << (int)group_cycles << ");\n";
-                        emit_indent(); out << "if (ctx->stopped) return;\n";
+                        out << "gbrt_timed_rst(ctx, 0x" << std::hex << (int)vector
+                            << ", 0x" << next_pc << std::dec << ");\n";
+                        if (native_patch_binding(options, 0, vector) != nullptr) {
+                            emit_indent();
+                            emit_native_call_marker(0, vector, next_pc);
+                        }
+                        emit_indent(); out << "if (gbrt_generated_safepoint(ctx)) return;\n";
+                    } else {
+                        out << "gb_push16(ctx, 0x" << std::hex << next_pc << std::dec << ");\n";
+                        emit_indent();
+                        out << "ctx->pc = 0x" << std::hex << std::setfill('0') << std::setw(2)
+                            << (int)vector << std::dec << ";\n";
+                        if (native_patch_binding(options, 0, vector) != nullptr) {
+                            emit_indent();
+                            emit_native_call_marker(0, vector, next_pc);
+                        }
                     }
 
                     emit_indent(); out << "if (ctx->single_step_mode) return;\n";
@@ -1929,29 +2198,12 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
             break;
             
         case ir::Opcode::HALT:
-            // HALT bug: If IME=0 and there's a pending interrupt, next PC increment fails
-            out << "if (!ctx->ime && (gb_read8(ctx, GB_IO_IE) & gb_read8(ctx, GB_IO_IF) & 0x1F)) {\n";
-            emit_indent(); out << "    ctx->halt_bug = 1;\n";
-            if (next_pc_val != 0) {
-                 emit_indent(); out << "    ctx->pc = 0x" << std::hex << next_pc_val << std::dec << ";\n";
-            }
-            if (options.emit_cycle_counting && group_cycles > 0) {
-                emit_indent(); out << "    gb_tick(ctx, " << (int)group_cycles << ");\n";
-                emit_indent(); out << "    if (ctx->stopped) return;\n";
-            }
-            emit_indent(); out << "    return; /* Force interpreter to handle bug */\n";
-            emit_indent(); out << "} else {\n";
-            emit_indent(); out << "    /* Update PC to next instruction so interrupt return address is correct */\n";
-            if (next_pc_val != 0) {
-                 emit_indent(); out << "    ctx->pc = 0x" << std::hex << next_pc_val << std::dec << ";\n";
-            }
-            emit_indent(); out << "    gb_halt(ctx);\n";
-            if (options.emit_cycle_counting && group_cycles > 0) {
-                emit_indent(); out << "    gb_tick(ctx, " << (int)group_cycles << ");\n";
-                emit_indent(); out << "    if (ctx->stopped) return;\n";
-            }
-            emit_indent(); out << "    return;\n";
-            emit_indent(); out << "}\n";
+            out << "gbrt_execute_halt(ctx, 0x" << std::hex << next_pc_val
+                << std::dec << ", "
+                << (options.emit_cycle_counting ? (int)group_cycles : 0)
+                << ");\n";
+            emit_indent(); out << "if (gbrt_generated_safepoint(ctx)) return;\n";
+            emit_indent(); out << "return;\n";
             break;
             
         case ir::Opcode::STOP:
@@ -1962,7 +2214,7 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
             out << "gb_stop(ctx);\n";
             if (options.emit_cycle_counting && group_cycles > 0) {
                 emit_indent(); out << "gb_tick(ctx, " << (int)group_cycles << ");\n";
-                emit_indent(); out << "if (ctx->stopped) return;\n";
+                emit_indent(); out << "if (gbrt_generated_safepoint(ctx)) return;\n";
             }
             emit_indent(); out << "return;\n";
             break;
@@ -1994,8 +2246,15 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
         case ir::Opcode::BIT:
             if (instr.dst.value.reg8 == 6) {
                 // BIT n,(HL) - read from memory
+                owns_cycle_timing = options.emit_cycle_counting;
                 out << "gb_bit(ctx, " << (int)instr.src.value.bit_idx 
-                    << ", gb_read8(ctx, ctx->hl));\n";
+                    << ", ";
+                if (options.emit_cycle_counting && instr.cycles > 0) {
+                    out << "gbrt_timed_bus_read8(ctx, ctx->hl, "
+                        << (int)(instr.cycles - 1) << "));\n";
+                } else {
+                    out << "gb_read8(ctx, ctx->hl));\n";
+                }
             } else {
                 out << "gb_bit(ctx, " << (int)instr.src.value.bit_idx 
                     << ", ctx->" << reg8_names[instr.dst.value.reg8] << ");\n";
@@ -2005,8 +2264,8 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
         case ir::Opcode::SET:
             if (instr.dst.value.reg8 == 6) {
                 // SET n,(HL) - read-modify-write memory
-                out << "gb_write8(ctx, ctx->hl, gb_read8(ctx, ctx->hl) | (1 << " 
-                    << (int)instr.src.value.bit_idx << "));\n";
+                emit_hl_rmw("gbrt_rmw_value | (uint8_t)(1u << " +
+                            std::to_string((int)instr.src.value.bit_idx) + ")");
             } else {
                 out << "ctx->" << reg8_names[instr.dst.value.reg8] 
                     << " |= (1 << " << (int)instr.src.value.bit_idx << ");\n";
@@ -2016,8 +2275,8 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
         case ir::Opcode::RES:
             if (instr.dst.value.reg8 == 6) {
                 // RES n,(HL) - read-modify-write memory
-                out << "gb_write8(ctx, ctx->hl, gb_read8(ctx, ctx->hl) & ~(1 << " 
-                    << (int)instr.src.value.bit_idx << "));\n";
+                emit_hl_rmw("gbrt_rmw_value & (uint8_t)~(1u << " +
+                            std::to_string((int)instr.src.value.bit_idx) + ")");
             } else {
                 out << "ctx->" << reg8_names[instr.dst.value.reg8] 
                     << " &= ~(1 << " << (int)instr.src.value.bit_idx << ");\n";
@@ -2027,29 +2286,37 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
         // === I/O Port Operations ===
         case ir::Opcode::IO_READ:
             // LDH A,(n) - read from 0xFF00 + immediate offset
+            begin_last_mcycle_access();
             out << "ctx->a = gb_read8(ctx, " << format_io_offset_address(program, instr.src.value.imm8, instr.source_bank) << ");\n";
+            end_last_mcycle_access();
             break;
             
         case ir::Opcode::IO_READ_C:
             // LDH A,(C) - read from 0xFF00 + C register
+            begin_last_mcycle_access();
             out << "ctx->a = gb_read8(ctx, GB_IO_BASE + ctx->c);\n";
+            end_last_mcycle_access();
             break;
             
         case ir::Opcode::IO_WRITE:
             // LDH (n),A - write to 0xFF00 + immediate offset
+            begin_last_mcycle_access();
             out << "gb_write8(ctx, " << format_io_offset_address(program, instr.dst.value.imm8, instr.source_bank) << ", ctx->a);\n";
+            end_last_mcycle_access();
             break;
             
         case ir::Opcode::IO_WRITE_C:
             // LDH (C),A - write to 0xFF00 + C register
+            begin_last_mcycle_access();
             out << "gb_write8(ctx, GB_IO_BASE + ctx->c, ctx->a);\n";
+            end_last_mcycle_access();
             break;
             
         // === Rotate/Shift Operations ===
         case ir::Opcode::RLC:
             if (instr.dst.value.reg8 == 6) {
                 // RLC (HL) - read, rotate, write back
-                out << "gb_write8(ctx, ctx->hl, gb_rlc(ctx, gb_read8(ctx, ctx->hl)));\n";
+                emit_hl_rmw("gb_rlc(ctx, gbrt_rmw_value)");
             } else if (instr.extra.type == ir::OperandType::IMM8 && instr.extra.value.imm8 == 1) {
                 // RLCA variant (Z flag always 0)
                 out << "gb_rlca(ctx);\n";
@@ -2061,7 +2328,7 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
             
         case ir::Opcode::RRC:
             if (instr.dst.value.reg8 == 6) {
-                out << "gb_write8(ctx, ctx->hl, gb_rrc(ctx, gb_read8(ctx, ctx->hl)));\n";
+                emit_hl_rmw("gb_rrc(ctx, gbrt_rmw_value)");
             } else if (instr.extra.type == ir::OperandType::IMM8 && instr.extra.value.imm8 == 1) {
                 out << "gb_rrca(ctx);\n";
             } else {
@@ -2072,7 +2339,7 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
             
         case ir::Opcode::RL:
             if (instr.dst.value.reg8 == 6) {
-                out << "gb_write8(ctx, ctx->hl, gb_rl(ctx, gb_read8(ctx, ctx->hl)));\n";
+                emit_hl_rmw("gb_rl(ctx, gbrt_rmw_value)");
             } else if (instr.extra.type == ir::OperandType::IMM8 && instr.extra.value.imm8 == 1) {
                 out << "gb_rla(ctx);\n";
             } else {
@@ -2083,7 +2350,7 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
             
         case ir::Opcode::RR:
             if (instr.dst.value.reg8 == 6) {
-                out << "gb_write8(ctx, ctx->hl, gb_rr(ctx, gb_read8(ctx, ctx->hl)));\n";
+                emit_hl_rmw("gb_rr(ctx, gbrt_rmw_value)");
             } else if (instr.extra.type == ir::OperandType::IMM8 && instr.extra.value.imm8 == 1) {
                 out << "gb_rra(ctx);\n";
             } else {
@@ -2094,7 +2361,7 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
             
         case ir::Opcode::SLA:
             if (instr.dst.value.reg8 == 6) {
-                out << "gb_write8(ctx, ctx->hl, gb_sla(ctx, gb_read8(ctx, ctx->hl)));\n";
+                emit_hl_rmw("gb_sla(ctx, gbrt_rmw_value)");
             } else {
                 out << "ctx->" << reg8_names[instr.dst.value.reg8] 
                     << " = gb_sla(ctx, ctx->" << reg8_names[instr.dst.value.reg8] << ");\n";
@@ -2103,7 +2370,7 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
             
         case ir::Opcode::SRA:
             if (instr.dst.value.reg8 == 6) {
-                out << "gb_write8(ctx, ctx->hl, gb_sra(ctx, gb_read8(ctx, ctx->hl)));\n";
+                emit_hl_rmw("gb_sra(ctx, gbrt_rmw_value)");
             } else {
                 out << "ctx->" << reg8_names[instr.dst.value.reg8] 
                     << " = gb_sra(ctx, ctx->" << reg8_names[instr.dst.value.reg8] << ");\n";
@@ -2112,7 +2379,7 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
             
         case ir::Opcode::SRL:
             if (instr.dst.value.reg8 == 6) {
-                out << "gb_write8(ctx, ctx->hl, gb_srl(ctx, gb_read8(ctx, ctx->hl)));\n";
+                emit_hl_rmw("gb_srl(ctx, gbrt_rmw_value)");
             } else {
                 out << "ctx->" << reg8_names[instr.dst.value.reg8] 
                     << " = gb_srl(ctx, ctx->" << reg8_names[instr.dst.value.reg8] << ");\n";
@@ -2121,7 +2388,7 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
             
         case ir::Opcode::SWAP:
             if (instr.dst.value.reg8 == 6) {
-                out << "gb_write8(ctx, ctx->hl, gb_swap(ctx, gb_read8(ctx, ctx->hl)));\n";
+                emit_hl_rmw("gb_swap(ctx, gbrt_rmw_value)");
             } else {
                 out << "ctx->" << reg8_names[instr.dst.value.reg8] 
                     << " = gb_swap(ctx, ctx->" << reg8_names[instr.dst.value.reg8] << ");\n";
@@ -2135,7 +2402,15 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
             break;
             
         case ir::Opcode::LD_HL_SP_N:
-            out << "gb_ld_hl_sp_n(ctx, " << (int)instr.src.value.offset << ");\n";
+            if (options.emit_cycle_counting) {
+                owns_cycle_timing = true;
+                out << "gbrt_timed_ld_hl_sp_n(ctx, 0x"
+                    << std::hex << std::setfill('0') << std::setw(4)
+                    << (uint16_t)(instr.source_address + 1u)
+                    << std::dec << ");\n";
+            } else {
+                out << "gb_ld_hl_sp_n(ctx, " << (int)instr.src.value.offset << ");\n";
+            }
             break;
             
         case ir::Opcode::STORE16:
@@ -2176,14 +2451,14 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
             out << "ctx->pc = 0x" << std::hex << next_pc_val << std::dec << ";\n";
         }
 
-        if (options.emit_cycle_counting && instr.cycles > 0) {
+        if (options.emit_cycle_counting && instr.cycles > 0 && !owns_cycle_timing) {
             emit_indent();
             out << "gb_tick(ctx, " << (int)instr.cycles << ");\n";
         }
 
         if (is_last_in_group) {
             emit_indent();
-            out << "if (ctx->stopped) return;\n";
+            out << "if (gbrt_generated_safepoint(ctx)) return;\n";
             emit_indent();
             out << "if (ctx->single_step_mode) return;\n";
         }
@@ -2195,6 +2470,8 @@ GeneratedOutput generate_output(const ir::Program& program,
                                 size_t rom_size,
                                 const GeneratorOptions& options) {
     GeneratedOutput output;
+    output.has_native_patch = options.native_patch.enabled;
+    const std::string rom_sha256 = sha256_hex(rom_data, rom_size);
     const bool rom_is_cgb = rom_size > 0x143 && (rom_data[0x143] == 0x80 || rom_data[0x143] == 0xC0);
     const bool rom_is_cgb_only = rom_size > 0x143 && rom_data[0x143] == 0xC0;
     
@@ -2204,6 +2481,9 @@ GeneratedOutput generate_output(const ir::Program& program,
     header_ss << "#ifndef " << options.output_prefix << "_H\n";
     header_ss << "#define " << options.output_prefix << "_H\n\n";
     header_ss << "#include \"gbrt.h\"\n\n";
+    if (options.native_patch.enabled) {
+        header_ss << "#include \"gbrt_native_patch.h\"\n\n";
+    }
     header_ss << "const GBConfig* " << options.output_prefix << "_default_config(void);\n";
     header_ss << "void " << options.output_prefix << "_run(GBContext* ctx);\n";
     header_ss << "void " << options.output_prefix << "_init(GBContext* ctx);\n";
@@ -2218,6 +2498,9 @@ GeneratedOutput generate_output(const ir::Program& program,
     internal_header_ss << "#ifndef " << options.output_prefix << "_INTERNAL_H\n";
     internal_header_ss << "#define " << options.output_prefix << "_INTERNAL_H\n\n";
     internal_header_ss << "#include \"" << options.output_prefix << ".h\"\n\n";
+    if (options.native_patch.enabled) {
+        internal_header_ss << "#include \"gbrt_native_patch_internal.h\"\n\n";
+    }
     internal_header_ss << "enum {\n";
     internal_header_ss << "    GB_VRAM_BASE = 0x8000,\n";
     internal_header_ss << "    GB_ERAM_BASE = 0xA000,\n";
@@ -2282,6 +2565,76 @@ GeneratedOutput generate_output(const ir::Program& program,
     internal_header_ss << "    GB_IO_SVBK = 0xFF70,\n";
     internal_header_ss << "    GB_IO_IE = 0xFFFF\n";
     internal_header_ss << "};\n\n";
+    internal_header_ss << "#ifndef GBRT_DISABLE_GENERATED_FAST_MEMORY\n";
+    internal_header_ss << "static inline uint8_t " << options.output_prefix
+                       << "_fast_read8(GBContext* ctx, uint16_t addr) {\n";
+    internal_header_ss << "    if (__builtin_expect(!ctx->dma.active, 1)) {\n";
+    internal_header_ss << "        if (addr < 0x8000) {\n";
+    internal_header_ss << "            gbrt_note_generated_generic_read(ctx);\n";
+    internal_header_ss << "            return gb_read8(ctx, addr);\n";
+    internal_header_ss << "        }\n";
+    internal_header_ss << "        if (addr >= 0xC000 && addr < 0xD000) {\n";
+    internal_header_ss << "            gbrt_note_generated_specialized_read(ctx);\n";
+    internal_header_ss << "            return ctx->wram[addr - 0xC000u];\n";
+    internal_header_ss << "        }\n";
+    internal_header_ss << "        if (addr >= 0xD000 && addr < 0xE000) {\n";
+    internal_header_ss << "            gbrt_note_generated_specialized_read(ctx);\n";
+    internal_header_ss << "            return ctx->wram[((uint32_t)ctx->wram_bank * 0x1000u) + (addr - 0xD000u)];\n";
+    internal_header_ss << "        }\n";
+    internal_header_ss << "        if (addr >= 0xFF80 && addr < 0xFFFF) {\n";
+    internal_header_ss << "            gbrt_note_generated_specialized_read(ctx);\n";
+    internal_header_ss << "            return ctx->hram[addr - 0xFF80u];\n";
+    internal_header_ss << "        }\n";
+    internal_header_ss << "    }\n";
+    internal_header_ss << "    if (__builtin_expect(gbrt_benchmark_fast_tick_enabled && !ctx->dma.active, 1)) {\n";
+    internal_header_ss << "        if (addr == GB_IO_LY) {\n";
+    internal_header_ss << "            gbrt_note_generated_specialized_read(ctx);\n";
+    internal_header_ss << "            return ctx->io[0x44];\n";
+    internal_header_ss << "        }\n";
+    internal_header_ss << "        if (addr >= GB_IO_LCDC && addr <= GB_IO_WX) {\n";
+    internal_header_ss << "            gbrt_note_generated_specialized_read(ctx);\n";
+    internal_header_ss << "            return ctx->io[addr - GB_IO_BASE];\n";
+    internal_header_ss << "        }\n";
+    internal_header_ss << "        if (addr == GB_IO_DIV) {\n";
+    internal_header_ss << "            gbrt_note_generated_specialized_read(ctx);\n";
+    internal_header_ss << "            return (uint8_t)(ctx->div_counter >> 8);\n";
+    internal_header_ss << "        }\n";
+    internal_header_ss << "    }\n";
+    internal_header_ss << "    gbrt_note_generated_generic_read(ctx);\n";
+    internal_header_ss << "    return gb_read8(ctx, addr);\n";
+    internal_header_ss << "}\n\n";
+    internal_header_ss << "static inline void " << options.output_prefix
+                       << "_fast_write8(GBContext* ctx, uint16_t addr, uint8_t value) {\n";
+    internal_header_ss << "    if (__builtin_expect(addr < 0x8000, 0)) {\n";
+    internal_header_ss << "        gbrt_note_generated_generic_write(ctx);\n";
+    internal_header_ss << "        gb_write8(ctx, addr, value);\n";
+    internal_header_ss << "        return;\n";
+    internal_header_ss << "    }\n";
+    internal_header_ss << "    if (__builtin_expect(!ctx->dma.active, 1)) {\n";
+    internal_header_ss << "        if (addr >= 0xC000 && addr < 0xD000) {\n";
+    internal_header_ss << "            gbrt_note_generated_specialized_write(ctx);\n";
+    internal_header_ss << "            ctx->wram[addr - 0xC000u] = value;\n";
+    internal_header_ss << "            return;\n";
+    internal_header_ss << "        }\n";
+    internal_header_ss << "        if (addr >= 0xD000 && addr < 0xE000) {\n";
+    internal_header_ss << "            gbrt_note_generated_specialized_write(ctx);\n";
+    internal_header_ss << "            ctx->wram[((uint32_t)ctx->wram_bank * 0x1000u) + (addr - 0xD000u)] = value;\n";
+    internal_header_ss << "            return;\n";
+    internal_header_ss << "        }\n";
+    internal_header_ss << "        if (addr >= 0xFF80 && addr < 0xFFFF) {\n";
+    internal_header_ss << "            gbrt_note_generated_specialized_write(ctx);\n";
+    internal_header_ss << "            ctx->hram[addr - 0xFF80u] = value;\n";
+    internal_header_ss << "            return;\n";
+    internal_header_ss << "        }\n";
+    internal_header_ss << "    }\n";
+    internal_header_ss << "    gbrt_note_generated_generic_write(ctx);\n";
+    internal_header_ss << "    gb_write8(ctx, addr, value);\n";
+    internal_header_ss << "}\n\n";
+    internal_header_ss << "#define gb_read8(ctx, addr) " << options.output_prefix
+                       << "_fast_read8((ctx), (addr))\n";
+    internal_header_ss << "#define gb_write8(ctx, addr, value) " << options.output_prefix
+                       << "_fast_write8((ctx), (addr), (value))\n\n";
+    internal_header_ss << "#endif\n\n";
 
     std::vector<const ir::AddressSymbol*> named_address_symbols;
     named_address_symbols.reserve(program.address_symbols.size());
@@ -2359,6 +2712,14 @@ GeneratedOutput generate_output(const ir::Program& program,
         internal_header_ss << "void " << emitted_function_name(options, func.name)
                            << "(GBContext* ctx);\n";
     }
+    if (options.native_patch.enabled) {
+        internal_header_ss << "\n";
+        for (const NativePatchBinding& binding : options.native_patch.bindings) {
+            internal_header_ss << "extern const GBNativeBinding "
+                               << native_binding_symbol(options, binding.bank, binding.address)
+                               << ";\n";
+        }
+    }
     internal_header_ss << "\n#endif\n";
     output.extra_files.push_back({
         internal_header_file,
@@ -2383,6 +2744,38 @@ GeneratedOutput generate_output(const ir::Program& program,
                   return lhs->name < rhs->name;
               });
 
+    std::string native_macro_prefix = options.output_prefix;
+    std::transform(native_macro_prefix.begin(), native_macro_prefix.end(),
+                   native_macro_prefix.begin(), [](unsigned char ch) {
+                       return static_cast<char>(std::toupper(ch));
+                   });
+    std::ostringstream native_header_ss;
+    native_header_ss << "/* Stable exact-ROM native replacement IDs generated by gbrecomp. */\n";
+    native_header_ss << "#ifndef " << native_macro_prefix << "_NATIVE_H\n";
+    native_header_ss << "#define " << native_macro_prefix << "_NATIVE_H\n\n";
+    native_header_ss << "#include \"gbrt_native_patch.h\"\n\n";
+    native_header_ss << "#define " << native_macro_prefix << "_NATIVE_ROM_SHA256 \""
+                     << rom_sha256 << "\"\n";
+    native_header_ss << "#define " << native_macro_prefix << "_NATIVE_ROM_SIZE "
+                     << rom_size << "u\n\n";
+    for (const ir::Function* function : sorted_functions) {
+        if (!is_native_patchable_function(program, *function, rom_size)) continue;
+        native_header_ss << "#define " << native_macro_prefix << "_NATIVE_FUNCTION_"
+                         << std::hex << std::uppercase << std::setfill('0')
+                         << std::setw(4) << static_cast<unsigned>(function->bank) << '_'
+                         << std::setw(4) << static_cast<unsigned>(function->entry_address)
+                         << " GB_NATIVE_FUNCTION_ID(0x" << std::setw(4)
+                         << static_cast<unsigned>(function->bank) << ", 0x" << std::setw(4)
+                         << static_cast<unsigned>(function->entry_address) << ")\n"
+                         << std::nouppercase << std::dec;
+    }
+    native_header_ss << "\n#endif\n";
+    output.extra_files.push_back({
+        options.output_prefix + "_native.h",
+        native_header_ss.str(),
+        false,
+    });
+
     std::vector<const ir::BasicBlock*> sorted_blocks;
     sorted_blocks.reserve(program.blocks.size());
     for (const auto& [id, block] : program.blocks) {
@@ -2402,7 +2795,12 @@ GeneratedOutput generate_output(const ir::Program& program,
 
     std::ostringstream metadata_ss;
     metadata_ss << "{\n";
+    metadata_ss << "  \"schema\": \"gbrecomp.metadata\",\n";
+    metadata_ss << "  \"schema_version\": 2,\n";
+    metadata_ss << "  \"native_patch_abi\": 1,\n";
     metadata_ss << "  \"rom_name\": \"" << json_escape(program.rom_name) << "\",\n";
+    metadata_ss << "  \"rom\": {\"size\": " << rom_size
+                << ", \"sha256\": \"" << rom_sha256 << "\"},\n";
     metadata_ss << "  \"functions\": [\n";
     for (size_t i = 0; i < sorted_functions.size(); ++i) {
         const ir::Function& func = *sorted_functions[i];
@@ -2410,8 +2808,14 @@ GeneratedOutput generate_output(const ir::Program& program,
         auto symbol_it = program.address_symbols.find(addr);
 
         metadata_ss << "    {\n";
+        metadata_ss << "      \"id\": \""
+                    << native_function_id(func.bank, func.entry_address) << "\",\n";
+        metadata_ss << "      \"id_u32\": \"" << hex_literal(addr, 8) << "\",\n";
         metadata_ss << "      \"bank\": " << static_cast<unsigned>(func.bank) << ",\n";
         metadata_ss << "      \"address\": \"" << hex_literal(func.entry_address, 4) << "\",\n";
+        metadata_ss << "      \"patchable\": "
+                    << (is_native_patchable_function(program, func, rom_size) ? "true" : "false")
+                    << ",\n";
         metadata_ss << "      \"emitted_name\": \""
                     << json_escape(emitted_function_name(options, func.name)) << "\",\n";
         metadata_ss << "      \"kind\": \"function\",\n";
@@ -2420,9 +2824,14 @@ GeneratedOutput generate_output(const ir::Program& program,
                                        ? symbol_it->second.provenance
                                        : "autogenerated")
                     << "\"";
-        if (symbol_it != program.address_symbols.end() && !symbol_it->second.source_name.empty()) {
-            metadata_ss << ",\n      \"source_symbol\": \""
-                        << json_escape(symbol_it->second.source_name) << "\"";
+        emit_address_semantic_metadata_fields(
+            metadata_ss,
+            symbol_it != program.address_symbols.end()
+                ? &symbol_it->second
+                : nullptr,
+            "physical_rom");
+        if (symbol_it != program.address_symbols.end()) {
+            emit_source_symbol_metadata_fields(metadata_ss, symbol_it->second);
         }
         if (symbol_it != program.address_symbols.end() && !symbol_it->second.comment.empty()) {
             metadata_ss << ",\n      \"comment\": \""
@@ -2453,9 +2862,14 @@ GeneratedOutput generate_output(const ir::Program& program,
                                        ? symbol_it->second.provenance
                                        : "autogenerated")
                     << "\"";
-        if (symbol_it != program.address_symbols.end() && !symbol_it->second.source_name.empty()) {
-            metadata_ss << ",\n      \"source_symbol\": \""
-                        << json_escape(symbol_it->second.source_name) << "\"";
+        emit_address_semantic_metadata_fields(
+            metadata_ss,
+            symbol_it != program.address_symbols.end()
+                ? &symbol_it->second
+                : nullptr,
+            "physical_rom");
+        if (symbol_it != program.address_symbols.end()) {
+            emit_source_symbol_metadata_fields(metadata_ss, symbol_it->second);
         }
         if (symbol_it != program.address_symbols.end() && !symbol_it->second.comment.empty()) {
             metadata_ss << ",\n      \"comment\": \""
@@ -2477,10 +2891,9 @@ GeneratedOutput generate_output(const ir::Program& program,
         metadata_ss << "      \"emitted_name\": \"" << json_escape(symbol.emitted_name) << "\",\n";
         metadata_ss << "      \"kind\": \"" << json_escape(symbol.kind) << "\",\n";
         metadata_ss << "      \"provenance\": \"" << json_escape(symbol.provenance) << "\"";
-        if (!symbol.source_name.empty()) {
-            metadata_ss << ",\n      \"source_symbol\": \""
-                        << json_escape(symbol.source_name) << "\"";
-        }
+        emit_address_semantic_metadata_fields(
+            metadata_ss, &symbol, "unusable");
+        emit_source_symbol_metadata_fields(metadata_ss, symbol);
         if (!symbol.comment.empty()) {
             metadata_ss << ",\n      \"comment\": \""
                         << json_escape(symbol.comment) << "\"";
@@ -2506,16 +2919,76 @@ GeneratedOutput generate_output(const ir::Program& program,
         metadata_ss << "      \"emitted_name\": \"" << json_escape(symbol.emitted_name) << "\",\n";
         metadata_ss << "      \"kind\": \"" << json_escape(symbol.kind) << "\",\n";
         metadata_ss << "      \"provenance\": \"" << json_escape(symbol.provenance) << "\"";
-        if (!symbol.source_name.empty()) {
-            metadata_ss << ",\n      \"source_symbol\": \""
-                        << json_escape(symbol.source_name) << "\"";
-        }
+        emit_address_semantic_metadata_fields(
+            metadata_ss, &symbol, "physical_rom");
+        emit_source_symbol_metadata_fields(metadata_ss, symbol);
         if (!symbol.comment.empty()) {
             metadata_ss << ",\n      \"comment\": \""
                         << json_escape(symbol.comment) << "\"";
         }
         metadata_ss << "\n    }";
         metadata_ss << (i + 1 < named_rom_data_symbols.size() ? ",\n" : "\n");
+    }
+    metadata_ss << "  ],\n";
+    metadata_ss << "  \"constants\": [\n";
+    size_t constant_index = 0;
+    for (const auto& [name, constant] : program.constants) {
+        metadata_ss << "    {\n";
+        metadata_ss << "      \"name\": \"" << json_escape(name) << "\",\n";
+        metadata_ss << "      \"value\": " << constant.value << ",\n";
+        metadata_ss << "      \"value_hex\": \""
+                    << hex_literal(constant.value, 8) << "\",\n";
+        metadata_ss << "      \"memory_space\": \""
+                    << json_escape(constant.memory_space) << "\",\n";
+        metadata_ss << "      \"provenance\": \""
+                    << json_escape(constant.provenance) << "\"";
+        if (!constant.comment.empty()) {
+            metadata_ss << ",\n      \"comment\": \""
+                        << json_escape(constant.comment) << "\"";
+        }
+        metadata_ss << "\n    }";
+        metadata_ss << (++constant_index < program.constants.size() ? ",\n" : "\n");
+    }
+    metadata_ss << "  ],\n";
+    metadata_ss << "  \"analysis_diagnostics\": [\n";
+    size_t diagnostic_index = 0;
+    for (const auto& [id, diagnostic] : program.analysis_diagnostics) {
+        metadata_ss << "    {\n";
+        metadata_ss << "      \"id\": \"" << json_escape(id) << "\",\n";
+        metadata_ss << "      \"kind\": \""
+                    << json_escape(diagnostic.kind) << "\",\n";
+        metadata_ss << "      \"bank\": "
+                    << static_cast<unsigned>(diagnostic.bank) << ",\n";
+        metadata_ss << "      \"address\": \""
+                    << hex_literal(diagnostic.address, 4) << "\",\n";
+        metadata_ss << "      \"memory_space\": \""
+                    << json_escape(diagnostic.memory_space) << "\",\n";
+        metadata_ss << "      \"status\": \""
+                    << json_escape(diagnostic.status) << "\",\n";
+        metadata_ss << "      \"evidence\": \""
+                    << json_escape(diagnostic.evidence) << "\",\n";
+        metadata_ss << "      \"suggested_annotation\": \""
+                    << json_escape(diagnostic.suggested_annotation) << "\",\n";
+        metadata_ss << "      \"relationship\": \""
+                    << json_escape(diagnostic.relationship) << "\"";
+        if (diagnostic.has_related_address) {
+            metadata_ss << ",\n      \"related\": {\n";
+            metadata_ss << "        \"bank\": "
+                        << static_cast<unsigned>(diagnostic.related_bank)
+                        << ",\n";
+            metadata_ss << "        \"address\": \""
+                        << hex_literal(diagnostic.related_address, 4)
+                        << "\",\n";
+            metadata_ss << "        \"memory_space\": \""
+                        << json_escape(diagnostic.related_memory_space)
+                        << "\"\n";
+            metadata_ss << "      }";
+        }
+        metadata_ss << "\n    }";
+        metadata_ss << (++diagnostic_index <
+                                program.analysis_diagnostics.size()
+                            ? ",\n"
+                            : "\n");
     }
     metadata_ss << "  ],\n";
     metadata_ss << "  \"builtin_address_constants\": [\n";
@@ -2526,7 +2999,9 @@ GeneratedOutput generate_output(const ir::Program& program,
         metadata_ss << "      \"address\": \"" << hex_literal(constant.addr, 4) << "\",\n";
         metadata_ss << "      \"emitted_constant\": \"" << json_escape(constant.name) << "\",\n";
         metadata_ss << "      \"kind\": \"" << json_escape(constant.kind) << "\",\n";
-        metadata_ss << "      \"provenance\": \"builtin\"\n";
+        metadata_ss << "      \"provenance\": \"builtin\",\n";
+        metadata_ss << "      \"memory_space\": \"mmio\",\n";
+        metadata_ss << "      \"width\": 1\n";
         metadata_ss << "    }";
         metadata_ss << (i + 1 < std::size(kBuiltinAddressConstants) ? ",\n" : "\n");
     }
@@ -2537,6 +3012,78 @@ GeneratedOutput generate_output(const ir::Program& program,
         metadata_ss.str(),
         false,
     });
+
+    if (options.native_patch.enabled) {
+        output.extra_files.push_back({
+            "native_patch/manifest.json",
+            options.native_patch.manifest_json,
+            false,
+        });
+        for (const NativePatchSource& source : options.native_patch.sources) {
+            output.extra_files.push_back({
+                "native_patch/" + source.relative_path,
+                source.content,
+                true,
+            });
+        }
+
+        std::ostringstream bindings_ss;
+        bindings_ss << "/* Exact-ROM native replacement bindings generated by gbrecomp. */\n";
+        bindings_ss << "#include \"gbrt_native_patch_internal.h\"\n\n";
+        std::set<std::string> declared_hooks;
+        std::set<std::string> declared_replacements;
+        for (const NativePatchBinding& binding : options.native_patch.bindings) {
+            for (const std::string* callback :
+                 {&binding.pre_callback, &binding.post_callback}) {
+                if (!callback->empty() && declared_hooks.insert(*callback).second) {
+                    bindings_ss << "extern GBNativeStatus " << *callback
+                                << "(GBNativeCall* call);\n";
+                }
+            }
+            if (!binding.replace_callback.empty() &&
+                declared_replacements.insert(binding.replace_callback).second) {
+                bindings_ss << "extern GBNativeReplaceResult " << binding.replace_callback
+                            << "(GBNativeCall* call);\n";
+            }
+        }
+        bindings_ss << "\n";
+        for (const NativePatchBinding& binding : options.native_patch.bindings) {
+            bindings_ss << "const GBNativeBinding "
+                        << native_binding_symbol(options, binding.bank, binding.address)
+                        << " = {\n";
+            bindings_ss << "    GB_NATIVE_PATCH_ABI_VERSION,\n";
+            bindings_ss << "    \"" << json_escape(options.native_patch.patch_id) << "\",\n";
+            bindings_ss << "    GB_NATIVE_FUNCTION_ID(0x" << std::hex
+                        << static_cast<unsigned>(binding.bank) << ", 0x"
+                        << static_cast<unsigned>(binding.address) << std::dec << "),\n";
+            bindings_ss << "    " << options.native_patch.rom_size << "u,\n";
+            bindings_ss << "    {";
+            for (size_t digest_index = 0; digest_index < 32u; ++digest_index) {
+                const std::string byte_text = options.native_patch.rom_sha256.substr(
+                    digest_index * 2u, 2u);
+                const unsigned byte = static_cast<unsigned>(std::stoul(byte_text, nullptr, 16));
+                if (digest_index > 0) bindings_ss << ", ";
+                bindings_ss << "0x" << std::hex << std::setfill('0') << std::setw(2)
+                            << byte << std::dec;
+            }
+            bindings_ss << "},\n";
+            bindings_ss << "    "
+                        << (binding.allow_return_stack_entry ? "1u" : "0u")
+                        << ",\n";
+            bindings_ss << "    " << (binding.pre_callback.empty() ? "NULL" : binding.pre_callback)
+                        << ",\n";
+            bindings_ss << "    "
+                        << (binding.replace_callback.empty() ? "NULL" : binding.replace_callback)
+                        << ",\n";
+            bindings_ss << "    " << (binding.post_callback.empty() ? "NULL" : binding.post_callback)
+                        << "\n};\n\n";
+        }
+        output.extra_files.push_back({
+            options.output_prefix + "_native_bindings.c",
+            bindings_ss.str(),
+            true,
+        });
+    }
     
     // Generate source
     std::ostringstream source_ss;
@@ -2585,6 +3132,7 @@ GeneratedOutput generate_output(const ir::Program& program,
             for (const auto& instr : block.instructions) {
                 if (instr.has_source_location) {
                     available_pcs.insert(instr.source_address);
+                    dispatchable_pcs.insert(instr.source_address);
                 }
             }
         }
@@ -2641,7 +3189,7 @@ GeneratedOutput generate_output(const ir::Program& program,
     // Group functions by address for the switch statement.
     // Only keep normal execution resume points here; single-step can fall back to the interpreter.
     struct DispatchEntry {
-        uint8_t bank;
+        BankId bank;
         std::string name;
         uint16_t entry_address;
         bool is_entry;
@@ -2743,16 +3291,15 @@ GeneratedOutput generate_output(const ir::Program& program,
         uint8_t page = static_cast<uint8_t>(addr >> 8);
         auto& page_ss = dispatch_page_sources[page];
         if (page_ss.tellp() == std::streampos(0)) {
-            page_ss << "void " << dispatch_page_name(page) << "(GBContext* ctx, uint16_t addr, uint8_t bank) {\n";
+            page_ss << "void " << dispatch_page_name(page) << "(GBContext* ctx, uint16_t addr, uint16_t bank) {\n";
             page_ss << "    switch (addr) {\n";
         }
 
         page_ss << "        case 0x" << std::hex << std::setfill('0') << std::setw(4)
                 << addr << std::dec << ":\n";
-        // Only the switchable ROM window is selected by the current ROM bank.
-        // RAM/HRAM overlays (e.g. OAM DMA stubs at 0xFF80) should not require
-        // bank validation when there is a single compiled implementation.
-        bool validation_needed = (addr >= 0x4000 && addr < 0x8000);
+        // Both ROM windows can be banked (MBC1 mode 1 / MBC1M). RAM/HRAM
+        // overlays should not require ROM-bank validation.
+        bool validation_needed = addr < 0x8000;
         
         if (funcs.size() == 1 && !validation_needed) {
             const auto& entry = funcs[0];
@@ -2776,7 +3323,7 @@ GeneratedOutput generate_output(const ir::Program& program,
 
                 if (options.emit_cycle_counting) {
                      page_ss << "                gb_tick(ctx, " << (int)inline_cycles << ");\n";
-                     page_ss << "                if (ctx->stopped) return;\n";
+                     page_ss << "                if (gbrt_generated_safepoint(ctx)) return;\n";
                 }
                 page_ss << "            } break;\n";
             } else {
@@ -2807,7 +3354,7 @@ GeneratedOutput generate_output(const ir::Program& program,
 
                     if (options.emit_cycle_counting) {
                          page_ss << "                    gb_tick(ctx, " << (int)inline_cycles << ");\n";
-                         page_ss << "                    if (ctx->stopped) return;\n";
+                         page_ss << "                    if (gbrt_generated_safepoint(ctx)) return;\n";
                     }
                     page_ss << "                } break;\n";
                 } else {
@@ -2816,13 +3363,15 @@ GeneratedOutput generate_output(const ir::Program& program,
                             << "(ctx); break;\n";
                 }
             }
-            page_ss << "                default: gbrt_note_dispatch_fallback(ctx, bank, addr); gb_interpret(ctx, addr); break;\n";
+            page_ss << "                default: gbrt_execute_dispatch_fallback("
+                    << "ctx, bank, addr, GB_DISPATCH_FALLBACK_BANK_NOT_COMPILED, "
+                    << funcs.size() << "); break;\n";
             page_ss << "            }\n";
             page_ss << "            break;\n";
         }
     }
 
-    const size_t dispatch_chunk_target_bytes = 4 * 1024 * 1024;
+    const size_t dispatch_chunk_target_bytes = GENERATED_CHUNK_TARGET_BYTES;
     const std::string dispatch_chunk_preamble =
         "/* Generated by gbrecomp from " + program.rom_name + " */\n"
         "#include \"" + internal_header_file + "\"\n\n";
@@ -2841,7 +3390,7 @@ GeneratedOutput generate_output(const ir::Program& program,
     };
 
     for (const auto& [page, unused] : dispatch_page_sources) {
-        source_ss << "void " << dispatch_page_name(page) << "(GBContext* ctx, uint16_t addr, uint8_t bank);\n";
+        source_ss << "void " << dispatch_page_name(page) << "(GBContext* ctx, uint16_t addr, uint16_t bank);\n";
     }
     source_ss << "\n";
 
@@ -2865,7 +3414,7 @@ GeneratedOutput generate_output(const ir::Program& program,
 
         source_ss << "static uint8_t "
                   << module_link_name(options, "try_dispatch_compiled_ram_overlay")
-                  << "(GBContext* ctx, uint16_t addr, uint8_t bank) {\n";
+                  << "(GBContext* ctx, uint16_t addr, uint16_t bank) {\n";
         for (size_t overlay_index = 0; overlay_index < compiled_ram_overlays.size(); ++overlay_index) {
             const auto& overlay = compiled_ram_overlays[overlay_index];
             const std::string match_name = module_link_name(
@@ -2895,7 +3444,8 @@ GeneratedOutput generate_output(const ir::Program& program,
     }
 
     for (auto& [page, page_ss] : dispatch_page_sources) {
-        page_ss << "        default: gbrt_note_dispatch_fallback(ctx, bank, addr); gb_interpret(ctx, addr); break;\n";
+        page_ss << "        default: gbrt_execute_dispatch_fallback("
+                << "ctx, bank, addr, GB_DISPATCH_FALLBACK_ADDRESS_NOT_COMPILED, 0); break;\n";
         page_ss << "    }\n";
         page_ss << "}\n\n";
         const std::string page_source = page_ss.str();
@@ -2909,15 +3459,17 @@ GeneratedOutput generate_output(const ir::Program& program,
     source_ss << "void " << dispatch_function_name(options) << "(GBContext* ctx, uint16_t addr) {\n";
     source_ss << "    ctx->pc = addr;\n";
     source_ss << "    while (!ctx->stopped && !ctx->halted) {\n";
+    source_ss << "        gbrt_note_generated_indirect_dispatch(ctx);\n";
     source_ss << "        addr = ctx->pc;\n";
-    source_ss << "        uint8_t bank = ctx->rom_bank;\n";
-    source_ss << "        if (addr < 0x4000) bank = 0;\n";
-    source_ss << "        if (gbrt_instruction_limit > 0 && gbrt_instruction_count >= gbrt_instruction_limit) {\n";
-    source_ss << "            fprintf(stderr, \"[LIMIT] Reached instruction limit %llu\\n\", (unsigned long long)gbrt_instruction_limit);\n";
-    source_ss << "            exit(0);\n";
+    source_ss << "        uint16_t bank = gb_resolve_rom_bank(ctx, addr);\n";
+    source_ss << "        if (gbrt_instruction_limit > 0) {\n";
+    source_ss << "            if (gbrt_instruction_count >= gbrt_instruction_limit) {\n";
+    source_ss << "                fprintf(stderr, \"[LIMIT] Reached instruction limit %llu\\n\", (unsigned long long)gbrt_instruction_limit);\n";
+    source_ss << "                exit(0);\n";
+    source_ss << "            }\n";
+    source_ss << "            gbrt_instruction_count++;\n";
     source_ss << "        }\n";
-    source_ss << "        gbrt_instruction_count++;\n";
-    source_ss << "        gbrt_log_trace(ctx, bank, addr);\n";
+    source_ss << "        if (ctx->trace_entries_enabled) gbrt_log_trace(ctx, bank, addr);\n";
     source_ss << "        if (gbrt_trace_enabled) {\n";
     source_ss << "            fprintf(stderr, \"[TRACE] Dispatch 0x%04X (Bank %d)\\n\", addr, bank);\n";
     source_ss << "        }\n";
@@ -2926,26 +3478,26 @@ GeneratedOutput generate_output(const ir::Program& program,
     source_ss << "            continue;\n";
     source_ss << "        }\n";
     source_ss << "        if (gbrt_try_execute_highmem_stub(ctx, addr)) {\n";
-    source_ss << "            if (ctx->single_step_mode || ctx->stopped) break;\n";
+    source_ss << "            if (ctx->single_step_mode || gbrt_generated_safepoint(ctx)) break;\n";
     source_ss << "            continue;\n";
     source_ss << "        }\n";
     source_ss << "        if (gbrt_try_execute_ram_stub(ctx, addr)) {\n";
-    source_ss << "            if (ctx->single_step_mode || ctx->stopped) break;\n";
+    source_ss << "            if (ctx->single_step_mode || gbrt_generated_safepoint(ctx)) break;\n";
     source_ss << "            continue;\n";
     source_ss << "        }\n";
     if (!compiled_ram_overlays.empty()) {
         source_ss << "        if (" << module_link_name(options, "try_dispatch_compiled_ram_overlay")
                   << "(ctx, addr, bank)) {\n";
-        source_ss << "            if (ctx->single_step_mode || ctx->stopped) break;\n";
+        source_ss << "            if (ctx->single_step_mode || gbrt_generated_safepoint(ctx)) break;\n";
         source_ss << "            continue;\n";
         source_ss << "        }\n";
     }
     // HRAM is writable at runtime; only known overlays matched above may use
     // compiled code from this region.
     source_ss << "        if (addr >= 0xFF80 && addr <= 0xFFFE) {\n";
-    source_ss << "            gbrt_note_dispatch_fallback(ctx, bank, addr);\n";
-    source_ss << "            gb_interpret(ctx, addr);\n";
-    source_ss << "            if (ctx->single_step_mode || ctx->stopped) break;\n";
+    source_ss << "            gbrt_execute_dispatch_fallback("
+              << "ctx, bank, addr, GB_DISPATCH_FALLBACK_WRITABLE_HRAM, 0);\n";
+    source_ss << "            if (ctx->single_step_mode || gbrt_generated_safepoint(ctx)) break;\n";
     source_ss << "            continue;\n";
     source_ss << "        }\n";
     source_ss << "        switch (addr >> 8) {\n";
@@ -2954,7 +3506,8 @@ GeneratedOutput generate_output(const ir::Program& program,
                   << (int)page << std::dec << ": "
                   << dispatch_page_name(page) << "(ctx, addr, bank); break;\n";
     }
-    source_ss << "            default: gbrt_note_dispatch_fallback(ctx, bank, addr); gb_interpret(ctx, addr); break;\n";
+    source_ss << "            default: gbrt_execute_dispatch_fallback("
+              << "ctx, bank, addr, GB_DISPATCH_FALLBACK_PAGE_NOT_COMPILED, 0); break;\n";
     source_ss << "        }\n";
     source_ss << "        if (ctx->single_step_mode) break;\n";
     source_ss << "    }\n";
@@ -2964,7 +3517,7 @@ GeneratedOutput generate_output(const ir::Program& program,
     source_ss << "    " << dispatch_function_name(options) << "(ctx, addr);\n";
     source_ss << "}\n\n";
     
-    const size_t chunk_target_bytes = 4 * 1024 * 1024;
+    const size_t chunk_target_bytes = GENERATED_CHUNK_TARGET_BYTES;
     const std::string chunk_preamble =
         "/* Generated by gbrecomp from " + program.rom_name + " */\n"
         "#include \"" + internal_header_file + "\"\n\n";
@@ -2996,12 +3549,27 @@ GeneratedOutput generate_output(const ir::Program& program,
 
     auto emit_body_source = [&](const EmittedBody& body) {
         std::ostringstream func_ss;
+        bool body_has_native_binding = false;
+        auto body_wrappers_it = wrappers_by_body_name.find(body.name);
+        if (body_wrappers_it != wrappers_by_body_name.end()) {
+            for (const ir::Function* function : body_wrappers_it->second) {
+                if (native_patch_binding(options, function->bank, function->entry_address) != nullptr) {
+                    body_has_native_binding = true;
+                    break;
+                }
+            }
+        }
+        if (body_has_native_binding) {
+            func_ss << "static const uint8_t " << native_body_key_symbol(options, body.name)
+                    << " = 0;\n";
+        }
         func_ss << "/* Shared body at ";
         if (body.bank > 0) {
             func_ss << std::hex << std::setfill('0') << std::setw(2) << (int)body.bank << ":";
         }
         func_ss << std::hex << std::setfill('0') << std::setw(4) << body.entry_address << std::dec << " */\n";
         func_ss << "static void " << emitted_function_name(options, body.name) << "(GBContext* ctx) {\n";
+        func_ss << "    gbrt_note_generated_direct_transition(ctx);\n";
 
         std::vector<uint32_t> sorted_block_ids = body.block_ids;
         std::sort(sorted_block_ids.begin(), sorted_block_ids.end(),
@@ -3080,6 +3648,65 @@ GeneratedOutput generate_output(const ir::Program& program,
                         next_ir.source_address != ir_instr.source_address;
                 } else {
                     next_pc = block.end_address;
+                }
+
+                auto is_ly_read = [](const ir::IRInstruction& instr) {
+                    return instr.opcode == ir::Opcode::LOAD8 &&
+                           instr.src.type == ir::OperandType::IMM16 &&
+                           instr.src.value.imm16 == 0xFF44;
+                };
+
+                if (ir_instr.has_source_location && is_ly_read(ir_instr)) {
+                    auto find_instruction_at = [&](uint16_t addr) -> const ir::IRInstruction* {
+                        for (const auto& candidate : block.instructions) {
+                            if (candidate.has_source_location && candidate.source_address == addr) {
+                                return &candidate;
+                            }
+                        }
+                        return nullptr;
+                    };
+                    const auto* cp_instr = find_instruction_at((uint16_t)(ir_instr.source_address + 2));
+                    const auto* jump_instr = find_instruction_at((uint16_t)(ir_instr.source_address + 3));
+                    if (cp_instr &&
+                        jump_instr &&
+                        cp_instr->opcode == ir::Opcode::CP8 &&
+                        cp_instr->src.type == ir::OperandType::REG8 &&
+                        cp_instr->src.value.reg8 < 8 &&
+                        reg8_names[cp_instr->src.value.reg8] != nullptr &&
+                        jump_instr->opcode == ir::Opcode::JUMP_CC &&
+                        jump_instr->src.type == ir::OperandType::COND &&
+                        jump_instr->src.value.condition == 0 &&
+                        jump_instr->dst.type == ir::OperandType::IMM16 &&
+                        jump_instr->dst.value.imm16 == ir_instr.source_address &&
+                        jump_instr->cycles_branch_taken > 0 &&
+                        jump_instr->cycles > 0) {
+                        auto label_for_addr = [&](uint16_t addr) {
+                            auto block_label_it = block_labels_by_addr.find(addr);
+                            if (block_label_it != block_labels_by_addr.end()) {
+                                return block_label_it->second;
+                            }
+                            std::ostringstream label;
+                            label << "pc_" << std::hex << std::setfill('0') << std::setw(4) << addr;
+                            return label.str();
+                        };
+                        const uint16_t after_jump_pc = (uint16_t)(jump_instr->source_address + 2);
+                        const uint32_t miss_iteration_cycles =
+                            ir_instr.cycles + cp_instr->cycles + jump_instr->cycles_branch_taken;
+                        const uint32_t hit_iteration_cycles =
+                            ir_instr.cycles + cp_instr->cycles + jump_instr->cycles;
+                        const char* target_reg = reg8_names[cp_instr->src.value.reg8];
+                        const std::string after_jump_label = label_for_addr(after_jump_pc);
+
+                        func_ss << "    if (!ctx->single_step_mode && "
+                                << "gbrt_fast_forward_visible_ly_wait(ctx, ctx->" << target_reg
+                                << ", " << (int)miss_iteration_cycles
+                                << ", " << (int)hit_iteration_cycles << ")) {\n";
+                        func_ss << "        ctx->pc = 0x" << std::hex << std::setfill('0')
+                                << std::setw(4) << after_jump_pc << std::dec << ";\n";
+                        func_ss << "        if (gbrt_generated_safepoint(ctx)) return;\n";
+                        func_ss << "        goto " << after_jump_label << ";\n";
+                        func_ss << "    }\n";
+                    }
                 }
 
                 emit_ir_instruction(func_ss,
@@ -3172,7 +3799,7 @@ GeneratedOutput generate_output(const ir::Program& program,
 
                                 if (options.emit_cycle_counting) {
                                     func_ss << "        gb_tick(ctx, " << (int)inline_cycles << ");\n";
-                                    func_ss << "        if (ctx->stopped) return;\n";
+                                    func_ss << "        if (gbrt_generated_safepoint(ctx)) return;\n";
                                 }
                                 func_ss << "    } /* End Inline */\n";
                             } else {
@@ -3202,6 +3829,14 @@ GeneratedOutput generate_output(const ir::Program& program,
             for (const ir::Function* wrapper_func : wrappers_it->second) {
                 func_ss << "void " << emitted_function_name(options, wrapper_func->name)
                         << "(GBContext* ctx) {\n";
+                if (const NativePatchBinding* binding = native_patch_binding(
+                        options, wrapper_func->bank, wrapper_func->entry_address)) {
+                    func_ss << "    const GBNativeEnterResult native_result = "
+                            << "gbrt_native_patch_enter(ctx, &"
+                            << native_binding_symbol(options, binding->bank, binding->address)
+                            << ", &" << native_body_key_symbol(options, body.name) << ");\n";
+                    func_ss << "    if (native_result != GB_NATIVE_ENTER_RUN_ORIGINAL) return;\n";
+                }
                 func_ss << "    " << emitted_function_name(options, body.name) << "(ctx);\n";
                 func_ss << "}\n\n";
             }
@@ -3288,6 +3923,7 @@ GeneratedOutput generate_output(const ir::Program& program,
     source_ss << "        .enable_audio = true,\n";
     source_ss << "        .enable_serial = true,\n";
     source_ss << "        .speed_percent = 100,\n";
+    source_ss << "        .native_presentation_enabled = false,\n";
     source_ss << "    };\n";
     source_ss << "    return &config;\n";
     source_ss << "}\n\n";
@@ -3300,6 +3936,13 @@ GeneratedOutput generate_output(const ir::Program& program,
     source_ss << "    /* Set MBC type from header */\n";
     source_ss << "    ctx->mbc_type = " << rom_data_symbol_name(options) << "[0x147];\n";
     source_ss << "    gb_context_reset(ctx, true);\n";
+    if (options.native_patch.enabled) {
+        for (const NativePatchBinding& binding : options.native_patch.bindings) {
+            source_ss << "    (void)gbrt_native_patch_validate(ctx, &"
+                      << native_binding_symbol(options, binding.bank, binding.address)
+                      << ");\n";
+        }
+    }
     source_ss << "}\n\n";
     
     source_ss << "void " << options.output_prefix << "_run(GBContext* ctx) {\n";
@@ -3346,6 +3989,8 @@ GeneratedOutput generate_output(const ir::Program& program,
     main_ss << "/* Main entry point */\n";
     main_ss << "#include \"" << options.output_prefix << ".h\"\n";
     main_ss << "#include \"gbrt.h\"\n";
+    main_ss << "#include \"gbrt_data_mod.h\"\n";
+    main_ss << "#include \"gbrt_port.h\"\n";
     main_ss << "#include \"audio.h\"\n";
     main_ss << "#include \"audio_stats.h\"\n";
     main_ss << "#ifdef GB_HAS_SDL2\n";
@@ -3382,6 +4027,19 @@ GeneratedOutput generate_output(const ir::Program& program,
     main_ss << "    fprintf(stderr, \"[LOG] Redirecting runtime output to %s\\n\", path);\n";
     main_ss << "    return true;\n";
     main_ss << "}\n\n";
+    main_ss << "static bool gbrt_serial_verdict_seen = false;\n";
+    main_ss << "static char gbrt_serial_verdict_window[7] = {0};\n\n";
+    main_ss << "static void gbrt_serial_stdout(GBContext* ctx, uint8_t byte) {\n";
+    main_ss << "    (void)ctx;\n";
+    main_ss << "    fputc((int)byte, stdout);\n";
+    main_ss << "    fflush(stdout);\n";
+    main_ss << "    memmove(gbrt_serial_verdict_window, gbrt_serial_verdict_window + 1, 5);\n";
+    main_ss << "    gbrt_serial_verdict_window[5] = (char)byte;\n";
+    main_ss << "    if (memcmp(gbrt_serial_verdict_window, \"Passed\", 6) == 0 ||\n";
+    main_ss << "        memcmp(gbrt_serial_verdict_window, \"Failed\", 6) == 0) {\n";
+    main_ss << "        gbrt_serial_verdict_seen = true;\n";
+    main_ss << "    }\n";
+    main_ss << "}\n\n";
     main_ss << "#ifdef GB_HAS_SDL2\n";
     main_ss << "static double gb_profile_now_ms(void) {\n";
     main_ss << "    uint64_t ticks = SDL_GetPerformanceCounter();\n";
@@ -3392,6 +4050,27 @@ GeneratedOutput generate_output(const ir::Program& program,
     main_ss << "static void gbrt_print_interpreter_summary(const GBContext* ctx, unsigned max_hotspots) {\n";
     main_ss << "    if (!ctx) {\n";
     main_ss << "        return;\n";
+    main_ss << "    }\n";
+    main_ss << "    fprintf(stderr,\n";
+    main_ss << "            \"[INTERP] Fallback inventory: sites=%u dropped=%llu complete=%s\\n\",\n";
+    main_ss << "            (unsigned)ctx->dispatch_fallback_site_count,\n";
+    main_ss << "            (unsigned long long)ctx->dispatch_fallback_sites_dropped,\n";
+    main_ss << "            ctx->dispatch_fallback_sites_dropped == 0 ? \"yes\" : \"no\");\n";
+    main_ss << "    for (uint16_t i = 0; i < ctx->dispatch_fallback_site_count; ++i) {\n";
+    main_ss << "        const GBDispatchFallbackSite* site = &ctx->dispatch_fallback_sites[i];\n";
+    main_ss << "        if (!site->valid) continue;\n";
+    main_ss << "        fprintf(stderr,\n";
+    main_ss << "                \"[INTERP] Fallback site #%u %03X:%04X reason=%s entries=%llu instructions=%llu cycles=%llu first_frame=%llu last_frame=%llu compiled_bank_variants=%u\\n\",\n";
+    main_ss << "                (unsigned)(i + 1),\n";
+    main_ss << "                site->bank,\n";
+    main_ss << "                site->addr,\n";
+    main_ss << "                gbrt_dispatch_fallback_reason_name(site->reason),\n";
+    main_ss << "                (unsigned long long)site->entries,\n";
+    main_ss << "                (unsigned long long)site->instructions,\n";
+    main_ss << "                (unsigned long long)site->cycles,\n";
+    main_ss << "                (unsigned long long)site->first_frame,\n";
+    main_ss << "                (unsigned long long)site->last_frame,\n";
+    main_ss << "                (unsigned)site->compiled_bank_variants);\n";
     main_ss << "    }\n";
     main_ss << "    if (ctx->total_dispatch_fallbacks == 0 &&\n";
     main_ss << "        ctx->total_interpreter_entries == 0 &&\n";
@@ -3466,6 +4145,7 @@ GeneratedOutput generate_output(const ir::Program& program,
     main_ss << "    bool debug_audio = false;\n";
     main_ss << "    bool debug_audio_trace = false;\n";
     main_ss << "    bool audio_stats_console = false;\n";
+    main_ss << "    bool no_audio = false;\n";
     main_ss << "    unsigned debug_audio_seconds = 10;\n";
     main_ss << "    bool differential_mode = false;\n";
     main_ss << "    unsigned long long differential_steps = 10000;\n";
@@ -3475,18 +4155,46 @@ GeneratedOutput generate_output(const ir::Program& program,
     main_ss << "    bool differential_compare_memory = true;\n";
     main_ss << "    bool differential_log_fallbacks = false;\n";
     main_ss << "    bool differential_fail_on_fallback = false;\n";
+    main_ss << "    unsigned long long differential_inject_mismatch_step = 0;\n";
     main_ss << "    bool debug_performance = false;\n";
     main_ss << "    const char* input_script = NULL;\n";
+    main_ss << "    const char* persistence_dir = NULL;\n";
     main_ss << "    const char* log_file = NULL;\n";
+    main_ss << "    const char* state_dump_file = NULL;\n";
+    main_ss << "    const char* save_state_file = NULL;\n";
+    main_ss << "    const char* data_mod_file = NULL;\n";
+    main_ss << "    const char* differential_state_file = NULL;\n";
     main_ss << "    unsigned long long frame_limit = 0;\n";
+    main_ss << "    bool rtc_unix_time_override_enabled = false;\n";
+    main_ss << "    unsigned long long rtc_unix_time_override = 0;\n";
+    main_ss << "    bool ignore_rtc_persistence = false;\n";
     main_ss << "    double slow_frame_ms = 0.0;\n";
     main_ss << "    double slow_vsync_ms = 0.0;\n";
     main_ss << "    bool log_frame_fallbacks = false;\n";
     main_ss << "    bool log_lcd_transitions = false;\n";
     main_ss << "    bool report_interpreter_hotspots = false;\n";
+    main_ss << "    bool report_performance_counters = false;\n";
+    main_ss << "    bool estimate_visibility_regions = false;\n";
+    main_ss << "    bool force_scalar_timer = false;\n";
+    main_ss << "    bool force_eager_audio = false;\n";
     main_ss << "    unsigned long interpreter_hotspot_limit = 8;\n";
     main_ss << "    int smooth_lcd_transitions_override = -1;\n";
     main_ss << "    bool benchmark_mode = false;\n";
+    main_ss << "    bool headless_mode = false;\n";
+    main_ss << "    bool serial_stdout = false;\n";
+    main_ss << "    bool stop_on_serial_verdict = false;\n";
+    main_ss << "    bool native_presentation_enabled = "
+            << (options.native_patch.enabled ? "true" : "false") << ";\n";
+    main_ss << "#ifdef GBRT_ENABLE_PORT_MODULE\n";
+    main_ss << "    bool port_ui_open = false;\n";
+    main_ss << "    bool port_module_disabled = false;\n";
+    main_ss << "    unsigned long long port_toggle_frames[64] = {0};\n";
+    main_ss << "    size_t port_toggle_frame_count = 0;\n";
+    main_ss << "    unsigned long long port_input_frames[64] = {0};\n";
+    main_ss << "    GBPortInputAction port_input_actions[64] = {0};\n";
+    main_ss << "    size_t port_input_frame_count = 0;\n";
+    main_ss << "    const char* port_state_file = NULL;\n";
+    main_ss << "#endif\n";
     main_ss << "    const char* model_override = \"auto\";\n";
     main_ss << "    for (int i = 1; i < argc; i++) {\n";
     main_ss << "        if (strcmp(argv[i], \"--log-file\") == 0 && i + 1 < argc) {\n";
@@ -3509,9 +4217,33 @@ GeneratedOutput generate_output(const ir::Program& program,
     main_ss << "        } else if (strcmp(argv[i], \"--limit-frames\") == 0 && i + 1 < argc) {\n";
     main_ss << "            frame_limit = strtoull(argv[++i], NULL, 10);\n";
     main_ss << "            printf(\"Frame limit: %llu\\n\", (unsigned long long)frame_limit);\n";
+    main_ss << "        } else if (strcmp(argv[i], \"--stop-on-test-breakpoint\") == 0) {\n";
+    main_ss << "            gbrt_test_breakpoint_enabled = true;\n";
+    main_ss << "        } else if (strcmp(argv[i], \"--dump-state\") == 0 && i + 1 < argc) {\n";
+    main_ss << "            state_dump_file = argv[++i];\n";
+    main_ss << "        } else if (strcmp(argv[i], \"--save-state-file\") == 0 && i + 1 < argc) {\n";
+    main_ss << "            save_state_file = argv[++i];\n";
+    main_ss << "        } else if (strcmp(argv[i], \"--data-mod\") == 0 && i + 1 < argc) {\n";
+    main_ss << "            data_mod_file = argv[++i];\n";
     main_ss << "        } else if (strcmp(argv[i], \"--input\") == 0 && i + 1 < argc) {\n";
     main_ss << "            input_script = argv[++i];\n";
-    main_ss << "            gb_platform_set_input_script(input_script);\n";
+    main_ss << "            if (!gb_platform_set_input_script(input_script)) {\n";
+    main_ss << "                fprintf(stderr, \"Invalid input script\\n\");\n";
+    main_ss << "                return 1;\n";
+    main_ss << "            }\n";
+    main_ss << "        } else if (strcmp(argv[i], \"--save-dir\") == 0 && i + 1 < argc) {\n";
+    main_ss << "            persistence_dir = argv[++i];\n";
+    main_ss << "        } else if (strcmp(argv[i], \"--rtc-unix-time\") == 0 && i + 1 < argc) {\n";
+    main_ss << "            const char* rtc_arg = argv[++i];\n";
+    main_ss << "            char* rtc_end = NULL;\n";
+    main_ss << "            rtc_unix_time_override = strtoull(rtc_arg, &rtc_end, 10);\n";
+    main_ss << "            if (!rtc_arg[0] || !rtc_end || rtc_end[0]) {\n";
+    main_ss << "                fprintf(stderr, \"Invalid RTC Unix time: %s\\n\", rtc_arg);\n";
+    main_ss << "                return 1;\n";
+    main_ss << "            }\n";
+    main_ss << "            rtc_unix_time_override_enabled = true;\n";
+    main_ss << "        } else if (strcmp(argv[i], \"--ignore-rtc-persistence\") == 0) {\n";
+    main_ss << "            ignore_rtc_persistence = true;\n";
     main_ss << "        } else if (strcmp(argv[i], \"--record-input\") == 0 && i + 1 < argc) {\n";
     main_ss << "            gb_platform_set_input_record_file(argv[++i]);\n";
     main_ss << "        } else if (strcmp(argv[i], \"--dump-frames\") == 0 && i + 1 < argc) {\n";
@@ -3532,6 +4264,8 @@ GeneratedOutput generate_output(const ir::Program& program,
     main_ss << "            debug_audio_trace = true;\n";
     main_ss << "        } else if (strcmp(argv[i], \"--audio-stats\") == 0) {\n";
     main_ss << "            audio_stats_console = true;\n";
+    main_ss << "        } else if (strcmp(argv[i], \"--no-audio\") == 0) {\n";
+    main_ss << "            no_audio = true;\n";
     main_ss << "        } else if (strcmp(argv[i], \"--log-slow-frames\") == 0 && i + 1 < argc) {\n";
     main_ss << "            slow_frame_ms = strtod(argv[++i], NULL);\n";
     main_ss << "        } else if (strcmp(argv[i], \"--log-slow-vsync\") == 0 && i + 1 < argc) {\n";
@@ -3542,6 +4276,14 @@ GeneratedOutput generate_output(const ir::Program& program,
     main_ss << "            log_lcd_transitions = true;\n";
     main_ss << "        } else if (strcmp(argv[i], \"--report-interpreter-hotspots\") == 0) {\n";
     main_ss << "            report_interpreter_hotspots = true;\n";
+    main_ss << "        } else if (strcmp(argv[i], \"--report-performance-counters\") == 0) {\n";
+    main_ss << "            report_performance_counters = true;\n";
+    main_ss << "        } else if (strcmp(argv[i], \"--estimate-visibility-regions\") == 0) {\n";
+    main_ss << "            estimate_visibility_regions = true;\n";
+    main_ss << "        } else if (strcmp(argv[i], \"--scalar-timer\") == 0) {\n";
+    main_ss << "            force_scalar_timer = true;\n";
+    main_ss << "        } else if (strcmp(argv[i], \"--eager-audio\") == 0) {\n";
+    main_ss << "            force_eager_audio = true;\n";
     main_ss << "        } else if (strcmp(argv[i], \"--interpreter-hotspot-limit\") == 0 && i + 1 < argc) {\n";
     main_ss << "            interpreter_hotspot_limit = strtoul(argv[++i], NULL, 10);\n";
     main_ss << "        } else if (strcmp(argv[i], \"--smooth-lcd-transitions\") == 0) {\n";
@@ -3558,6 +4300,8 @@ GeneratedOutput generate_output(const ir::Program& program,
     main_ss << "            }\n";
     main_ss << "        } else if (strcmp(argv[i], \"--differential-frames\") == 0 && i + 1 < argc) {\n";
     main_ss << "            differential_frames = strtoull(argv[++i], NULL, 10);\n";
+    main_ss << "        } else if (strcmp(argv[i], \"--differential-state\") == 0 && i + 1 < argc) {\n";
+    main_ss << "            differential_state_file = argv[++i];\n";
     main_ss << "        } else if (strcmp(argv[i], \"--differential-log\") == 0 && i + 1 < argc) {\n";
     main_ss << "            differential_log_interval = strtoull(argv[++i], NULL, 10);\n";
     main_ss << "        } else if (strcmp(argv[i], \"--differential-no-memory\") == 0) {\n";
@@ -3566,10 +4310,83 @@ GeneratedOutput generate_output(const ir::Program& program,
     main_ss << "            differential_log_fallbacks = true;\n";
     main_ss << "        } else if (strcmp(argv[i], \"--differential-fail-on-fallback\") == 0) {\n";
     main_ss << "            differential_fail_on_fallback = true;\n";
+    main_ss << "        } else if (strcmp(argv[i], \"--differential-inject-mismatch\") == 0 && i + 1 < argc) {\n";
+    main_ss << "            differential_inject_mismatch_step = strtoull(argv[++i], NULL, 10);\n";
     main_ss << "        } else if (strcmp(argv[i], \"--benchmark\") == 0) {\n";
     main_ss << "            benchmark_mode = true;\n";
+    main_ss << "        } else if (strcmp(argv[i], \"--headless\") == 0) {\n";
+    main_ss << "            headless_mode = true;\n";
+    main_ss << "        } else if (strcmp(argv[i], \"--native-presentation\") == 0 && i + 1 < argc) {\n";
+    main_ss << "            const char* presentation_arg = argv[++i];\n";
+    main_ss << "            if (strcmp(presentation_arg, \"native\") == 0) {\n";
+    main_ss << "                native_presentation_enabled = true;\n";
+    main_ss << "            } else if (strcmp(presentation_arg, \"original\") == 0) {\n";
+    main_ss << "                native_presentation_enabled = false;\n";
+    main_ss << "            } else {\n";
+    main_ss << "                fprintf(stderr, \"Unknown native presentation '%s' (expected native or original)\\n\", presentation_arg);\n";
+    main_ss << "                return 1;\n";
+    main_ss << "            }\n";
+    main_ss << "#ifdef GBRT_ENABLE_PORT_MODULE\n";
+    main_ss << "        } else if (strcmp(argv[i], \"--port-ui-open\") == 0) {\n";
+    main_ss << "            port_ui_open = true;\n";
+    main_ss << "        } else if (strcmp(argv[i], \"--disable-port-module\") == 0) {\n";
+    main_ss << "            port_module_disabled = true;\n";
+    main_ss << "        } else if (strcmp(argv[i], \"--port-toggle-frame\") == 0 && i + 1 < argc) {\n";
+    main_ss << "            const char* toggle_arg = argv[++i];\n";
+    main_ss << "            char* toggle_end = NULL;\n";
+    main_ss << "            unsigned long long toggle_frame = strtoull(toggle_arg, &toggle_end, 10);\n";
+    main_ss << "            if (!toggle_arg[0] || !toggle_end || toggle_end[0] || toggle_frame == 0 ||\n";
+    main_ss << "                port_toggle_frame_count >= 64 ||\n";
+    main_ss << "                (port_toggle_frame_count > 0 &&\n";
+    main_ss << "                 toggle_frame <= port_toggle_frames[port_toggle_frame_count - 1])) {\n";
+    main_ss << "                fprintf(stderr, \"Invalid or unordered port toggle frame: %s\\n\", toggle_arg);\n";
+    main_ss << "                return 1;\n";
+    main_ss << "            }\n";
+    main_ss << "            port_toggle_frames[port_toggle_frame_count++] = toggle_frame;\n";
+    main_ss << "        } else if (strcmp(argv[i], \"--port-input-frame\") == 0 && i + 1 < argc) {\n";
+    main_ss << "            const char* input_arg = argv[++i];\n";
+    main_ss << "            const char* colon = strchr(input_arg, ':');\n";
+    main_ss << "            char* input_end = NULL;\n";
+    main_ss << "            unsigned long long input_frame = strtoull(input_arg, &input_end, 10);\n";
+    main_ss << "            GBPortInputAction input_action = GB_PORT_INPUT_TOGGLE_UI;\n";
+    main_ss << "            bool input_action_valid = colon != NULL && input_end == colon;\n";
+    main_ss << "            if (input_action_valid && strcmp(colon + 1, \"toggle\") == 0) input_action = GB_PORT_INPUT_TOGGLE_UI;\n";
+    main_ss << "            else if (input_action_valid && strcmp(colon + 1, \"close\") == 0) input_action = GB_PORT_INPUT_CLOSE_UI;\n";
+    main_ss << "            else if (input_action_valid && strcmp(colon + 1, \"up\") == 0) input_action = GB_PORT_INPUT_UP;\n";
+    main_ss << "            else if (input_action_valid && strcmp(colon + 1, \"down\") == 0) input_action = GB_PORT_INPUT_DOWN;\n";
+    main_ss << "            else if (input_action_valid && strcmp(colon + 1, \"left\") == 0) input_action = GB_PORT_INPUT_LEFT;\n";
+    main_ss << "            else if (input_action_valid && strcmp(colon + 1, \"right\") == 0) input_action = GB_PORT_INPUT_RIGHT;\n";
+    main_ss << "            else if (input_action_valid && strcmp(colon + 1, \"accept\") == 0) input_action = GB_PORT_INPUT_ACCEPT;\n";
+    main_ss << "            else if (input_action_valid && strcmp(colon + 1, \"back\") == 0) input_action = GB_PORT_INPUT_BACK;\n";
+    main_ss << "            else if (input_action_valid && strcmp(colon + 1, \"open-pc\") == 0) input_action = GB_PORT_INPUT_OPEN_PC;\n";
+    main_ss << "            else if (input_action_valid && strcmp(colon + 1, \"encounters\") == 0) input_action = GB_PORT_INPUT_TOGGLE_ENCOUNTERS;\n";
+    main_ss << "            else input_action_valid = false;\n";
+    main_ss << "            if (!input_arg[0] || !input_action_valid || input_frame == 0 ||\n";
+    main_ss << "                port_input_frame_count >= 64 ||\n";
+    main_ss << "                (port_input_frame_count > 0 &&\n";
+    main_ss << "                 input_frame <= port_input_frames[port_input_frame_count - 1])) {\n";
+    main_ss << "                fprintf(stderr, \"Invalid or unordered port input frame: %s\\n\", input_arg);\n";
+    main_ss << "                return 1;\n";
+    main_ss << "            }\n";
+    main_ss << "            port_input_frames[port_input_frame_count] = input_frame;\n";
+    main_ss << "            port_input_actions[port_input_frame_count] = input_action;\n";
+    main_ss << "            port_input_frame_count++;\n";
+    main_ss << "        } else if (strcmp(argv[i], \"--port-state\") == 0 && i + 1 < argc) {\n";
+    main_ss << "            port_state_file = argv[++i];\n";
+    main_ss << "#endif\n";
+    main_ss << "        } else if (strcmp(argv[i], \"--serial-stdout\") == 0) {\n";
+    main_ss << "            serial_stdout = true;\n";
+    main_ss << "        } else if (strcmp(argv[i], \"--stop-on-serial-verdict\") == 0) {\n";
+    main_ss << "            stop_on_serial_verdict = true;\n";
     main_ss << "        }\n";
     main_ss << "    }\n\n";
+    main_ss << "    gbrt_visibility_estimator_enabled = estimate_visibility_regions;\n\n";
+    main_ss << "    if (persistence_dir && !gb_platform_set_persistence_dir(persistence_dir)) {\n";
+    main_ss << "        fprintf(stderr, \"Invalid save directory: %s\\n\", persistence_dir);\n";
+    main_ss << "        return 1;\n";
+    main_ss << "    }\n\n";
+    main_ss << "    gbrt_force_scalar_timer = force_scalar_timer;\n\n";
+    main_ss << "    gbrt_force_eager_audio = force_eager_audio;\n\n";
     main_ss << "    if (debug_performance) {\n";
     main_ss << "        audio_stats_console = true;\n";
     main_ss << "        log_frame_fallbacks = true;\n";
@@ -3583,6 +4400,18 @@ GeneratedOutput generate_output(const ir::Program& program,
     main_ss << "                slow_vsync_ms);\n";
     main_ss << "    }\n\n";
     main_ss << "    GBConfig runtime_config = *" << options.output_prefix << "_default_config();\n";
+    main_ss << "    runtime_config.rtc_unix_time_override_enabled = rtc_unix_time_override_enabled;\n";
+    main_ss << "    runtime_config.rtc_unix_time_override = rtc_unix_time_override;\n";
+    main_ss << "    runtime_config.ignore_rtc_persistence = ignore_rtc_persistence;\n";
+    main_ss << "    runtime_config.native_presentation_enabled = native_presentation_enabled;\n";
+    main_ss << "    if (rtc_unix_time_override_enabled) {\n";
+    main_ss << "        printf(\"[GBRT] RTC Unix time override: %llu\\n\", rtc_unix_time_override);\n";
+    main_ss << "    }\n";
+    main_ss << "    if (benchmark_mode || no_audio) {\n";
+    main_ss << "        runtime_config.enable_audio = false;\n";
+    main_ss << "    }\n";
+    main_ss << "    gbrt_rgb_framebuffer_enabled = !benchmark_mode;\n";
+    main_ss << "    gbrt_benchmark_fast_tick_enabled = benchmark_mode;\n";
     main_ss << "    if (strcmp(model_override, \"auto\") == 0) {\n";
     main_ss << "        runtime_config.model = runtime_config.cartridge_supports_cgb ? GB_MODEL_CGB : GB_MODEL_DMG;\n";
     main_ss << "        runtime_config.cgb_compatibility_mode = false;\n";
@@ -3614,8 +4443,42 @@ GeneratedOutput generate_output(const ir::Program& program,
     main_ss << "        }\n";
     main_ss << "        gb_context_set_save_id(generated_ctx, \"" << options.output_prefix << "\");\n";
     main_ss << "        gb_context_set_save_id(interpreted_ctx, \"" << options.output_prefix << "\");\n";
+    main_ss << "        if (serial_stdout) {\n";
+    main_ss << "            generated_ctx->callbacks.on_serial_byte = gbrt_serial_stdout;\n";
+    main_ss << "        }\n";
     main_ss << "        " << options.output_prefix << "_init(generated_ctx);\n";
     main_ss << "        " << options.output_prefix << "_init(interpreted_ctx);\n";
+    main_ss << "        if (data_mod_file) {\n";
+    main_ss << "            GBDataModStatus generated_mod_status = gbrt_data_mod_load_file(generated_ctx, data_mod_file);\n";
+    main_ss << "            GBDataModStatus interpreted_mod_status = gbrt_data_mod_load_file(interpreted_ctx, data_mod_file);\n";
+    main_ss << "            if (generated_mod_status != GB_DATA_MOD_OK || interpreted_mod_status != GB_DATA_MOD_OK) {\n";
+    main_ss << "                fprintf(stderr, \"Data-mod activation failed: generated=%s interpreted=%s\\n\",\n";
+    main_ss << "                        gbrt_data_mod_status_string(generated_mod_status),\n";
+    main_ss << "                        gbrt_data_mod_status_string(interpreted_mod_status));\n";
+    main_ss << "                gb_context_destroy(generated_ctx);\n";
+    main_ss << "                gb_context_destroy(interpreted_ctx);\n";
+    main_ss << "                return 1;\n";
+    main_ss << "            }\n";
+    main_ss << "            fprintf(stderr, \"[DATA-MOD] Active entries=%zu\\n\",\n";
+    main_ss << "                    gbrt_data_mod_entry_count(generated_ctx));\n";
+    main_ss << "        }\n";
+    main_ss << "        if (differential_state_file) {\n";
+    main_ss << "            if (!gb_context_load_state_file(generated_ctx, differential_state_file) ||\n";
+    main_ss << "                !gb_context_load_state_file(interpreted_ctx, differential_state_file)) {\n";
+    main_ss << "                fprintf(stderr, \"Failed to load differential state: %s\\n\", differential_state_file);\n";
+    main_ss << "                gb_context_destroy(generated_ctx);\n";
+    main_ss << "                gb_context_destroy(interpreted_ctx);\n";
+    main_ss << "                return 1;\n";
+    main_ss << "            }\n";
+    main_ss << "            fprintf(stderr, \"[DIFF] Loaded comparison state: %s\\n\", differential_state_file);\n";
+    main_ss << "        }\n";
+    if (options.native_patch.enabled) {
+        main_ss << "        if (gb_native_patch_failed(generated_ctx) || gb_native_patch_failed(interpreted_ctx)) {\n";
+        main_ss << "            gb_context_destroy(generated_ctx);\n";
+        main_ss << "            gb_context_destroy(interpreted_ctx);\n";
+        main_ss << "            return 1;\n";
+        main_ss << "        }\n";
+    }
     main_ss << "        GBDifferentialOptions diff_options = {\n";
     main_ss << "            .max_steps = differential_steps,\n";
     main_ss << "            .max_frames = differential_frames,\n";
@@ -3623,10 +4486,21 @@ GeneratedOutput generate_output(const ir::Program& program,
     main_ss << "            .compare_memory = differential_compare_memory,\n";
     main_ss << "            .log_fallbacks = differential_log_fallbacks,\n";
     main_ss << "            .fail_on_fallback = differential_fail_on_fallback,\n";
+    main_ss << "            .inject_mismatch_step = differential_inject_mismatch_step,\n";
     main_ss << "            .input_script = input_script,\n";
     main_ss << "        };\n";
     main_ss << "        GBDifferentialResult diff_result;\n";
     main_ss << "        bool matched = gb_run_differential(generated_ctx, interpreted_ctx, &diff_options, &diff_result);\n";
+    if (options.native_patch.enabled) {
+        main_ss << "        if (gb_native_patch_failed(generated_ctx) || gb_native_patch_failed(interpreted_ctx)) matched = false;\n";
+    }
+    main_ss << "        if (report_performance_counters) {\n";
+    main_ss << "            gbrt_report_performance_counters(generated_ctx);\n";
+    main_ss << "        }\n";
+    main_ss << "        if (state_dump_file && !gb_context_write_state_json(generated_ctx, state_dump_file)) {\n";
+    main_ss << "            fprintf(stderr, \"Failed to write state snapshot: %s\\n\", state_dump_file);\n";
+    main_ss << "            matched = false;\n";
+    main_ss << "        }\n";
     main_ss << "        gb_context_destroy(generated_ctx);\n";
     main_ss << "        gb_context_destroy(interpreted_ctx);\n";
     main_ss << "        return matched ? 0 : 1;\n";
@@ -3639,13 +4513,14 @@ GeneratedOutput generate_output(const ir::Program& program,
     main_ss << "    }\n";
     main_ss << "    gb_context_set_save_id(ctx, \"" << options.output_prefix << "\");\n";
     main_ss << "    gbrt_log_lcd_transitions = log_lcd_transitions;\n";
+    main_ss << "    gbrt_dispatch_fallback_tracking_enabled = log_frame_fallbacks || report_interpreter_hotspots;\n";
     main_ss << "    if (debug_audio) gb_audio_set_debug(true);\n";
     main_ss << "    gb_audio_set_debug_capture_seconds(debug_audio_seconds);\n";
     main_ss << "    if (debug_audio_trace) gb_audio_set_debug_trace(true);\n";
     main_ss << "    audio_stats_set_log_to_console(audio_stats_console);\n";
     main_ss << "#ifdef GB_HAS_SDL2\n";
     main_ss << "    // Initialize SDL2 platform with 5x scaling\n";
-    main_ss << "    if (benchmark_mode) {\n";
+    main_ss << "    if (benchmark_mode || headless_mode) {\n";
     main_ss << "        gb_platform_set_benchmark_mode(true);\n";
     main_ss << "    }\n";
     main_ss << "    if (!gb_platform_init(5)) {\n";
@@ -3658,8 +4533,67 @@ GeneratedOutput generate_output(const ir::Program& program,
     main_ss << "        gb_platform_set_smooth_lcd_transitions(smooth_lcd_transitions_override != 0);\n";
     main_ss << "    }\n";
     main_ss << "#endif\n";
+    main_ss << "    if (serial_stdout) {\n";
+    main_ss << "        ctx->callbacks.on_serial_byte = gbrt_serial_stdout;\n";
+    main_ss << "    }\n";
     main_ss << "    " << options.output_prefix << "_init(ctx);\n";
+    main_ss << "    if (data_mod_file) {\n";
+    main_ss << "        GBDataModStatus data_mod_status = gbrt_data_mod_load_file(ctx, data_mod_file);\n";
+    main_ss << "        if (data_mod_status != GB_DATA_MOD_OK) {\n";
+    main_ss << "            fprintf(stderr, \"Data-mod activation failed: %s\\n\",\n";
+    main_ss << "                    gbrt_data_mod_status_string(data_mod_status));\n";
+    main_ss << "#ifdef GB_HAS_SDL2\n";
+    main_ss << "            gb_platform_shutdown();\n";
+    main_ss << "#endif\n";
+    main_ss << "            gb_context_destroy(ctx);\n";
+    main_ss << "            return 1;\n";
+    main_ss << "        }\n";
+    main_ss << "        fprintf(stderr, \"[DATA-MOD] Active entries=%zu\\n\",\n";
+    main_ss << "                gbrt_data_mod_entry_count(ctx));\n";
+    main_ss << "    }\n";
+    main_ss << "#ifdef GBRT_ENABLE_PORT_MODULE\n";
+    main_ss << "    const GBPortMetadata port_metadata = {\n";
+    main_ss << "        .abi_version = GB_PORT_ABI_VERSION,\n";
+    main_ss << "        .game_id = \"" << options.output_prefix << "\",\n";
+    main_ss << "        .game_title = \"" << options.output_prefix << "\",\n";
+    main_ss << "        .rom_sha256 = \"" << rom_sha256 << "\",\n";
+    main_ss << "        .rom_size = " << rom_size << "u,\n";
+    main_ss << "    };\n";
+    main_ss << "    const GBPortHost port_host = {\n";
+    main_ss << "        .abi_version = GB_PORT_ABI_VERSION,\n";
+    main_ss << "        .headless = headless_mode || benchmark_mode,\n";
+    main_ss << "#ifdef GB_HAS_SDL2\n";
+    main_ss << "        .submit_frame = gb_platform_submit_port_frame,\n";
+    main_ss << "#endif\n";
+    main_ss << "    };\n";
+    main_ss << "    GBPortStatus port_status = GB_PORT_OK;\n";
+    main_ss << "    if (!port_module_disabled) {\n";
+    main_ss << "        port_status = gbrt_port_attach(\n";
+    main_ss << "            ctx, gb_port_module_get(), &port_metadata, &port_host);\n";
+    main_ss << "    }\n";
+    main_ss << "    if (port_status != GB_PORT_OK) {\n";
+    main_ss << "        fprintf(stderr, \"Port module activation failed: %d\\n\", (int)port_status);\n";
+    main_ss << "#ifdef GB_HAS_SDL2\n";
+    main_ss << "        gb_platform_shutdown();\n";
+    main_ss << "#endif\n";
+    main_ss << "        gb_context_destroy(ctx);\n";
+    main_ss << "        return 1;\n";
+    main_ss << "    }\n";
+    main_ss << "    if (port_ui_open && !port_module_disabled) {\n";
+    main_ss << "        const GBPortInputEvent event = {GB_PORT_INPUT_TOGGLE_UI, true};\n";
+    main_ss << "        gbrt_port_input(ctx, &event);\n";
+    main_ss << "    }\n";
+    main_ss << "#endif\n";
     main_ss << "    int exit_code = 0;\n";
+    if (options.native_patch.enabled) {
+        main_ss << "    if (gb_native_patch_failed(ctx)) {\n";
+        main_ss << "#ifdef GB_HAS_SDL2\n";
+        main_ss << "        gb_platform_shutdown();\n";
+        main_ss << "#endif\n";
+        main_ss << "        gb_context_destroy(ctx);\n";
+        main_ss << "        return 1;\n";
+        main_ss << "    }\n";
+    }
     main_ss << "\n";
     main_ss << "#ifdef GB_HAS_SDL2\n";
     main_ss << "    if (report_interpreter_hotspots) {\n";
@@ -3668,6 +4602,62 @@ GeneratedOutput generate_output(const ir::Program& program,
     main_ss << "\n";
     main_ss << "    // Run the game loop\n";
     main_ss << "    unsigned long long frame_index = 0;\n";
+    main_ss << "    if (benchmark_mode) {\n";
+    main_ss << "        while ((frame_limit == 0 || frame_index < frame_limit) &&\n";
+    main_ss << "               !(stop_on_serial_verdict && gbrt_serial_verdict_seen)) {\n";
+    main_ss << "            gb_reset_frame(ctx);\n";
+    main_ss << "            ctx->stopped = 0;\n";
+    main_ss << "            while (!ctx->frame_done) {\n";
+    main_ss << "                gb_run_cycles(ctx, 0xFFFFFFFFu);\n";
+    if (options.native_patch.enabled) {
+        main_ss << "                if (gb_native_patch_failed(ctx)) { exit_code = 1; break; }\n";
+    }
+    main_ss << "            }\n";
+    if (options.native_patch.enabled) {
+        main_ss << "            if (exit_code != 0) break;\n";
+    }
+    main_ss << "            frame_index++;\n";
+    main_ss << "#ifdef GBRT_ENABLE_PORT_MODULE\n";
+    main_ss << "            for (size_t toggle_index = 0; toggle_index < port_toggle_frame_count; ++toggle_index) {\n";
+    main_ss << "                if (frame_index == port_toggle_frames[toggle_index]) {\n";
+    main_ss << "                    const GBPortInputEvent event = {GB_PORT_INPUT_TOGGLE_UI, true};\n";
+    main_ss << "                    gbrt_port_input(ctx, &event);\n";
+    main_ss << "                    break;\n";
+    main_ss << "                }\n";
+    main_ss << "            }\n";
+    main_ss << "            for (size_t input_index = 0; input_index < port_input_frame_count; ++input_index) {\n";
+    main_ss << "                if (frame_index == port_input_frames[input_index]) {\n";
+    main_ss << "                    const GBPortInputEvent event = {port_input_actions[input_index], true};\n";
+    main_ss << "                    gbrt_port_input(ctx, &event);\n";
+    main_ss << "                    break;\n";
+    main_ss << "                }\n";
+    main_ss << "            }\n";
+    main_ss << "            gbrt_port_update(ctx, frame_index, ctx->frame_cycles);\n";
+    main_ss << "            gbrt_port_render(ctx, 1280, 720);\n";
+    main_ss << "#endif\n";
+    main_ss << "        }\n";
+    main_ss << "        fprintf(stderr, \"[LIMIT] Reached frame limit %llu\\n\", (unsigned long long)frame_limit);\n";
+    main_ss << "        if (state_dump_file && !gb_context_write_state_json(ctx, state_dump_file)) {\n";
+    main_ss << "            fprintf(stderr, \"Failed to write state snapshot: %s\\n\", state_dump_file);\n";
+    main_ss << "            exit_code = 1;\n";
+    main_ss << "        }\n";
+    main_ss << "        if (save_state_file && !gb_context_save_state_file(ctx, save_state_file)) {\n";
+    main_ss << "            fprintf(stderr, \"Failed to write savestate: %s\\n\", save_state_file);\n";
+    main_ss << "            exit_code = 1;\n";
+    main_ss << "        }\n";
+    main_ss << "        if (report_performance_counters) {\n";
+    main_ss << "            gbrt_report_performance_counters(ctx);\n";
+    main_ss << "        }\n";
+    main_ss << "#ifdef GBRT_ENABLE_PORT_MODULE\n";
+    main_ss << "        if (port_state_file && !gbrt_port_write_state_json(ctx, port_state_file)) {\n";
+    main_ss << "            fprintf(stderr, \"Failed to write port state: %s\\n\", port_state_file);\n";
+    main_ss << "            exit_code = 1;\n";
+    main_ss << "        }\n";
+    main_ss << "#endif\n";
+    main_ss << "        gb_platform_shutdown();\n";
+    main_ss << "        gb_context_destroy(ctx);\n";
+    main_ss << "        return exit_code;\n";
+    main_ss << "    }\n";
     main_ss << "    const uint32_t lcd_smooth_slice_cycles = 70224u;\n";
     main_ss << "    bool running = true;\n";
     main_ss << "    while (running) {\n";
@@ -3688,7 +4678,14 @@ GeneratedOutput generate_output(const ir::Program& program,
     main_ss << "            double slice_start_ms = gb_profile_now_ms();\n";
     main_ss << "            gb_run_cycles(ctx, slice_budget);\n";
     main_ss << "            emu_ms += gb_profile_now_ms() - slice_start_ms;\n";
+    if (options.native_patch.enabled) {
+        main_ss << "            if (gb_native_patch_failed(ctx)) { exit_code = 1; running = false; break; }\n";
+    }
     main_ss << "            uint32_t slice_cycles = ctx->frame_cycles - slice_start_cycles;\n";
+    main_ss << "            if (stop_on_serial_verdict && gbrt_serial_verdict_seen) {\n";
+    main_ss << "                running = false;\n";
+    main_ss << "                break;\n";
+    main_ss << "            }\n";
     main_ss << "            if (!gb_platform_poll_events(ctx)) {\n";
     main_ss << "                running = false;\n";
     main_ss << "                break;\n";
@@ -3714,6 +4711,24 @@ GeneratedOutput generate_output(const ir::Program& program,
     main_ss << "            uint32_t completed_frame_cycles = ctx->frame_cycles;\n";
     main_ss << "            uint32_t final_pacing_cycles = (completed_frame_cycles > paced_cycles) ? (completed_frame_cycles - paced_cycles) : 0;\n";
     main_ss << "            frame_index++;\n";
+    main_ss << "#ifdef GBRT_ENABLE_PORT_MODULE\n";
+    main_ss << "            for (size_t toggle_index = 0; toggle_index < port_toggle_frame_count; ++toggle_index) {\n";
+    main_ss << "                if (frame_index == port_toggle_frames[toggle_index]) {\n";
+    main_ss << "                    const GBPortInputEvent event = {GB_PORT_INPUT_TOGGLE_UI, true};\n";
+    main_ss << "                    gbrt_port_input(ctx, &event);\n";
+    main_ss << "                    break;\n";
+    main_ss << "                }\n";
+    main_ss << "            }\n";
+    main_ss << "            for (size_t input_index = 0; input_index < port_input_frame_count; ++input_index) {\n";
+    main_ss << "                if (frame_index == port_input_frames[input_index]) {\n";
+    main_ss << "                    const GBPortInputEvent event = {port_input_actions[input_index], true};\n";
+    main_ss << "                    gbrt_port_input(ctx, &event);\n";
+    main_ss << "                    break;\n";
+    main_ss << "                }\n";
+    main_ss << "            }\n";
+    main_ss << "            gbrt_port_update(ctx, frame_index, completed_frame_cycles);\n";
+    main_ss << "            gbrt_port_render(ctx, 1280, 720);\n";
+    main_ss << "#endif\n";
     main_ss << "            const uint32_t* fb = gb_get_framebuffer(ctx);\n";
     main_ss << "            if (fb) gb_platform_render_frame(fb);\n";
     main_ss << "            gb_platform_get_timing_info(&timing_info);\n";
@@ -3779,10 +4794,30 @@ GeneratedOutput generate_output(const ir::Program& program,
     main_ss << "    printf(\"Registers: A=%02X B=%02X C=%02X\\n\", ctx->a, ctx->b, ctx->c);\n";
     main_ss << "#endif\n";
     main_ss << "\n";
+    if (options.native_patch.enabled) {
+        main_ss << "    if (gb_native_patch_failed(ctx)) exit_code = 1;\n";
+    }
     main_ss << "    if (report_interpreter_hotspots) {\n";
     main_ss << "        gbrt_flush_interpreter_summary();\n";
     main_ss << "    }\n";
     main_ss << "    gbrt_disable_interpreter_summary();\n";
+    main_ss << "    if (report_performance_counters) {\n";
+    main_ss << "        gbrt_report_performance_counters(ctx);\n";
+    main_ss << "    }\n";
+    main_ss << "    if (state_dump_file && !gb_context_write_state_json(ctx, state_dump_file)) {\n";
+    main_ss << "        fprintf(stderr, \"Failed to write state snapshot: %s\\n\", state_dump_file);\n";
+    main_ss << "        exit_code = 1;\n";
+    main_ss << "    }\n";
+    main_ss << "    if (save_state_file && !gb_context_save_state_file(ctx, save_state_file)) {\n";
+    main_ss << "        fprintf(stderr, \"Failed to write savestate: %s\\n\", save_state_file);\n";
+    main_ss << "        exit_code = 1;\n";
+    main_ss << "    }\n";
+    main_ss << "#ifdef GBRT_ENABLE_PORT_MODULE\n";
+    main_ss << "    if (port_state_file && !gbrt_port_write_state_json(ctx, port_state_file)) {\n";
+    main_ss << "        fprintf(stderr, \"Failed to write port state: %s\\n\", port_state_file);\n";
+    main_ss << "        exit_code = 1;\n";
+    main_ss << "    }\n";
+    main_ss << "#endif\n";
     main_ss << "    gb_context_destroy(ctx);\n";
     main_ss << "    return exit_code;\n";
     main_ss << "}\n";
@@ -3805,13 +4840,21 @@ GeneratedOutput generate_output(const ir::Program& program,
         cmake_ss << "set(CMAKE_C_STANDARD_REQUIRED ON)\n\n";
         cmake_ss << "set(CMAKE_CXX_STANDARD 17)\n";
         cmake_ss << "set(CMAKE_CXX_STANDARD_REQUIRED ON)\n\n";
+        cmake_ss << "option(GBRECOMP_ENABLE_PERFORMANCE_COUNTERS \"Compile generated/runtime performance counters\" OFF)\n\n";
+        cmake_ss << "set(GBRECOMP_GENERATED_COMPILE_JOBS \"8\" CACHE STRING \"Maximum concurrent generated-source compiles under Ninja; 0 disables the pool\")\n\n";
         cmake_ss << "# Migrate stale generated-project cache entries when the default profile changes.\n";
         cmake_ss << "set(GBRECOMP_PROFILE_CACHE_VERSION \"2\")\n";
         cmake_ss << "set(GBRECOMP_APPLIED_PROFILE_CACHE_VERSION \"0\" CACHE STRING \"Internal generated-project profile version\")\n";
         cmake_ss << "if(NOT GBRECOMP_APPLIED_PROFILE_CACHE_VERSION STREQUAL GBRECOMP_PROFILE_CACHE_VERSION)\n";
-        cmake_ss << "    set(GBRECOMP_ENABLE_IPO OFF CACHE BOOL \"Enable interprocedural optimization/LTO for non-Debug builds\" FORCE)\n";
-        cmake_ss << "    set(GBRECOMP_ENABLE_STRIP ON CACHE BOOL \"Strip symbols from generated executables in non-Debug builds\" FORCE)\n";
-        cmake_ss << "    set(GBRECOMP_GENERATED_OPT_LEVEL \"1\" CACHE STRING \"Optimization level for the generated ROM source files\" FORCE)\n";
+        cmake_ss << "    if(NOT DEFINED GBRECOMP_ENABLE_IPO)\n";
+        cmake_ss << "        set(GBRECOMP_ENABLE_IPO OFF CACHE BOOL \"Enable interprocedural optimization/LTO for non-Debug builds\" FORCE)\n";
+        cmake_ss << "    endif()\n";
+        cmake_ss << "    if(NOT DEFINED GBRECOMP_ENABLE_STRIP)\n";
+        cmake_ss << "        set(GBRECOMP_ENABLE_STRIP ON CACHE BOOL \"Strip symbols from generated executables in non-Debug builds\" FORCE)\n";
+        cmake_ss << "    endif()\n";
+        cmake_ss << "    if(NOT DEFINED GBRECOMP_GENERATED_OPT_LEVEL)\n";
+        cmake_ss << "        set(GBRECOMP_GENERATED_OPT_LEVEL \"1\" CACHE STRING \"Optimization level for the generated ROM source files\" FORCE)\n";
+        cmake_ss << "    endif()\n";
         cmake_ss << "    set(GBRECOMP_APPLIED_PROFILE_CACHE_VERSION \"${GBRECOMP_PROFILE_CACHE_VERSION}\" CACHE STRING \"Internal generated-project profile version\" FORCE)\n";
         cmake_ss << "endif()\n\n";
         cmake_ss << "# Default to a smaller, iteration-friendly profile for generated projects.\n";
@@ -3831,51 +4874,27 @@ GeneratedOutput generate_output(const ir::Program& program,
         cmake_ss << "    endif()\n";
         cmake_ss << "    add_compile_options(-ffunction-sections -fdata-sections)\n";
         cmake_ss << "endif()\n\n";
-        // Calculate relative path to runtime
-        namespace fs = std::filesystem;
-        fs::path out_path(options.output_dir);
-        std::string runtime_path;
-
-        // Normalise to a path relative to the CWD (= workspace root when gbrecomp
-        // is run per AGENTS.md conventions).  This handles the case where -o was
-        // given as an absolute path: fs::relative strips the leading /host/path
-        // components and leaves only the workspace-relative portion so that the
-        // generated ../../../runtime chain has the right number of segments.
-        fs::path relative_out;
-        try {
-            relative_out = fs::relative(out_path);
-        } catch (...) {
-            relative_out = out_path;
-        }
-
-        // Count depth to generate correct number of ../
-        int depth = 0;
-        for (const auto& p : relative_out) {
-            const std::string s = p.string();
-            if (s == "." || s == "/" || s.empty()) continue;
-            depth++;
-        }
-        // Ensure at least one level up
-        if (depth == 0) depth = 1;
-
-        std::stringstream rt_ss;
-        for (int i = 0; i < depth; i++) rt_ss << "../";
-        rt_ss << "runtime";
-        runtime_path = rt_ss.str();
-
-        cmake_ss << "# Runtime library path (relative to this output directory)\n";
-        cmake_ss << "set(GBRT_DIR \"${CMAKE_CURRENT_SOURCE_DIR}/" << runtime_path << "\")\n\n";
+        cmake_ss << "# Self-contained runtime snapshot embedded by gbrecomp\n";
+        cmake_ss << "set(GBRT_DIR \"${CMAKE_CURRENT_SOURCE_DIR}/runtime\")\n\n";
         cmake_ss << "# Find SDL2\n";
         cmake_ss << "find_package(SDL2 REQUIRED)\n\n";
         cmake_ss << "# Create runtime library with PPU and platform support\n";
         cmake_ss << "add_library(gbrt STATIC\n";
         cmake_ss << "    ${GBRT_DIR}/src/gbrt.c\n";
+        cmake_ss << "    ${GBRT_DIR}/src/gbrt_data_mod.c\n";
+        cmake_ss << "    ${GBRT_DIR}/src/gbrt_hash.c\n";
+        cmake_ss << "    ${GBRT_DIR}/src/gbrt_port.c\n";
+        cmake_ss << "    ${GBRT_DIR}/src/gbrt_presentation.c\n";
+        cmake_ss << "    ${GBRT_DIR}/src/gbrt_semantic.c\n";
         cmake_ss << "    ${GBRT_DIR}/src/differential.c\n";
         cmake_ss << "    ${GBRT_DIR}/src/ppu.c\n";
         cmake_ss << "    ${GBRT_DIR}/src/audio.c\n";
         cmake_ss << "    ${GBRT_DIR}/src/audio_stats.c\n";
         cmake_ss << "    ${GBRT_DIR}/src/interpreter.c\n";
         cmake_ss << "    ${GBRT_DIR}/src/platform_sdl.cpp\n";
+        if (options.native_patch.enabled) {
+            cmake_ss << "    ${GBRT_DIR}/src/gbrt_native_patch.c\n";
+        }
         cmake_ss << ")\n\n";
 
         cmake_ss << "# Vendored Dear ImGui subset\n";
@@ -3894,6 +4913,12 @@ GeneratedOutput generate_output(const ir::Program& program,
         cmake_ss << ")\n";
         cmake_ss << "target_link_libraries(gbrt PUBLIC SDL2::SDL2)\n";
         cmake_ss << "target_compile_definitions(gbrt PUBLIC GB_HAS_SDL2)\n\n";
+        if (options.native_patch.enabled) {
+            cmake_ss << "target_compile_definitions(gbrt PUBLIC GBRT_ENABLE_NATIVE_PATCHES)\n\n";
+        }
+        cmake_ss << "if(GBRECOMP_ENABLE_PERFORMANCE_COUNTERS)\n";
+        cmake_ss << "    target_compile_definitions(gbrt PUBLIC GBRT_ENABLE_PERFORMANCE_COUNTERS)\n";
+        cmake_ss << "endif()\n\n";
         cmake_ss << "# Main executable\n";
         std::vector<std::string> generated_source_files = {options.output_prefix + ".c"};
         for (const auto& extra_file : output.extra_files) {
@@ -3911,6 +4936,12 @@ GeneratedOutput generate_output(const ir::Program& program,
         }
         cmake_ss << "    " << options.output_prefix << "_rom.c\n";
         cmake_ss << ")\n\n";
+        cmake_ss << "# Large generated translation units are memory-intensive. Keep runtime/UI\n";
+        cmake_ss << "# compilation parallel while bounding only the generated executable target.\n";
+        cmake_ss << "if(CMAKE_GENERATOR MATCHES \"Ninja\" AND GBRECOMP_GENERATED_COMPILE_JOBS MATCHES \"^[1-9][0-9]*$\")\n";
+        cmake_ss << "    set_property(GLOBAL APPEND PROPERTY JOB_POOLS \"gbrecomp_generated_compile_pool=${GBRECOMP_GENERATED_COMPILE_JOBS}\")\n";
+        cmake_ss << "    set_property(TARGET " << options.output_prefix << " PROPERTY JOB_POOL_COMPILE gbrecomp_generated_compile_pool)\n";
+        cmake_ss << "endif()\n\n";
         cmake_ss << "# Generated ROM code defaults to a smaller manual-testing profile.\n";
         cmake_ss << "# Raise the optimization level or enable IPO/LTO explicitly for benchmark/release builds.\n";
         cmake_ss << "set(GBRECOMP_GENERATED_OPT_LEVEL \"1\" CACHE STRING \"Optimization level for the generated ROM source files\")\n";
@@ -4003,7 +5034,11 @@ bool write_output(const GeneratedOutput& output, const std::string& output_dir) 
         }
 
         for (const auto& extra_file : output.extra_files) {
-            std::ofstream out_file(out_path / extra_file.filename);
+            const fs::path extra_path = out_path / extra_file.filename;
+            if (extra_path.has_parent_path()) {
+                fs::create_directories(extra_path.parent_path());
+            }
+            std::ofstream out_file(extra_path);
             if (!out_file) return false;
             out_file << extra_file.content;
             out_file.close();

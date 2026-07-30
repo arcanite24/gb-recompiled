@@ -1,5 +1,6 @@
 #pragma once
 
+#include "rom.h"
 #include <cstdint>
 #include <vector>
 #include <unordered_map>
@@ -17,26 +18,26 @@ class BankTracker {
 public:
     struct BankSwitch {
         uint32_t addr;          /**< Address where switch occurs (bank:addr) */
-        uint8_t target_bank;    /**< Bank being switched to */
+        BankId target_bank;     /**< Bank being switched to */
         bool is_dynamic;        /**< True if bank is loaded from register/variable */
     };
     
     struct BankCall {
         uint32_t from_addr;     /**< Caller address */
         uint32_t to_addr;       /**< Callee address */
-        uint8_t from_bank;      /**< Caller bank */
-        uint8_t to_bank;        /**< Callee bank (may be same) */
+        BankId from_bank;       /**< Caller bank */
+        BankId to_bank;         /**< Callee bank (may be same) */
     };
     
     /**
      * @brief Record a bank switch at the given address
      */
-    void record_bank_switch(uint32_t addr, uint8_t bank, bool dynamic = false);
+    void record_bank_switch(uint32_t addr, BankId bank, bool dynamic = false);
     
     /**
      * @brief Record a cross-bank call
      */
-    void record_cross_bank_call(uint32_t from, uint32_t to, uint8_t from_bank, uint8_t to_bank);
+    void record_cross_bank_call(uint32_t from, uint32_t to, BankId from_bank, BankId to_bank);
     
     /**
      * @brief Get all bank switches

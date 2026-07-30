@@ -75,7 +75,7 @@ std::vector<AnalyzerOptions::RamOverlay> detect_oam_dma_overlays(const ROM& rom)
         overlay_size = static_cast<uint16_t>(overlay_size + 2);
     }
 
-    uint8_t bank = static_cast<uint8_t>(overlay_start / 0x4000);
+    BankId bank = static_cast<BankId>(overlay_start / 0x4000);
     uint16_t offset = static_cast<uint16_t>(overlay_start % 0x4000);
     if (bank > 0) {
         offset = static_cast<uint16_t>(offset + 0x4000);
@@ -102,7 +102,7 @@ void append_codegen_ram_overlays(const ROM& rom,
                                  codegen::GeneratorOptions& emit_config) {
     const uint8_t* rom_bytes = rom.data();
     for (const auto& overlay : overlays) {
-        uint8_t bank = static_cast<uint8_t>(overlay.rom_addr >> 16);
+        BankId bank = static_cast<BankId>(overlay.rom_addr >> 16);
         uint16_t offset = static_cast<uint16_t>(overlay.rom_addr & 0xFFFF);
         size_t rom_idx = (offset < 0x4000)
             ? offset
@@ -191,7 +191,7 @@ public:
             detect_oam_dma_overlays(rom);
         for (const auto& overlay : dma_overlays) {
              if (opts_.verbose) {
-                 uint8_t bank = static_cast<uint8_t>(overlay.rom_addr >> 16);
+                 BankId bank = static_cast<BankId>(overlay.rom_addr >> 16);
                  uint16_t offset = static_cast<uint16_t>(overlay.rom_addr & 0xFFFF);
                  size_t rom_idx = (offset < 0x4000)
                      ? offset

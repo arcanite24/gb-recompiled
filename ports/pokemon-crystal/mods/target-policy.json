@@ -1,0 +1,55 @@
+{
+  "schema": "gbrecompiled.data-mod-target-policy",
+  "schema_version": 1,
+  "port": {
+    "id": "crystal-recompiled",
+    "version": 1
+  },
+  "rom": {
+    "size": 2097152,
+    "sha256": "fdcc3c8c43813cf8731fc037d2a6d191bac75439c34b24ba1c27526e6acdc8a2"
+  },
+  "semantic": {
+    "package_id": "crystal-recompiled",
+    "package_version": 4,
+    "manifest_sha256": "2eb33327d10fecae903e79d18fad7c9b90f3535b27c9dceb2d2454fb3041c566",
+    "schema_sha256": "b1e8cb8a2c2bec9b221570238f9ff81edde9f81efb036ddb0d36c7a9905aade9"
+  },
+  "targets": [
+    {
+      "id": "crystal.encounters.v1",
+      "media_type": "application/json",
+      "extensions": [".json"],
+      "max_bytes": 1048576,
+      "description": "Encounter table parameters keyed by stable semantic locations"
+    },
+    {
+      "id": "crystal.trainers.v1",
+      "media_type": "application/json",
+      "extensions": [".json"],
+      "max_bytes": 1048576,
+      "description": "Trainer party and difficulty parameters keyed by stable trainer identities"
+    },
+    {
+      "id": "crystal.rules.v1",
+      "media_type": "application/json",
+      "extensions": [".json"],
+      "max_bytes": 262144,
+      "description": "Selected reviewed gameplay rules without executable code"
+    },
+    {
+      "id": "crystal.accessibility.v1",
+      "media_type": "application/json",
+      "extensions": [".json"],
+      "max_bytes": 262144,
+      "description": "Text, palette, input-assist, and information-presentation settings"
+    },
+    {
+      "id": "crystal.host-assets.v1",
+      "media_type": "project-original-assets",
+      "extensions": [".json", ".png", ".wav", ".ogg"],
+      "max_bytes": 8388608,
+      "description": "Project-owned or compatibly licensed host-presentation assets"
+    }
+  ]
+}

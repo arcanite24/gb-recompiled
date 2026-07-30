@@ -5,6 +5,7 @@
 
 #include "platform_sdl.h"
 #include "gbrt.h"   /* For GBPlatformCallbacks */
+#include "gbrt_port.h"
 #include "ppu.h"
 #include "audio_stats.h"
 #include "gbrt_debug.h"
@@ -12,9 +13,22 @@
 #ifdef GB_HAS_SDL2
 #include <SDL.h>
 #include <atomic>
+#include <cerrno>
 #include <cctype>
+#include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <string>
+#if defined(_WIN32)
+#include <io.h>
+#include <windows.h>
+#else
+#include <fcntl.h>
+#include <unistd.h>
+#endif
+#ifdef GBRT_ENABLE_TEST_HOOKS
+#include <thread>
+#endif
 #include <vector>
 #include "imgui.h"
 #include "backends/imgui_impl_sdl2.h"
@@ -54,6 +68,11 @@ static int g_palette_idx = 0;
 static bool g_smooth_lcd_transitions = true;
 static bool g_launcher_return_enabled = false;
 static bool g_benchmark_mode = false;
+static std::string g_persistence_dir;
+static GBPersistenceTestFault g_persistence_test_fault =
+    GB_PERSISTENCE_TEST_FAULT_NONE;
+static GBPersistenceTestTarget g_persistence_test_target =
+    GB_PERSISTENCE_TEST_TARGET_BATTERY;
 static bool g_fullscreen = false;
 static bool g_app_suspended = false;
 static bool g_renderer_reset_pending = false;
@@ -118,9 +137,9 @@ static SDL_GameControllerType g_controller_type = SDL_CONTROLLER_TYPE_UNKNOWN;
 static GBControllerLabelProfile g_controller_label_profile = GB_CONTROLLER_LABEL_GENERIC;
 static std::string g_controller_name;
 static bool g_audio_output_enabled = true;
-static bool g_audio_muted = false;
+static std::atomic<bool> g_audio_muted{false};
 static uint32_t g_audio_latency_ms = 80;
-static uint32_t g_audio_volume_percent = 100;
+static std::atomic<uint32_t> g_audio_volume_percent{100};
 static uint32_t g_audio_low_watermark = 0;
 static uint32_t g_audio_device_sample_rate = 44100;
 static uint32_t g_audio_device_buffer_samples = 0;
@@ -154,6 +173,8 @@ static bool g_lcd_off_framebuffer_initialized = false;
 static bool g_last_guest_framebuffer_valid = false;
 static uint64_t g_present_count = 0;
 static GBContext* g_registered_ctx = NULL;
+static GBPortFrame g_port_frame = {};
+static bool g_port_frame_valid = false;
 static GBInputBinding g_keyboard_bindings[GB_INPUT_ACTION_COUNT][2] = {};
 static GBInputBinding g_controller_bindings[GB_INPUT_ACTION_COUNT][2] = {};
 static bool g_keyboard_binding_pressed[GB_INPUT_ACTION_COUNT][2] = {};
@@ -238,7 +259,7 @@ static uint8_t g_script_joypad_dpad = 0xFF;
 #include <stdlib.h>
 #include <ctype.h>
 
-#define MAX_SCRIPT_ENTRIES 100
+#define MAX_SCRIPT_ENTRIES 2048
 typedef enum {
     SCRIPT_ANCHOR_FRAME = 0,
     SCRIPT_ANCHOR_CYCLE = 1,
@@ -247,6 +268,8 @@ typedef enum {
 typedef struct {
     ScriptAnchor anchor;
     uint64_t start;
+    uint64_t end;
+    uint64_t period;
     uint64_t duration;
     uint8_t dpad;    /* Active LOW mask to apply (0 = Pressed) */
     uint8_t buttons; /* Active LOW mask to apply (0 = Pressed) */
@@ -268,7 +291,7 @@ static uint32_t g_dump_frames[MAX_DUMP_FRAMES];
 static int g_dump_count = 0;
 static uint32_t g_dump_present_frames[MAX_DUMP_FRAMES];
 static int g_dump_present_count = 0;
-static char g_screenshot_prefix[64] = "screenshot";
+static std::string g_screenshot_prefix = "screenshot";
 
 static bool env_flag_enabled(const char* name) {
     const char* value = SDL_getenv(name);
@@ -858,9 +881,9 @@ static bool binding_active_for_axis_value(const GBInputBinding& binding, Sint16 
 
 static void set_default_audio_preferences(void) {
     g_audio_output_enabled = true;
-    g_audio_muted = false;
+    g_audio_muted.store(false, std::memory_order_relaxed);
     g_audio_latency_ms = 80;
-    g_audio_volume_percent = 100;
+    g_audio_volume_percent.store(100, std::memory_order_relaxed);
     g_audio_target_device_name.clear();
 }
 
@@ -962,7 +985,7 @@ static void load_runtime_preferences(void) {
                     continue;
                 }
                 if (strcmp(key, "audio.muted") == 0) {
-                    g_audio_muted = (strcmp(value, "0") != 0);
+                    g_audio_muted.store(strcmp(value, "0") != 0, std::memory_order_relaxed);
                     continue;
                 }
                 if (strcmp(key, "audio.latency_ms") == 0) {
@@ -976,7 +999,7 @@ static void load_runtime_preferences(void) {
                     long parsed = strtol(value, NULL, 10);
                     if (parsed >= 0) {
                         if (parsed > 200) parsed = 200;
-                        g_audio_volume_percent = (uint32_t)parsed;
+                        g_audio_volume_percent.store((uint32_t)parsed, std::memory_order_relaxed);
                     }
                     continue;
                 }
@@ -1104,9 +1127,11 @@ static void save_runtime_preferences(void) {
     }
 
     fprintf(file, "audio.enabled=%d\n", g_audio_output_enabled ? 1 : 0);
-    fprintf(file, "audio.muted=%d\n", g_audio_muted ? 1 : 0);
+    fprintf(file, "audio.muted=%d\n",
+            g_audio_muted.load(std::memory_order_relaxed) ? 1 : 0);
     fprintf(file, "audio.latency_ms=%u\n", g_audio_latency_ms);
-    fprintf(file, "audio.volume_percent=%u\n", g_audio_volume_percent);
+    fprintf(file, "audio.volume_percent=%u\n",
+            g_audio_volume_percent.load(std::memory_order_relaxed));
     fprintf(file, "audio.device_name=%s\n", g_audio_target_device_name.c_str());
     fprintf(file, "savestate.slot=%d\n", g_savestate_slot);
 
@@ -1155,18 +1180,26 @@ static bool frame_is_selected_for_dump(const uint32_t* frames, int count, uint32
 }
 
 /* Helper to parse button string "U,D,L,R,A,B,S,T" */
-static void parse_buttons(const char* btn_str, uint8_t* dpad, uint8_t* buttons) {
+static bool parse_buttons(const char* btn_str, uint8_t* dpad, uint8_t* buttons) {
     *dpad = 0xFF;
     *buttons = 0xFF;
-    // Simple parser: check for existence of characters
-    if (strchr(btn_str, 'U')) *dpad &= ~0x04;
-    if (strchr(btn_str, 'D')) *dpad &= ~0x08;
-    if (strchr(btn_str, 'L')) *dpad &= ~0x02;
-    if (strchr(btn_str, 'R')) *dpad &= ~0x01;
-    if (strchr(btn_str, 'A')) *buttons &= ~0x01;
-    if (strchr(btn_str, 'B')) *buttons &= ~0x02;
-    if (strchr(btn_str, 'S')) *buttons &= ~0x08; /* Start */
-    if (strchr(btn_str, 'T')) *buttons &= ~0x04; /* Select (T for selecT) */
+    if (!btn_str || !*btn_str) {
+        return false;
+    }
+    for (const char* cursor = btn_str; *cursor; ++cursor) {
+        switch (*cursor) {
+            case 'U': *dpad &= (uint8_t)~0x04; break;
+            case 'D': *dpad &= (uint8_t)~0x08; break;
+            case 'L': *dpad &= (uint8_t)~0x02; break;
+            case 'R': *dpad &= (uint8_t)~0x01; break;
+            case 'A': *buttons &= (uint8_t)~0x01; break;
+            case 'B': *buttons &= (uint8_t)~0x02; break;
+            case 'S': *buttons &= (uint8_t)~0x08; break; /* Start */
+            case 'T': *buttons &= (uint8_t)~0x04; break; /* Select */
+            default: return false;
+        }
+    }
+    return true;
 }
 
 static bool input_action_is_pressed(GBInputAction action) {
@@ -1221,7 +1254,8 @@ static void update_runtime_action_state(GBContext* ctx) {
                     break;
 
                 case GB_INPUT_ACTION_TOGGLE_MUTE:
-                    g_audio_muted = !g_audio_muted;
+                    g_audio_muted.store(!g_audio_muted.load(std::memory_order_relaxed),
+                                        std::memory_order_relaxed);
                     save_runtime_preferences();
                     break;
 
@@ -1311,6 +1345,25 @@ static char* trim_ascii(char* text) {
     return text;
 }
 
+static bool parse_script_u64(char* text, uint64_t* value) {
+    if (!text || !*text || !value) {
+        return false;
+    }
+    for (const char* cursor = text; *cursor; ++cursor) {
+        if (!isdigit((unsigned char)*cursor)) {
+            return false;
+        }
+    }
+    errno = 0;
+    char* end = NULL;
+    const unsigned long long parsed = strtoull(text, &end, 10);
+    if (errno == ERANGE || !end || *end) {
+        return false;
+    }
+    *value = (uint64_t)parsed;
+    return true;
+}
+
 static bool parse_script_token(char* token, ScriptEntry* entry, char* button_buf, size_t button_buf_size) {
     char* start_text = trim_ascii(token);
     if (!start_text || !*start_text) {
@@ -1339,7 +1392,12 @@ static bool parse_script_token(char* token, ScriptEntry* entry, char* button_buf
     }
 
     entry->anchor = SCRIPT_ANCHOR_FRAME;
-    if (*start_text == 'c' || *start_text == 'C') {
+    bool periodic = false;
+    if (*start_text == 'p' || *start_text == 'P') {
+        entry->anchor = SCRIPT_ANCHOR_CYCLE;
+        periodic = true;
+        start_text++;
+    } else if (*start_text == 'c' || *start_text == 'C') {
         entry->anchor = SCRIPT_ANCHOR_CYCLE;
         start_text++;
     } else if (*start_text == 'f' || *start_text == 'F') {
@@ -1350,17 +1408,40 @@ static bool parse_script_token(char* token, ScriptEntry* entry, char* button_buf
         return false;
     }
 
-    char* start_end = NULL;
-    char* duration_end = NULL;
-    entry->start = strtoull(start_text, &start_end, 10);
-    entry->duration = strtoull(duration_text, &duration_end, 10);
-    if ((start_end && *trim_ascii(start_end)) || (duration_end && *trim_ascii(duration_end))) {
+    if (!parse_script_u64(duration_text, &entry->duration)) {
         return false;
     }
     if (entry->duration == 0) {
         return false;
     }
+    if (periodic) {
+        char* dash = strchr(start_text, '-');
+        char* slash = dash ? strchr(dash + 1, '/') : NULL;
+        if (!dash || !slash || strchr(dash + 1, '-') || strchr(slash + 1, '/')) {
+            return false;
+        }
+        *dash = '\0';
+        *slash = '\0';
+        if (!parse_script_u64(trim_ascii(start_text), &entry->start) ||
+            !parse_script_u64(trim_ascii(dash + 1), &entry->end) ||
+            !parse_script_u64(trim_ascii(slash + 1), &entry->period) ||
+            entry->end < entry->start ||
+            entry->period <= entry->duration ||
+            entry->end > UINT64_MAX - entry->duration) {
+            return false;
+        }
+    } else {
+        if (!parse_script_u64(start_text, &entry->start) ||
+            entry->start > UINT64_MAX - entry->duration) {
+            return false;
+        }
+        entry->end = entry->start;
+        entry->period = 0;
+    }
 
+    if (!*buttons_text || strlen(buttons_text) >= button_buf_size) {
+        return false;
+    }
     snprintf(button_buf, button_buf_size, "%s", buttons_text);
     return true;
 }
@@ -1426,37 +1507,56 @@ static void record_manual_input_state(uint64_t cycle_count) {
     g_input_record_buttons = g_manual_joypad_buttons;
 }
 
-void gb_platform_set_input_script(const char* script) {
-    // Formats: frame:buttons:duration,... or ccycle:buttons:duration,...
+bool gb_platform_set_input_script(const char* script) {
+    // Formats: frame:buttons:duration, ccycle:buttons:duration, or
+    // pstart-end/period:buttons:duration for periodic cycle pulses.
     g_script_count = 0;
     g_script_joypad_dpad = 0xFF;
     g_script_joypad_buttons = 0xFF;
     update_effective_joypad_state();
 
-    if (!script) return;
-    
+    if (!script) return true;
+    if (!*script || script[0] == ',' || script[strlen(script) - 1] == ',' ||
+        strstr(script, ",,") != NULL) {
+        fprintf(stderr, "[AUTO] Invalid input script: empty token\n");
+        return false;
+    }
+
     char* copy = strdup(script);
+    if (!copy) {
+        fprintf(stderr, "[AUTO] Invalid input script: allocation failed\n");
+        return false;
+    }
+    ScriptEntry parsed_entries[MAX_SCRIPT_ENTRIES] = {};
+    int parsed_count = 0;
     char* token = strtok(copy, ",");
-    
-    while (token && g_script_count < MAX_SCRIPT_ENTRIES) {
+
+    while (token) {
+        if (parsed_count >= MAX_SCRIPT_ENTRIES) {
+            fprintf(stderr,
+                    "[AUTO] Invalid input script: exceeds %u entries\n",
+                    (unsigned)MAX_SCRIPT_ENTRIES);
+            free(copy);
+            return false;
+        }
         char btn_buf[16] = {0};
         ScriptEntry parsed = {};
 
-        if (parse_script_token(token, &parsed, btn_buf, sizeof(btn_buf))) {
-            ScriptEntry* e = &g_input_script[g_script_count++];
-            *e = parsed;
-            parse_buttons(btn_buf, &e->dpad, &e->buttons);
-            printf("[AUTO] Added input: %s %llu, Btns '%s', Dur %llu\n",
-                   e->anchor == SCRIPT_ANCHOR_CYCLE ? "Cycle" : "Frame",
-                   (unsigned long long)e->start,
-                   btn_buf,
-                   (unsigned long long)e->duration);
-        } else {
-            fprintf(stderr, "[AUTO] Ignoring invalid input token '%s'\n", token);
+        if (!parse_script_token(token, &parsed, btn_buf, sizeof(btn_buf)) ||
+            !parse_buttons(btn_buf, &parsed.dpad, &parsed.buttons)) {
+            fprintf(stderr, "[AUTO] Invalid input token '%s'\n", token);
+            free(copy);
+            return false;
         }
+        parsed_entries[parsed_count++] = parsed;
         token = strtok(NULL, ",");
     }
     free(copy);
+
+    memcpy(g_input_script, parsed_entries, (size_t)parsed_count * sizeof(ScriptEntry));
+    g_script_count = parsed_count;
+    printf("[AUTO] Installed %d input entries\n", g_script_count);
+    return true;
 }
 
 void gb_platform_set_input_record_file(const char* path) {
@@ -1509,7 +1609,7 @@ void gb_platform_set_dump_present_frames(const char* frames) {
 }
 
 void gb_platform_set_screenshot_prefix(const char* prefix) {
-    if (prefix) snprintf(g_screenshot_prefix, sizeof(g_screenshot_prefix), "%s", prefix);
+    if (prefix) g_screenshot_prefix = prefix;
 }
 
 static void save_ppm(const char* filename, const uint32_t* fb, int width, int height, int frame_count) {
@@ -1905,21 +2005,30 @@ static void render_frame_internal(const uint32_t* framebuffer, bool count_guest_
     if (count_guest_frame) {
         /* Handle Screenshot Dumping */
         if (frame_is_selected_for_dump(g_dump_frames, g_dump_count, (uint32_t)g_frame_count)) {
-            char filename[128];
-            snprintf(filename, sizeof(filename), "%s_%05d.ppm", g_screenshot_prefix, g_frame_count);
-            save_ppm(filename, framebuffer, GB_SCREEN_WIDTH, GB_SCREEN_HEIGHT, g_frame_count);
+            char suffix[32];
+            snprintf(suffix, sizeof(suffix), "_%05d.ppm", g_frame_count);
+            const std::string filename = g_screenshot_prefix + suffix;
+            save_ppm(filename.c_str(), framebuffer, GB_SCREEN_WIDTH, GB_SCREEN_HEIGHT, g_frame_count);
         }
     }
 
     if (frame_is_selected_for_dump(g_dump_present_frames, g_dump_present_count, (uint32_t)g_frame_count)) {
-        char filename[160];
-        snprintf(filename,
-                 sizeof(filename),
-                 "%s_guest_%05d_present_%06llu.ppm",
-                 g_screenshot_prefix,
+        char suffix[80];
+        snprintf(suffix,
+                 sizeof(suffix),
+                 "_guest_%05d_present_%06llu.ppm",
                  g_frame_count,
                  (unsigned long long)g_present_count);
-        save_ppm(filename, framebuffer, GB_SCREEN_WIDTH, GB_SCREEN_HEIGHT, g_frame_count);
+        const std::string filename = g_screenshot_prefix + suffix;
+        save_ppm(filename.c_str(), framebuffer, GB_SCREEN_WIDTH, GB_SCREEN_HEIGHT, g_frame_count);
+    }
+
+    if (g_benchmark_mode) {
+        g_last_timing.upload_ms = 0.0;
+        g_last_timing.compose_ms = 0.0;
+        g_last_timing.present_ms = 0.0;
+        g_last_timing.total_render_ms = 0.0;
+        return;
     }
 
     if (g_benchmark_mode || g_app_suspended || !g_renderer) {
@@ -2135,12 +2244,16 @@ static void render_frame_internal(const uint32_t* framebuffer, bool count_guest_
             reset_audio_output_buffer(true);
             save_runtime_preferences();
         }
-        if (ImGui::Checkbox("Mute", &g_audio_muted)) {
+        bool audio_muted = g_audio_muted.load(std::memory_order_relaxed);
+        if (ImGui::Checkbox("Mute", &audio_muted)) {
+            g_audio_muted.store(audio_muted, std::memory_order_relaxed);
             save_runtime_preferences();
         }
-        int audio_volume_percent = (int)g_audio_volume_percent;
+        int audio_volume_percent =
+            (int)g_audio_volume_percent.load(std::memory_order_relaxed);
         if (ImGui::SliderInt("Master Volume (%)", &audio_volume_percent, 0, 200)) {
-            g_audio_volume_percent = (uint32_t)audio_volume_percent;
+            g_audio_volume_percent.store((uint32_t)audio_volume_percent,
+                                         std::memory_order_relaxed);
             save_runtime_preferences();
         }
         if (ImGui::BeginCombo("Output Device", current_audio_output_device_label())) {
@@ -2392,6 +2505,39 @@ static void render_frame_internal(const uint32_t* framebuffer, bool count_guest_
         }
     }
 
+    if (g_port_frame_valid &&
+        g_port_frame.abi_version == GB_PORT_ABI_VERSION &&
+        g_port_frame.canvas_width > 0 &&
+        g_port_frame.canvas_height > 0) {
+        ImDrawList* draw_list = ImGui::GetForegroundDrawList();
+        const float scale_x =
+            imgui_io.DisplaySize.x / (float)g_port_frame.canvas_width;
+        const float scale_y =
+            imgui_io.DisplaySize.y / (float)g_port_frame.canvas_height;
+        for (size_t index = 0;
+             index < g_port_frame.command_count &&
+             index < GB_PORT_MAX_DRAW_COMMANDS;
+             ++index) {
+            const GBPortDrawCommand& command = g_port_frame.commands[index];
+            const ImU32 color = IM_COL32(
+                (command.color_rgba >> 24u) & 0xffu,
+                (command.color_rgba >> 16u) & 0xffu,
+                (command.color_rgba >> 8u) & 0xffu,
+                command.color_rgba & 0xffu);
+            const ImVec2 start(
+                command.x * scale_x,
+                command.y * scale_y);
+            if (command.type == GB_PORT_DRAW_PANEL) {
+                const ImVec2 end(
+                    (command.x + command.width) * scale_x,
+                    (command.y + command.height) * scale_y);
+                draw_list->AddRectFilled(start, end, color, 10.0f);
+            } else if (command.type == GB_PORT_DRAW_TEXT) {
+                draw_list->AddText(start, color, command.text);
+            }
+        }
+    }
+
     ImGui::Render();
     ImGui_ImplSDLRenderer2_RenderDrawData(ImGui::GetDrawData());
     g_last_timing.compose_ms = sdl_now_ms() - compose_start_ms;
@@ -2411,6 +2557,8 @@ void gb_platform_shutdown(void) {
     close_input_record_file();
     close_audio_output_device();
     g_audio_output_devices.clear();
+    g_port_frame = {};
+    g_port_frame_valid = false;
 
     clear_controller_state();
     g_binding_capture_active = false;
@@ -2465,13 +2613,20 @@ GBPlatformExitAction gb_platform_get_exit_action(void) {
  * A large buffer provides tolerance for timing variations.
  */
 #define AUDIO_RING_SIZE 16384  /* ~370ms buffer - plenty of headroom */
+#ifndef AUDIO_WRITE_BATCH_FRAMES
+#define AUDIO_WRITE_BATCH_FRAMES 32
+#endif
 static int16_t g_audio_ring[AUDIO_RING_SIZE * 2];  /* Stereo */
 static std::atomic<uint32_t> g_audio_write_pos{0};
 static std::atomic<uint32_t> g_audio_read_pos{0};
+static uint32_t g_audio_producer_write_pos = 0;
+static uint32_t g_audio_pending_write_frames = 0;
 
 /* Debug counters */
-static uint32_t g_audio_samples_written = 0;
-static uint32_t g_audio_underruns = 0;
+static uint64_t g_audio_samples_written = 0;
+static uint64_t g_audio_write_publications = 0;
+static std::atomic<uint64_t> g_audio_underruns{0};
+static uint64_t g_audio_reported_underruns = 0;
 
 static bool audio_subsystem_available(void) {
     return (SDL_WasInit(SDL_INIT_AUDIO) & SDL_INIT_AUDIO) != 0;
@@ -2588,7 +2743,8 @@ static bool reopen_audio_output_device(bool preserve_stats) {
 }
 
 static uint32_t current_audio_underruns(void) {
-    return g_audio_underruns;
+    const uint64_t underruns = g_audio_underruns.load(std::memory_order_relaxed);
+    return underruns > UINT32_MAX ? UINT32_MAX : (uint32_t)underruns;
 }
 
 static uint32_t current_audio_ring_fill_samples(void) {
@@ -2614,6 +2770,14 @@ static uint32_t audio_ring_fill_samples(void) {
 }
 
 static void update_audio_stats_from_ring(void) {
+    const uint64_t total_underruns = g_audio_underruns.load(std::memory_order_relaxed);
+    const uint64_t pending_underruns = total_underruns - g_audio_reported_underruns;
+    if (pending_underruns > 0) {
+        audio_stats_underruns(pending_underruns > UINT32_MAX
+                                  ? UINT32_MAX
+                                  : (uint32_t)pending_underruns);
+        g_audio_reported_underruns = total_underruns;
+    }
     audio_stats_update_buffer(audio_ring_fill_samples(), AUDIO_RING_SIZE, g_audio_device_sample_rate);
 }
 
@@ -2642,6 +2806,8 @@ static void recompute_audio_targets(void) {
 static void clear_audio_ring_buffer_locked(void) {
     g_audio_write_pos.store(0, std::memory_order_relaxed);
     g_audio_read_pos.store(0, std::memory_order_relaxed);
+    g_audio_producer_write_pos = 0;
+    g_audio_pending_write_frames = 0;
     memset(g_audio_ring, 0, sizeof(g_audio_ring));
     g_audio_started = false;
     update_audio_stats_from_ring();
@@ -2667,8 +2833,10 @@ static void reset_audio_output_buffer(bool preserve_stats) {
     }
 
     if (!preserve_stats) {
-        g_audio_underruns = 0;
+        g_audio_underruns.store(0, std::memory_order_relaxed);
+        g_audio_reported_underruns = 0;
         g_audio_samples_written = 0;
+        g_audio_write_publications = 0;
     }
 }
 
@@ -2676,66 +2844,170 @@ static void reset_audio_output_buffer(bool preserve_stats) {
 static void sdl_audio_callback(void* userdata, Uint8* stream, int len) {
     (void)userdata;
     int16_t* out = (int16_t*)stream;
-    int samples_needed = len / 4;  /* Stereo 16-bit = 4 bytes per sample */
-    
-    uint32_t write_pos = g_audio_write_pos.load(std::memory_order_acquire);
+    const uint32_t samples_needed = (uint32_t)(len / 4);
+    const bool muted = g_audio_muted.load(std::memory_order_relaxed);
+    const uint32_t volume_percent = g_audio_volume_percent.load(std::memory_order_relaxed);
+    const uint32_t write_pos = g_audio_write_pos.load(std::memory_order_acquire);
     uint32_t read_pos = g_audio_read_pos.load(std::memory_order_relaxed);
-    
-    for (int i = 0; i < samples_needed; i++) {
-        if (read_pos != write_pos) {
-            /* Have data - copy it */
-            int32_t left = g_audio_ring[read_pos * 2];
-            int32_t right = g_audio_ring[read_pos * 2 + 1];
-            if (g_audio_muted || g_audio_volume_percent == 0) {
-                left = 0;
-                right = 0;
-            } else if (g_audio_volume_percent != 100) {
-                left = (left * (int32_t)g_audio_volume_percent) / 100;
-                right = (right * (int32_t)g_audio_volume_percent) / 100;
+    const uint32_t available = (write_pos >= read_pos)
+        ? (write_pos - read_pos)
+        : (AUDIO_RING_SIZE - read_pos + write_pos);
+    const uint32_t samples_to_copy = available < samples_needed ? available : samples_needed;
+    uint32_t copied = 0;
+
+    while (copied < samples_to_copy) {
+        uint32_t contiguous = AUDIO_RING_SIZE - read_pos;
+        const uint32_t remaining = samples_to_copy - copied;
+        if (contiguous > remaining) contiguous = remaining;
+
+        if (muted || volume_percent == 0) {
+            memset(out + copied * 2, 0, (size_t)contiguous * 2u * sizeof(int16_t));
+        } else if (volume_percent == 100) {
+            memcpy(out + copied * 2,
+                   g_audio_ring + read_pos * 2,
+                   (size_t)contiguous * 2u * sizeof(int16_t));
+        } else {
+            for (uint32_t i = 0; i < contiguous; ++i) {
+                int32_t left = g_audio_ring[(read_pos + i) * 2];
+                int32_t right = g_audio_ring[(read_pos + i) * 2 + 1];
+                left = (left * (int32_t)volume_percent) / 100;
+                right = (right * (int32_t)volume_percent) / 100;
                 if (left < -32768) left = -32768;
                 if (left > 32767) left = 32767;
                 if (right < -32768) right = -32768;
                 if (right > 32767) right = 32767;
+                out[(copied + i) * 2] = (int16_t)left;
+                out[(copied + i) * 2 + 1] = (int16_t)right;
             }
-            out[i * 2] = (int16_t)left;
-            out[i * 2 + 1] = (int16_t)right;
-            read_pos = (read_pos + 1) % AUDIO_RING_SIZE;
-        } else {
-            /* Underrun - output silence */
-            out[i * 2] = 0;
-            out[i * 2 + 1] = 0;
-            g_audio_underruns++;
-            audio_stats_underrun();
         }
+
+        copied += contiguous;
+        read_pos = (read_pos + contiguous) % AUDIO_RING_SIZE;
     }
-    
+
+    const uint32_t underruns = samples_needed - copied;
+    if (underruns > 0) {
+        memset(out + copied * 2, 0, (size_t)underruns * 2u * sizeof(int16_t));
+        g_audio_underruns.fetch_add(underruns, std::memory_order_relaxed);
+    }
+
     g_audio_read_pos.store(read_pos, std::memory_order_release);
 }
 
-static void on_audio_sample(GBContext* ctx, int16_t left, int16_t right) {
-    (void)ctx;
-    if (!audio_output_should_run()) return;
-    
-    uint32_t write_pos = g_audio_write_pos.load(std::memory_order_relaxed);
-    uint32_t next_write = (write_pos + 1) % AUDIO_RING_SIZE;
-    
-    /* If buffer is full, drop this sample (prevents blocking) */
-    if (next_write == g_audio_read_pos.load(std::memory_order_acquire)) {
-        audio_stats_samples_dropped(1);
-        return;  /* Drop sample */
-    }
-    
-    g_audio_ring[write_pos * 2] = left;
-    g_audio_ring[write_pos * 2 + 1] = right;
-    g_audio_write_pos.store(next_write, std::memory_order_release);
-    g_audio_samples_written++;
-    audio_stats_samples_queued(1);
+static void publish_audio_write_batch(void) {
+    if (g_audio_pending_write_frames == 0) return;
+
+    g_audio_write_pos.store(g_audio_producer_write_pos, std::memory_order_release);
+    g_audio_write_publications++;
+    g_audio_samples_written += g_audio_pending_write_frames;
+    audio_stats_samples_queued(g_audio_pending_write_frames);
+    g_audio_pending_write_frames = 0;
 
     if (!g_audio_started && audio_ring_fill_samples() >= g_audio_start_threshold) {
         g_audio_started = true;
         refresh_audio_device_pause_state();
     }
 }
+
+static bool enqueue_audio_sample(int16_t left, int16_t right) {
+    const uint32_t next_write = (g_audio_producer_write_pos + 1) % AUDIO_RING_SIZE;
+    
+    /* If buffer is full, drop this sample (prevents blocking) */
+    if (next_write == g_audio_read_pos.load(std::memory_order_acquire)) {
+        publish_audio_write_batch();
+        audio_stats_samples_dropped(1);
+        return false;
+    }
+    
+    g_audio_ring[g_audio_producer_write_pos * 2] = left;
+    g_audio_ring[g_audio_producer_write_pos * 2 + 1] = right;
+    g_audio_producer_write_pos = next_write;
+    g_audio_pending_write_frames++;
+    if (g_audio_pending_write_frames >= AUDIO_WRITE_BATCH_FRAMES) {
+        publish_audio_write_batch();
+    }
+    return true;
+}
+
+static void on_audio_sample(GBContext* ctx, int16_t left, int16_t right) {
+    (void)ctx;
+    if (!audio_output_should_run()) return;
+    (void)enqueue_audio_sample(left, right);
+}
+
+#ifdef GBRT_ENABLE_TEST_HOOKS
+static void reset_audio_test_ring(void) {
+    g_audio_write_pos.store(0, std::memory_order_relaxed);
+    g_audio_read_pos.store(0, std::memory_order_relaxed);
+    g_audio_producer_write_pos = 0;
+    g_audio_pending_write_frames = 0;
+    g_audio_started = false;
+    g_audio_start_threshold = AUDIO_RING_SIZE;
+    g_audio_low_watermark = 1;
+    g_audio_samples_written = 0;
+    g_audio_write_publications = 0;
+    g_audio_underruns.store(0, std::memory_order_relaxed);
+    g_audio_reported_underruns = 0;
+    memset(g_audio_ring, 0, sizeof(g_audio_ring));
+    audio_stats_init();
+}
+
+bool gb_platform_test_audio_concurrency(uint32_t frames,
+                                        GBAudioStressResult* out_result) {
+    if (!out_result || frames < AUDIO_WRITE_BATCH_FRAMES * 4u) return false;
+
+    reset_audio_test_ring();
+    g_audio_muted.store(false, std::memory_order_relaxed);
+    g_audio_volume_percent.store(100, std::memory_order_relaxed);
+
+    /* First prove the block-copy fast path preserves exact stereo PCM. */
+    enum { PCM_TEST_FRAMES = 128 };
+    int16_t expected[PCM_TEST_FRAMES * 2];
+    int16_t actual[PCM_TEST_FRAMES * 2];
+    for (uint32_t i = 0; i < PCM_TEST_FRAMES; ++i) {
+        expected[i * 2] = (int16_t)(i * 193u);
+        expected[i * 2 + 1] = (int16_t)~expected[i * 2];
+        if (!enqueue_audio_sample(expected[i * 2], expected[i * 2 + 1])) return false;
+    }
+    publish_audio_write_batch();
+    sdl_audio_callback(NULL, (Uint8*)actual, (int)sizeof(actual));
+    if (memcmp(expected, actual, sizeof(expected)) != 0) return false;
+
+    reset_audio_test_ring();
+    std::atomic<bool> producer_done{false};
+    std::thread consumer([&producer_done]() {
+        int16_t output[256 * 2];
+        while (!producer_done.load(std::memory_order_acquire) ||
+               audio_ring_fill_samples() > 0) {
+            sdl_audio_callback(NULL, (Uint8*)output, (int)sizeof(output));
+            std::this_thread::yield();
+        }
+    });
+
+    uint64_t frames_enqueued = 0;
+    for (uint32_t i = 0; i < frames; ++i) {
+        if ((i & 0xFFu) == 0) {
+            g_audio_muted.store((i & 0x100u) != 0, std::memory_order_relaxed);
+            g_audio_volume_percent.store((i % 201u), std::memory_order_relaxed);
+            update_audio_stats_from_ring();
+        }
+        if (enqueue_audio_sample((int16_t)i, (int16_t)~i)) {
+            frames_enqueued++;
+        }
+    }
+    publish_audio_write_batch();
+    producer_done.store(true, std::memory_order_release);
+    consumer.join();
+    update_audio_stats_from_ring();
+
+    out_result->frames_enqueued = frames_enqueued;
+    out_result->write_publications = g_audio_write_publications;
+    out_result->underruns = g_audio_underruns.load(std::memory_order_relaxed);
+    return frames_enqueued > 0 &&
+           g_audio_stats.total_samples_queued == frames_enqueued &&
+           g_audio_stats.total_buffer_underruns == out_result->underruns;
+}
+#endif
 
 bool gb_platform_init(int scale) {
     g_benchmark_mode = g_benchmark_mode || env_flag_enabled("GBRECOMP_BENCHMARK");
@@ -3052,6 +3324,22 @@ static bool handle_runtime_event(const SDL_Event* event, GBContext* ctx) {
             uint8_t previous_buttons = g_joypad_buttons;
 
             switch (event->key.keysym.scancode) {
+                case SDL_SCANCODE_F2:
+                    if (ctx && pressed && event->key.repeat == 0) {
+                        const GBPortInputEvent port_event = {
+                            GB_PORT_INPUT_TOGGLE_UI, true};
+                        gbrt_port_input(ctx, &port_event);
+                    }
+                    return true;
+
+                case SDL_SCANCODE_F3:
+                    if (ctx && pressed && event->key.repeat == 0) {
+                        const GBPortInputEvent port_event = {
+                            GB_PORT_INPUT_TOGGLE_ENCOUNTERS, true};
+                        gbrt_port_input(ctx, &port_event);
+                    }
+                    return true;
+
                 case SDL_SCANCODE_ESCAPE:
                 case SDL_SCANCODE_AC_BACK:
                     if (pressed && event->key.repeat == 0) {
@@ -3130,20 +3418,26 @@ bool gb_platform_poll_events(GBContext* ctx) {
             }
         }
     }
-    
+
     /* Handle Automation Inputs */
     uint8_t previous_script_dpad = g_script_joypad_dpad;
     uint8_t previous_script_buttons = g_script_joypad_buttons;
     g_script_joypad_dpad = 0xFF;
     g_script_joypad_buttons = 0xFF;
 
-    uint64_t current_cycles = ctx ? ctx->cycles : 0;
+    uint64_t current_cycles = ctx ? ctx->total_cycles : 0;
     for (int i = 0; i < g_script_count; i++) {
         ScriptEntry* e = &g_input_script[i];
         bool active = false;
         if (e->anchor == SCRIPT_ANCHOR_CYCLE) {
-            active = current_cycles >= e->start &&
-                     current_cycles < (e->start + e->duration);
+            if (e->period > 0) {
+                active = current_cycles >= e->start &&
+                         current_cycles < (e->end + e->duration) &&
+                         ((current_cycles - e->start) % e->period) < e->duration;
+            } else {
+                active = current_cycles >= e->start &&
+                         current_cycles < (e->start + e->duration);
+            }
         } else {
             uint64_t current_frame = (uint64_t)g_frame_count;
             active = current_frame >= e->start &&
@@ -3168,6 +3462,18 @@ bool gb_platform_poll_events(GBContext* ctx) {
     record_manual_input_state(current_cycles);
 
     return true;
+}
+
+void gb_platform_submit_port_frame(void* user, const GBPortFrame* frame) {
+    (void)user;
+    if (frame == NULL || frame->abi_version != GB_PORT_ABI_VERSION ||
+        frame->command_count > GB_PORT_MAX_DRAW_COMMANDS) {
+        g_port_frame = {};
+        g_port_frame_valid = false;
+        return;
+    }
+    g_port_frame = *frame;
+    g_port_frame_valid = true;
 }
 
 
@@ -3307,6 +3613,12 @@ static void sdl_get_persistent_path(char* buffer, size_t size, const char* rom_n
     const std::string suffix = (extension && extension[0]) ? extension : ".sav";
     const std::string filename = base_name + suffix;
 
+    if (!g_persistence_dir.empty()) {
+        const fs::path resolved = fs::path(g_persistence_dir) / filename;
+        snprintf(buffer, size, "%s", resolved.lexically_normal().string().c_str());
+        return;
+    }
+
 #if defined(__ANDROID__)
     const std::string resolved = resolve_writable_path(filename.c_str(), base_name.c_str());
     snprintf(buffer, size, "%s", resolved.c_str());
@@ -3321,6 +3633,20 @@ static void sdl_get_persistent_path(char* buffer, size_t size, const char* rom_n
         snprintf(buffer, size, "%s", resolved.c_str());
     }
 #endif
+}
+
+bool gb_platform_set_persistence_dir(const char* path) {
+    if (!path || !path[0]) {
+        g_persistence_dir.clear();
+        return true;
+    }
+    std::error_code error;
+    const fs::path resolved = fs::absolute(fs::path(path), error).lexically_normal();
+    if (error || !fs::is_directory(resolved, error) || error) {
+        return false;
+    }
+    g_persistence_dir = resolved.string();
+    return true;
 }
 
 static void sdl_get_save_path(char* buffer, size_t size, const char* rom_name) {
@@ -3435,46 +3761,220 @@ static bool delete_savestate_slot(GBContext* ctx, int slot) {
     return removed && !ec;
 }
 
+static const char* persistence_kind_name(GBPersistenceTestTarget target) {
+    return target == GB_PERSISTENCE_TEST_TARGET_RTC ? "RTC data" : "battery RAM";
+}
+
+void gb_platform_test_inject_persistence_fault(
+    GBPersistenceTestTarget target,
+    GBPersistenceTestFault fault) {
+    g_persistence_test_target = target;
+    g_persistence_test_fault = fault;
+}
+
+static GBPersistenceTestFault consume_persistence_test_fault(
+    GBPersistenceTestTarget target) {
+    if (g_persistence_test_fault == GB_PERSISTENCE_TEST_FAULT_NONE ||
+        g_persistence_test_target != target) {
+        return GB_PERSISTENCE_TEST_FAULT_NONE;
+    }
+    const GBPersistenceTestFault fault = g_persistence_test_fault;
+    g_persistence_test_fault = GB_PERSISTENCE_TEST_FAULT_NONE;
+    return fault;
+}
+
+static bool sync_persistence_file(FILE* file) {
+    if (fflush(file) != 0) {
+        return false;
+    }
+#if defined(_WIN32)
+    return _commit(_fileno(file)) == 0;
+#else
+    return fsync(fileno(file)) == 0;
+#endif
+}
+
+static bool replace_persistence_file(
+    const fs::path& staged,
+    const fs::path& destination) {
+#if defined(_WIN32)
+    return MoveFileExA(
+               staged.string().c_str(),
+               destination.string().c_str(),
+               MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
+#else
+    if (rename(staged.string().c_str(), destination.string().c_str()) != 0) {
+        return false;
+    }
+    const fs::path parent = destination.parent_path();
+    const int directory_fd = open(parent.string().c_str(), O_RDONLY);
+    if (directory_fd >= 0) {
+        if (fsync(directory_fd) != 0) {
+            fprintf(
+                stderr,
+                "[GBRT] Persistence transaction committed but directory sync "
+                "failed for '%s': %s\n",
+                parent.string().c_str(),
+                strerror(errno));
+        }
+        close(directory_fd);
+    }
+    return true;
+#endif
+}
+
+static bool write_persistence_transaction(
+    const char* filename,
+    const void* data,
+    size_t size,
+    GBPersistenceTestTarget target) {
+    const fs::path destination(filename);
+    const fs::path staged = destination.string() + ".tmp-v1";
+    const GBPersistenceTestFault fault =
+        consume_persistence_test_fault(target);
+    const char* kind = persistence_kind_name(target);
+
+    if (fault == GB_PERSISTENCE_TEST_FAULT_FULL_DISK) {
+        fprintf(
+            stderr,
+            "[GBRT] %s transaction v1 failed before staging '%s': "
+            "injected full-disk condition; previous file retained\n",
+            kind,
+            destination.string().c_str());
+        return false;
+    }
+
+    FILE* file = fopen(staged.string().c_str(), "wb");
+    if (!file) {
+        fprintf(
+            stderr,
+            "[GBRT] %s transaction v1 could not stage '%s': %s; "
+            "previous file retained\n",
+            kind,
+            staged.string().c_str(),
+            strerror(errno));
+        return false;
+    }
+
+    size_t requested = size;
+    if (fault == GB_PERSISTENCE_TEST_FAULT_SHORT_WRITE && requested > 0) {
+        requested--;
+    } else if (fault == GB_PERSISTENCE_TEST_FAULT_TRUNCATION) {
+        requested = size / 2;
+    }
+    const size_t written = fwrite(data, 1, requested, file);
+    bool staged_ok = written == requested && requested == size;
+    if (staged_ok) {
+        staged_ok = sync_persistence_file(file);
+    }
+    const int close_result = fclose(file);
+    staged_ok = staged_ok && close_result == 0;
+
+    if (!staged_ok) {
+        std::error_code remove_error;
+        fs::remove(staged, remove_error);
+        fprintf(
+            stderr,
+            "[GBRT] %s transaction v1 rejected staged write '%s' "
+            "(expected %zu bytes, wrote %zu); previous file retained\n",
+            kind,
+            staged.string().c_str(),
+            size,
+            written);
+        return false;
+    }
+
+    if (fault == GB_PERSISTENCE_TEST_FAULT_INTERRUPTION) {
+        fprintf(
+            stderr,
+            "[GBRT] %s transaction v1 interrupted after staging '%s'; "
+            "previous file retained and stage left for recovery\n",
+            kind,
+            staged.string().c_str());
+        return false;
+    }
+
+    if (!replace_persistence_file(staged, destination)) {
+        const int replace_error = errno;
+        std::error_code remove_error;
+        fs::remove(staged, remove_error);
+        fprintf(
+            stderr,
+            "[GBRT] %s transaction v1 could not atomically replace '%s': "
+            "%s; previous file retained\n",
+            kind,
+            destination.string().c_str(),
+            strerror(replace_error));
+        return false;
+    }
+    return true;
+}
+
 static bool sdl_load_battery_ram(GBContext* ctx, const char* rom_name, void* data, size_t size) {
-    (void)ctx;
     char filename[512];
     sdl_get_save_path(filename, sizeof(filename), rom_name);
     
     FILE* f = fopen(filename, "rb");
     if (!f) return false;
-    
-    size_t read = fread(data, 1, size, f);
+
+    std::vector<uint8_t> loaded(size);
+    size_t read = fread(loaded.data(), 1, size, f);
+    const int trailing = fgetc(f);
     fclose(f);
-    
-    return read == size;
+
+    if (read != size || trailing != EOF) {
+        if (ctx) {
+            ctx->persistence_load_failed = true;
+        }
+        fprintf(stderr,
+                "[GBRT] Rejected battery RAM '%s': expected exactly %zu bytes; "
+                "automatic persistence overwrite suppressed\n",
+                filename,
+                size);
+        return false;
+    }
+
+    memcpy(data, loaded.data(), size);
+    return true;
 }
 
 static bool sdl_save_battery_ram(GBContext* ctx, const char* rom_name, const void* data, size_t size) {
     (void)ctx;
     char filename[512];
     sdl_get_save_path(filename, sizeof(filename), rom_name);
-    
-    FILE* f = fopen(filename, "wb");
-    if (!f) return false;
-    
-    size_t written = fwrite(data, 1, size, f);
-    fclose(f);
-    
-    return written == size;
+    return write_persistence_transaction(
+        filename,
+        data,
+        size,
+        GB_PERSISTENCE_TEST_TARGET_BATTERY);
 }
 
 static bool sdl_load_rtc_data(GBContext* ctx, const char* rom_name, void* data, size_t size) {
-    (void)ctx;
     char filename[512];
     sdl_get_rtc_path(filename, sizeof(filename), rom_name);
 
     FILE* f = fopen(filename, "rb");
     if (!f) return false;
 
-    size_t read = fread(data, 1, size, f);
+    std::vector<uint8_t> loaded(size);
+    size_t read = fread(loaded.data(), 1, size, f);
+    const int trailing = fgetc(f);
     fclose(f);
 
-    return read == size;
+    if (read != size || trailing != EOF) {
+        if (ctx) {
+            ctx->persistence_load_failed = true;
+        }
+        fprintf(stderr,
+                "[GBRT] Rejected RTC data '%s': expected exactly %zu bytes; "
+                "automatic persistence overwrite suppressed\n",
+                filename,
+                size);
+        return false;
+    }
+
+    memcpy(data, loaded.data(), size);
+    return true;
 }
 
 static bool sdl_save_rtc_data(GBContext* ctx, const char* rom_name, const void* data, size_t size) {
@@ -3482,13 +3982,11 @@ static bool sdl_save_rtc_data(GBContext* ctx, const char* rom_name, const void* 
     char filename[512];
     sdl_get_rtc_path(filename, sizeof(filename), rom_name);
 
-    FILE* f = fopen(filename, "wb");
-    if (!f) return false;
-
-    size_t written = fwrite(data, 1, size, f);
-    fclose(f);
-
-    return written == size;
+    return write_persistence_transaction(
+        filename,
+        data,
+        size,
+        GB_PERSISTENCE_TEST_TARGET_RTC);
 }
 
 void gb_platform_register_context(GBContext* ctx) {
@@ -3527,10 +4025,27 @@ bool gb_platform_poll_events(GBContext* ctx) {
     return true;
 }
 
-void gb_platform_set_input_script(const char* script) { (void)script; }
+bool gb_platform_set_input_script(const char* script) {
+    return script == NULL || *script == '\0';
+}
+
+bool gb_platform_set_persistence_dir(const char* path) {
+    return path == NULL || *path == '\0';
+}
+
+void gb_platform_test_inject_persistence_fault(
+    GBPersistenceTestTarget target,
+    GBPersistenceTestFault fault) {
+    (void)target;
+    (void)fault;
+}
 
 void gb_platform_set_input_record_file(const char* path) { (void)path; }
 void gb_platform_set_benchmark_mode(bool enabled) { (void)enabled; }
+void gb_platform_submit_port_frame(void* user, const GBPortFrame* frame) {
+    (void)user;
+    (void)frame;
+}
 
 void gb_platform_render_frame(const uint32_t* framebuffer) {
     (void)framebuffer;

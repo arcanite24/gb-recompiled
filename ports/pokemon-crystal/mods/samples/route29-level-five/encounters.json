@@ -1,0 +1,27 @@
+{
+  "schema": "crystal.encounters",
+  "version": 1,
+  "changes": [
+    {"map": "ROUTE_29", "time": "morning", "slot": 0, "level": 5, "species": "PIDGEY"},
+    {"map": "ROUTE_29", "time": "morning", "slot": 1, "level": 5, "species": "SENTRET"},
+    {"map": "ROUTE_29", "time": "morning", "slot": 2, "level": 5, "species": "PIDGEY"},
+    {"map": "ROUTE_29", "time": "morning", "slot": 3, "level": 5, "species": "SENTRET"},
+    {"map": "ROUTE_29", "time": "morning", "slot": 4, "level": 5, "species": "RATTATA"},
+    {"map": "ROUTE_29", "time": "morning", "slot": 5, "level": 5, "species": "HOPPIP"},
+    {"map": "ROUTE_29", "time": "morning", "slot": 6, "level": 5, "species": "HOPPIP"},
+    {"map": "ROUTE_29", "time": "day", "slot": 0, "level": 5, "species": "PIDGEY"},
+    {"map": "ROUTE_29", "time": "day", "slot": 1, "level": 5, "species": "SENTRET"},
+    {"map": "ROUTE_29", "time": "day", "slot": 2, "level": 5, "species": "PIDGEY"},
+    {"map": "ROUTE_29", "time": "day", "slot": 3, "level": 5, "species": "SENTRET"},
+    {"map": "ROUTE_29", "time": "day", "slot": 4, "level": 5, "species": "RATTATA"},
+    {"map": "ROUTE_29", "time": "day", "slot": 5, "level": 5, "species": "HOPPIP"},
+    {"map": "ROUTE_29", "time": "day", "slot": 6, "level": 5, "species": "HOPPIP"},
+    {"map": "ROUTE_29", "time": "night", "slot": 0, "level": 5, "species": "HOOTHOOT"},
+    {"map": "ROUTE_29", "time": "night", "slot": 1, "level": 5, "species": "RATTATA"},
+    {"map": "ROUTE_29", "time": "night", "slot": 2, "level": 5, "species": "HOOTHOOT"},
+    {"map": "ROUTE_29", "time": "night", "slot": 3, "level": 5, "species": "RATTATA"},
+    {"map": "ROUTE_29", "time": "night", "slot": 4, "level": 5, "species": "RATTATA"},
+    {"map": "ROUTE_29", "time": "night", "slot": 5, "level": 5, "species": "HOOTHOOT"},
+    {"map": "ROUTE_29", "time": "night", "slot": 6, "level": 5, "species": "HOOTHOOT"}
+  ]
+}

@@ -146,7 +146,7 @@ FlagEffects FlagEffects::only_c() {
  * IRInstruction Factory Methods
  * ========================================================================== */
 
-IRInstruction IRInstruction::make_nop(uint8_t bank, uint16_t addr) {
+IRInstruction IRInstruction::make_nop(BankId bank, uint16_t addr) {
     IRInstruction instr;
     instr.opcode = Opcode::NOP;
     instr.source_bank = bank;
@@ -156,7 +156,7 @@ IRInstruction IRInstruction::make_nop(uint8_t bank, uint16_t addr) {
 }
 
 IRInstruction IRInstruction::make_mov_reg_reg(uint8_t dst, uint8_t src, 
-                                              uint8_t bank, uint16_t addr) {
+                                              BankId bank, uint16_t addr) {
     IRInstruction instr;
     instr.opcode = Opcode::MOV_REG_REG;
     instr.dst = Operand::reg8(dst);
@@ -168,7 +168,7 @@ IRInstruction IRInstruction::make_mov_reg_reg(uint8_t dst, uint8_t src,
 }
 
 IRInstruction IRInstruction::make_load8(uint8_t dst_reg, uint16_t addr,
-                                        uint8_t bank, uint16_t src_addr) {
+                                        BankId bank, uint16_t src_addr) {
     IRInstruction instr;
     instr.opcode = Opcode::LOAD8;
     instr.dst = Operand::reg8(dst_reg);
@@ -180,7 +180,7 @@ IRInstruction IRInstruction::make_load8(uint8_t dst_reg, uint16_t addr,
 }
 
 IRInstruction IRInstruction::make_store8(uint16_t addr, uint8_t src_reg,
-                                         uint8_t bank, uint16_t src_addr) {
+                                         BankId bank, uint16_t src_addr) {
     IRInstruction instr;
     instr.opcode = Opcode::STORE8;
     instr.dst = Operand::imm16(addr);
@@ -191,7 +191,7 @@ IRInstruction IRInstruction::make_store8(uint16_t addr, uint8_t src_reg,
     return instr;
 }
 
-IRInstruction IRInstruction::make_add8(uint8_t src, uint8_t bank, uint16_t addr) {
+IRInstruction IRInstruction::make_add8(uint8_t src, BankId bank, uint16_t addr) {
     IRInstruction instr;
     instr.opcode = Opcode::ADD8;
     instr.src = Operand::reg8(src);
@@ -202,7 +202,7 @@ IRInstruction IRInstruction::make_add8(uint8_t src, uint8_t bank, uint16_t addr)
     return instr;
 }
 
-IRInstruction IRInstruction::make_jump(uint32_t label_id, uint8_t bank, uint16_t addr) {
+IRInstruction IRInstruction::make_jump(uint32_t label_id, BankId bank, uint16_t addr) {
     IRInstruction instr;
     instr.opcode = Opcode::JUMP;
     instr.dst = Operand::label(label_id);
@@ -213,7 +213,7 @@ IRInstruction IRInstruction::make_jump(uint32_t label_id, uint8_t bank, uint16_t
 }
 
 IRInstruction IRInstruction::make_jump_cc(uint8_t cond, uint32_t label_id,
-                                          uint8_t bank, uint16_t addr) {
+                                          BankId bank, uint16_t addr) {
     IRInstruction instr;
     instr.opcode = Opcode::JUMP_CC;
     instr.dst = Operand::label(label_id);
@@ -225,7 +225,7 @@ IRInstruction IRInstruction::make_jump_cc(uint8_t cond, uint32_t label_id,
     return instr;
 }
 
-IRInstruction IRInstruction::make_call(uint32_t label_id, uint8_t bank, uint16_t addr) {
+IRInstruction IRInstruction::make_call(uint32_t label_id, BankId bank, uint16_t addr) {
     IRInstruction instr;
     instr.opcode = Opcode::CALL;
     instr.dst = Operand::label(label_id);
@@ -235,7 +235,7 @@ IRInstruction IRInstruction::make_call(uint32_t label_id, uint8_t bank, uint16_t
     return instr;
 }
 
-IRInstruction IRInstruction::make_ret(uint8_t bank, uint16_t addr) {
+IRInstruction IRInstruction::make_ret(BankId bank, uint16_t addr) {
     IRInstruction instr;
     instr.opcode = Opcode::RET;
     instr.source_bank = bank;
@@ -262,7 +262,7 @@ IRInstruction IRInstruction::make_comment(const std::string& text) {
  * Program Methods
  * ========================================================================== */
 
-uint32_t Program::create_block(uint8_t bank, uint16_t addr) {
+uint32_t Program::create_block(BankId bank, uint16_t addr) {
     uint32_t id = next_block_id++;
     BasicBlock block;
     block.id = id;
@@ -297,7 +297,7 @@ std::string Program::get_label_name(uint32_t id) const {
     return "unknown_label";
 }
 
-std::string Program::make_address_label(uint8_t bank, uint16_t addr) const {
+std::string Program::make_address_label(BankId bank, uint16_t addr) const {
     const uint32_t full_addr = (static_cast<uint32_t>(bank) << 16) | addr;
     auto symbol_it = address_symbols.find(full_addr);
     if (symbol_it != address_symbols.end() &&
@@ -318,7 +318,7 @@ std::string Program::make_address_label(uint8_t bank, uint16_t addr) const {
     return ss.str();
 }
 
-std::string Program::make_function_name(uint8_t bank, uint16_t addr) const {
+std::string Program::make_function_name(BankId bank, uint16_t addr) const {
     const uint32_t full_addr = (static_cast<uint32_t>(bank) << 16) | addr;
     auto symbol_it = address_symbols.find(full_addr);
     if (symbol_it != address_symbols.end() &&
@@ -349,14 +349,43 @@ Program IRBuilder::build(const AnalysisResult& analysis, const std::string& rom_
     program.interrupt_vectors = analysis.interrupt_vectors;
     for (const auto& [addr, metadata] : analysis.symbol_metadata) {
         AddressSymbol symbol;
-        symbol.bank = static_cast<uint8_t>(addr >> 16);
+        symbol.bank = static_cast<BankId>(addr >> 16);
         symbol.address = static_cast<uint16_t>(addr & 0xFFFF);
         symbol.source_name = metadata.source_name;
+        symbol.source_names = metadata.source_names;
         symbol.emitted_name = metadata.emitted_name;
         symbol.kind = metadata.kind;
         symbol.provenance = metadata.provenance;
+        symbol.memory_space = metadata.memory_space;
+        symbol.width = metadata.width;
         symbol.comment = metadata.comment;
         program.address_symbols[addr] = symbol;
+    }
+    for (const auto& [name, metadata] : analysis.constant_metadata) {
+        ConstantSymbol constant;
+        constant.name = name;
+        constant.value = metadata.value;
+        constant.memory_space = metadata.memory_space;
+        constant.provenance = metadata.provenance;
+        constant.comment = metadata.comment;
+        program.constants[name] = std::move(constant);
+    }
+    for (const auto& [id, diagnostic] : analysis.analysis_diagnostics) {
+        AnalysisDiagnostic ir_diagnostic;
+        ir_diagnostic.id = diagnostic.id;
+        ir_diagnostic.kind = diagnostic.kind;
+        ir_diagnostic.bank = diagnostic.bank;
+        ir_diagnostic.address = diagnostic.address;
+        ir_diagnostic.memory_space = diagnostic.memory_space;
+        ir_diagnostic.status = diagnostic.status;
+        ir_diagnostic.evidence = diagnostic.evidence;
+        ir_diagnostic.suggested_annotation = diagnostic.suggested_annotation;
+        ir_diagnostic.relationship = diagnostic.relationship;
+        ir_diagnostic.has_related_address = diagnostic.has_related_address;
+        ir_diagnostic.related_bank = diagnostic.related_bank;
+        ir_diagnostic.related_address = diagnostic.related_address;
+        ir_diagnostic.related_memory_space = diagnostic.related_memory_space;
+        program.analysis_diagnostics[id] = std::move(ir_diagnostic);
     }
     
     // For each function in analysis, create IR function
@@ -660,6 +689,16 @@ void IRBuilder::lower_load_mem(const Instruction& instr, ir::BasicBlock& block) 
     IRInstruction ir;
     ir.opcode = Opcode::LOAD8;
     ir.dst = Operand::reg8(7);  // A register
+
+    if (instr.type == InstructionType::LD_A_HLI ||
+        instr.type == InstructionType::LD_A_HLD) {
+        ir.opcode = Opcode::LOAD8_HL_AUTO;
+        ir.src = Operand::offset(
+            instr.type == InstructionType::LD_A_HLI ? 1 : -1);
+        ir.cycles = instr.cycles;
+        emit(block, ir, instr);
+        return;
+    }
     
     // Set source address based on instruction type
     switch (instr.type) {
@@ -673,8 +712,6 @@ void IRBuilder::lower_load_mem(const Instruction& instr, ir::BasicBlock& block) 
             ir.src = Operand::reg16(static_cast<uint8_t>(Reg16::DE));
             break;
         case InstructionType::LD_R_HL:
-        case InstructionType::LD_A_HLI:
-        case InstructionType::LD_A_HLD:
             ir.src = Operand::reg16(static_cast<uint8_t>(Reg16::HL));
             // For LD r,(HL), set the destination register properly
             if (instr.type == InstructionType::LD_R_HL) {
@@ -697,29 +734,22 @@ void IRBuilder::lower_load_mem(const Instruction& instr, ir::BasicBlock& block) 
     
     ir.cycles = instr.cycles;
     emit(block, ir, instr);
-    
-    // Handle HL increment/decrement for LDI/LDD instructions
-    if (instr.type == InstructionType::LD_A_HLI) {
-        // LD A,(HL+) - increment HL after load
-        IRInstruction inc_ir;
-        inc_ir.opcode = Opcode::INC16;
-        inc_ir.dst = Operand::reg16(static_cast<uint8_t>(Reg16::HL));
-        inc_ir.cycles = 0;  // Included in the original instruction's cycles
-        emit(block, inc_ir, instr);
-    } else if (instr.type == InstructionType::LD_A_HLD) {
-        // LD A,(HL-) - decrement HL after load
-        IRInstruction dec_ir;
-        dec_ir.opcode = Opcode::DEC16;
-        dec_ir.dst = Operand::reg16(static_cast<uint8_t>(Reg16::HL));
-        dec_ir.cycles = 0;  // Included in the original instruction's cycles
-        emit(block, dec_ir, instr);
-    }
 }
 
 void IRBuilder::lower_store_mem(const Instruction& instr, ir::BasicBlock& block) {
     IRInstruction ir;
     ir.opcode = Opcode::STORE8;
     ir.src = Operand::reg8(static_cast<uint8_t>(Reg8::A));  // A register
+
+    if (instr.type == InstructionType::LD_HLI_A ||
+        instr.type == InstructionType::LD_HLD_A) {
+        ir.opcode = Opcode::STORE8_HL_AUTO;
+        ir.dst = Operand::offset(
+            instr.type == InstructionType::LD_HLI_A ? 1 : -1);
+        ir.cycles = instr.cycles;
+        emit(block, ir, instr);
+        return;
+    }
     
     // Set destination address based on instruction type
     switch (instr.type) {
@@ -734,8 +764,6 @@ void IRBuilder::lower_store_mem(const Instruction& instr, ir::BasicBlock& block)
             break;
         case InstructionType::LD_HL_R:
         case InstructionType::LD_HL_N:
-        case InstructionType::LD_HLI_A:
-        case InstructionType::LD_HLD_A:
             ir.dst = Operand::reg16(static_cast<uint8_t>(Reg16::HL));
             if (instr.type == InstructionType::LD_HL_R) {
                 ir.src = Operand::reg8(static_cast<uint8_t>(instr.reg8_src));
@@ -759,23 +787,6 @@ void IRBuilder::lower_store_mem(const Instruction& instr, ir::BasicBlock& block)
     
     ir.cycles = instr.cycles;
     emit(block, ir, instr);
-    
-    // Handle HL increment/decrement for LDI/LDD instructions
-    if (instr.type == InstructionType::LD_HLI_A) {
-        // LD (HL+),A - increment HL after store
-        IRInstruction inc_ir;
-        inc_ir.opcode = Opcode::INC16;
-        inc_ir.dst = Operand::reg16(static_cast<uint8_t>(Reg16::HL));
-        inc_ir.cycles = 0;  // Included in the original instruction's cycles
-        emit(block, inc_ir, instr);
-    } else if (instr.type == InstructionType::LD_HLD_A) {
-        // LD (HL-),A - decrement HL after store
-        IRInstruction dec_ir;
-        dec_ir.opcode = Opcode::DEC16;
-        dec_ir.dst = Operand::reg16(static_cast<uint8_t>(Reg16::HL));
-        dec_ir.cycles = 0;  // Included in the original instruction's cycles
-        emit(block, dec_ir, instr);
-    }
 }
 
 void IRBuilder::lower_alu_r(const Instruction& instr, ir::BasicBlock& block) {
@@ -1114,8 +1125,10 @@ const char* opcode_name(Opcode op) {
         case Opcode::MOV_REG_IMM8: return "MOV_REG_IMM8";
         case Opcode::MOV_REG_IMM16: return "MOV_REG_IMM16";
         case Opcode::LOAD8: return "LOAD8";
+        case Opcode::LOAD8_HL_AUTO: return "LOAD8_HL_AUTO";
         case Opcode::LOAD8_REG: return "LOAD8_REG";
         case Opcode::STORE8: return "STORE8";
+        case Opcode::STORE8_HL_AUTO: return "STORE8_HL_AUTO";
         case Opcode::STORE8_REG: return "STORE8_REG";
         case Opcode::ADD8: return "ADD8";
         case Opcode::SUB8: return "SUB8";

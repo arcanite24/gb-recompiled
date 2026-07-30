@@ -46,12 +46,12 @@ static constexpr Condition COND_TABLE[4] = {
 Decoder::Decoder(const ROM& rom) : rom_(rom) {}
 
 Instruction Decoder::decode(uint32_t full_addr) const {
-    uint8_t bank = static_cast<uint8_t>(full_addr >> 16);
+    BankId bank = static_cast<BankId>(full_addr >> 16);
     uint16_t addr = static_cast<uint16_t>(full_addr & 0xFFFF);
     return decode(addr, bank);
 }
 
-Instruction Decoder::decode(uint16_t addr, uint8_t bank) const {
+Instruction Decoder::decode(uint16_t addr, BankId bank) const {
     Instruction instr = {};
     instr.address = addr;
     instr.bank = bank;
@@ -74,8 +74,8 @@ Instruction Decoder::decode(uint16_t addr, uint8_t bank) const {
     return instr;
 }
 
-void Decoder::decode_main(Instruction& instr, uint8_t opcode, 
-                          uint16_t addr, uint8_t bank) const {
+void Decoder::decode_main(Instruction& instr, uint8_t opcode,
+                          uint16_t addr, BankId bank) const {
     switch (opcode) {
         // =========== 0x00-0x0F ===========
         case 0x00: // NOP
@@ -835,7 +835,7 @@ void Decoder::decode_main(Instruction& instr, uint8_t opcode,
     }
 }
 
-Instruction Decoder::decode_cb(uint16_t addr, uint8_t bank) const {
+Instruction Decoder::decode_cb(uint16_t addr, BankId bank) const {
     Instruction instr = {};
     instr.address = addr;
     instr.bank = bank;
@@ -888,7 +888,7 @@ Instruction Decoder::decode_cb(uint16_t addr, uint8_t bank) const {
     return instr;
 }
 
-uint16_t Decoder::read_u16(uint16_t addr, uint8_t bank) const {
+uint16_t Decoder::read_u16(uint16_t addr, BankId bank) const {
     uint8_t lo = rom_.read_banked(bank, addr);
     uint8_t hi = rom_.read_banked(bank, addr + 1);
     return static_cast<uint16_t>(lo) | (static_cast<uint16_t>(hi) << 8);
@@ -1174,7 +1174,7 @@ std::string Instruction::disassemble() const {
     return gbrecomp::disassemble(*this);
 }
 
-std::vector<Instruction> decode_bank(const ROM& rom, uint8_t bank) {
+std::vector<Instruction> decode_bank(const ROM& rom, BankId bank) {
     std::vector<Instruction> instructions;
     
     // Determine bank boundaries

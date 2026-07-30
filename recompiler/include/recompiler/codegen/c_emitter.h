@@ -27,7 +27,7 @@ public:
     
     void begin_program(const std::string& name) override;
     void end_program() override;
-    void begin_function(const std::string& name, uint8_t bank, uint16_t addr) override;
+    void begin_function(const std::string& name, BankId bank, uint16_t addr) override;
     void end_function() override;
     void emit_label(const std::string& label) override;
     
@@ -118,7 +118,7 @@ public:
     void emit_ret() override;
     void emit_ret_cc(uint8_t cc, const std::string& fallthrough_label) override;
     void emit_reti() override;
-    void emit_bank_call(uint8_t target_bank, const std::string& func_name) override;
+    void emit_bank_call(BankId target_bank, const std::string& func_name) override;
     void emit_bank_dispatch(uint16_t addr) override;
     
     // ========== Special ==========
@@ -150,7 +150,7 @@ public:
     // ========== Debug/Comments ==========
     
     void emit_comment(const std::string& comment) override;
-    void emit_source_location(uint8_t bank, uint16_t addr) override;
+    void emit_source_location(BankId bank, uint16_t addr) override;
     
     // ========== Cycle Counting ==========
     
@@ -194,6 +194,7 @@ struct GeneratedOutput {
     std::string rom_data_file;
     std::string main_file;
     std::string cmake_file;
+    bool has_native_patch = false;
 };
 
 /**

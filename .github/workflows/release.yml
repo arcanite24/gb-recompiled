@@ -10,6 +10,11 @@ on:
         description: "Release tag (leave empty for test build)"
         required: false
         type: string
+      verify_crystal:
+        description: "Run the private exact-ROM Crystal matrix without publishing"
+        required: false
+        default: false
+        type: boolean
 
 env:
   BUILD_TYPE: Release
@@ -36,11 +41,86 @@ jobs:
 
       - name: Package
         run: |
-          mkdir -p package/gb-recompiled-linux
-          cp build/bin/gbrecomp package/gb-recompiled-linux/
-          cp README.md package/gb-recompiled-linux/
-          cp LICENSE package/gb-recompiled-linux/ 2>/dev/null || echo "No LICENSE file"
+          mkdir -p package
+          python3 tools/create_gbrecomp_distribution.py \
+            --gbrecomp build/bin/gbrecomp \
+            --runtime runtime \
+            --license LICENSE \
+            --readme README.md \
+            --output package/gb-recompiled-linux \
+            --platform linux \
+            --architecture x64
           cd package && tar -czvf gb-recompiled-linux-x64.tar.gz gb-recompiled-linux
+
+      - name: Smoke test release archive
+        run: |
+          mkdir -p package/smoke
+          tar -xzf package/gb-recompiled-linux-x64.tar.gz -C package/smoke
+          python3 tests/test_release_bundle.py \
+            --distribution-dir package/smoke/gb-recompiled-linux \
+            --fixture-generator tests/fixtures/make_mapper_rom.py
+
+      - name: Package Crystal Recompiled
+        run: |
+          python3 ports/pokemon-crystal/scripts/eject.py \
+            --output package/crystal-source
+          python3 ports/pokemon-crystal/scripts/create_release.py \
+            --source-tree package/crystal-source \
+            --distribution package/gb-recompiled-linux \
+            --output package/crystal-recompiled-linux \
+            --archive package/crystal-recompiled-linux-x64.tar.gz \
+            --platform linux \
+            --architecture x64
+          mkdir -p package/crystal-smoke
+          tar -xzf package/crystal-recompiled-linux-x64.tar.gz \
+            -C package/crystal-smoke
+          python3 package/crystal-smoke/crystal-recompiled/ports/pokemon-crystal/scripts/launch.py \
+            --help
+
+      - name: Exact-ROM Crystal release gate
+        if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && (inputs.verify_crystal || inputs.tag != ''))
+        run: &crystal_rom_gate |
+          private_rom_b64="${{ runner.temp }}/crystal-rev1.xz.b64"
+          : > "$private_rom_b64"
+          chmod 600 "$private_rom_b64"
+          printf '%s' '${{ secrets.CRYSTAL_ROM_XZ_B64_01 }}' >> "$private_rom_b64"
+          printf '%s' '${{ secrets.CRYSTAL_ROM_XZ_B64_02 }}' >> "$private_rom_b64"
+          printf '%s' '${{ secrets.CRYSTAL_ROM_XZ_B64_03 }}' >> "$private_rom_b64"
+          printf '%s' '${{ secrets.CRYSTAL_ROM_XZ_B64_04 }}' >> "$private_rom_b64"
+          printf '%s' '${{ secrets.CRYSTAL_ROM_XZ_B64_05 }}' >> "$private_rom_b64"
+          printf '%s' '${{ secrets.CRYSTAL_ROM_XZ_B64_06 }}' >> "$private_rom_b64"
+          printf '%s' '${{ secrets.CRYSTAL_ROM_XZ_B64_07 }}' >> "$private_rom_b64"
+          printf '%s' '${{ secrets.CRYSTAL_ROM_XZ_B64_08 }}' >> "$private_rom_b64"
+          printf '%s' '${{ secrets.CRYSTAL_ROM_XZ_B64_09 }}' >> "$private_rom_b64"
+          printf '%s' '${{ secrets.CRYSTAL_ROM_XZ_B64_10 }}' >> "$private_rom_b64"
+          printf '%s' '${{ secrets.CRYSTAL_ROM_XZ_B64_11 }}' >> "$private_rom_b64"
+          printf '%s' '${{ secrets.CRYSTAL_ROM_XZ_B64_12 }}' >> "$private_rom_b64"
+          printf '%s' '${{ secrets.CRYSTAL_ROM_XZ_B64_13 }}' >> "$private_rom_b64"
+          printf '%s' '${{ secrets.CRYSTAL_ROM_XZ_B64_14 }}' >> "$private_rom_b64"
+          printf '%s' '${{ secrets.CRYSTAL_ROM_XZ_B64_15 }}' >> "$private_rom_b64"
+          printf '%s' '${{ secrets.CRYSTAL_ROM_XZ_B64_16 }}' >> "$private_rom_b64"
+          printf '%s' '${{ secrets.CRYSTAL_ROM_XZ_B64_17 }}' >> "$private_rom_b64"
+          printf '%s' '${{ secrets.CRYSTAL_ROM_XZ_B64_18 }}' >> "$private_rom_b64"
+          printf '%s' '${{ secrets.CRYSTAL_ROM_XZ_B64_19 }}' >> "$private_rom_b64"
+          printf '%s' '${{ secrets.CRYSTAL_ROM_XZ_B64_20 }}' >> "$private_rom_b64"
+          printf '%s' '${{ secrets.CRYSTAL_ROM_XZ_B64_21 }}' >> "$private_rom_b64"
+          printf '%s' '${{ secrets.CRYSTAL_ROM_XZ_B64_22 }}' >> "$private_rom_b64"
+          printf '%s' '${{ secrets.CRYSTAL_ROM_XZ_B64_23 }}' >> "$private_rom_b64"
+          printf '%s' '${{ secrets.CRYSTAL_ROM_XZ_B64_24 }}' >> "$private_rom_b64"
+          printf '%s' '${{ secrets.CRYSTAL_ROM_XZ_B64_25 }}' >> "$private_rom_b64"
+          printf '%s' '${{ secrets.CRYSTAL_ROM_XZ_B64_26 }}' >> "$private_rom_b64"
+          printf '%s' '${{ secrets.CRYSTAL_ROM_XZ_B64_27 }}' >> "$private_rom_b64"
+          printf '%s' '${{ secrets.CRYSTAL_ROM_XZ_B64_28 }}' >> "$private_rom_b64"
+          printf '%s' '${{ secrets.CRYSTAL_ROM_XZ_B64_29 }}' >> "$private_rom_b64"
+          printf '%s' '${{ secrets.CRYSTAL_ROM_XZ_B64_30 }}' >> "$private_rom_b64"
+          python3 tools/reconstruct_crystal_rom.py \
+            --input-base64 "$private_rom_b64" \
+            --output "${{ runner.temp }}/crystal-rev1.gbc"
+          python3 package/crystal-smoke/crystal-recompiled/ports/pokemon-crystal/scripts/verify_packaged_release.py \
+            --package-root package/crystal-smoke/crystal-recompiled \
+            --rom "${{ runner.temp }}/crystal-rev1.gbc" \
+            --cache "${{ runner.temp }}/crystal-cache" \
+            --output "${{ runner.temp }}/crystal-release-verification.json"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -48,8 +128,21 @@ jobs:
           name: gb-recompiled-linux-x64
           path: package/gb-recompiled-linux-x64.tar.gz
 
+      - name: Upload Crystal artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: crystal-recompiled-linux-x64
+          path: package/crystal-recompiled-linux-x64.tar.gz
+
+      - name: Upload Crystal verification
+        if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && (inputs.verify_crystal || inputs.tag != ''))
+        uses: actions/upload-artifact@v4
+        with:
+          name: crystal-recompiled-linux-x64-verification
+          path: ${{ runner.temp }}/crystal-release-verification.json
+
   build-macos:
-    runs-on: macos-latest
+    runs-on: macos-15-intel
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -68,11 +161,45 @@ jobs:
 
       - name: Package
         run: |
-          mkdir -p package/gb-recompiled-macos
-          cp build/bin/gbrecomp package/gb-recompiled-macos/
-          cp README.md package/gb-recompiled-macos/
-          cp LICENSE package/gb-recompiled-macos/ 2>/dev/null || echo "No LICENSE file"
+          mkdir -p package
+          python3 tools/create_gbrecomp_distribution.py \
+            --gbrecomp build/bin/gbrecomp \
+            --runtime runtime \
+            --license LICENSE \
+            --readme README.md \
+            --output package/gb-recompiled-macos \
+            --platform macos \
+            --architecture x64
           cd package && tar -czvf gb-recompiled-macos-x64.tar.gz gb-recompiled-macos
+
+      - name: Smoke test release archive
+        run: |
+          mkdir -p package/smoke
+          tar -xzf package/gb-recompiled-macos-x64.tar.gz -C package/smoke
+          python3 tests/test_release_bundle.py \
+            --distribution-dir package/smoke/gb-recompiled-macos \
+            --fixture-generator tests/fixtures/make_mapper_rom.py
+
+      - name: Package Crystal Recompiled
+        run: |
+          python3 ports/pokemon-crystal/scripts/eject.py \
+            --output package/crystal-source
+          python3 ports/pokemon-crystal/scripts/create_release.py \
+            --source-tree package/crystal-source \
+            --distribution package/gb-recompiled-macos \
+            --output package/crystal-recompiled-macos \
+            --archive package/crystal-recompiled-macos-x64.tar.gz \
+            --platform macos \
+            --architecture x64
+          mkdir -p package/crystal-smoke
+          tar -xzf package/crystal-recompiled-macos-x64.tar.gz \
+            -C package/crystal-smoke
+          python3 package/crystal-smoke/crystal-recompiled/ports/pokemon-crystal/scripts/launch.py \
+            --help
+
+      - name: Exact-ROM Crystal release gate
+        if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && (inputs.verify_crystal || inputs.tag != ''))
+        run: *crystal_rom_gate
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -80,8 +207,21 @@ jobs:
           name: gb-recompiled-macos-x64
           path: package/gb-recompiled-macos-x64.tar.gz
 
+      - name: Upload Crystal artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: crystal-recompiled-macos-x64
+          path: package/crystal-recompiled-macos-x64.tar.gz
+
+      - name: Upload Crystal verification
+        if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && (inputs.verify_crystal || inputs.tag != ''))
+        uses: actions/upload-artifact@v4
+        with:
+          name: crystal-recompiled-macos-x64-verification
+          path: ${{ runner.temp }}/crystal-release-verification.json
+
   build-macos-arm:
-    runs-on: macos-14 # M1/ARM runner
+    runs-on: macos-15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -100,11 +240,45 @@ jobs:
 
       - name: Package
         run: |
-          mkdir -p package/gb-recompiled-macos-arm64
-          cp build/bin/gbrecomp package/gb-recompiled-macos-arm64/
-          cp README.md package/gb-recompiled-macos-arm64/
-          cp LICENSE package/gb-recompiled-macos-arm64/ 2>/dev/null || echo "No LICENSE file"
+          mkdir -p package
+          python3 tools/create_gbrecomp_distribution.py \
+            --gbrecomp build/bin/gbrecomp \
+            --runtime runtime \
+            --license LICENSE \
+            --readme README.md \
+            --output package/gb-recompiled-macos-arm64 \
+            --platform macos \
+            --architecture arm64
           cd package && tar -czvf gb-recompiled-macos-arm64.tar.gz gb-recompiled-macos-arm64
+
+      - name: Smoke test release archive
+        run: |
+          mkdir -p package/smoke
+          tar -xzf package/gb-recompiled-macos-arm64.tar.gz -C package/smoke
+          python3 tests/test_release_bundle.py \
+            --distribution-dir package/smoke/gb-recompiled-macos-arm64 \
+            --fixture-generator tests/fixtures/make_mapper_rom.py
+
+      - name: Package Crystal Recompiled
+        run: |
+          python3 ports/pokemon-crystal/scripts/eject.py \
+            --output package/crystal-source
+          python3 ports/pokemon-crystal/scripts/create_release.py \
+            --source-tree package/crystal-source \
+            --distribution package/gb-recompiled-macos-arm64 \
+            --output package/crystal-recompiled-macos-arm64 \
+            --archive package/crystal-recompiled-macos-arm64.tar.gz \
+            --platform macos \
+            --architecture arm64
+          mkdir -p package/crystal-smoke
+          tar -xzf package/crystal-recompiled-macos-arm64.tar.gz \
+            -C package/crystal-smoke
+          python3 package/crystal-smoke/crystal-recompiled/ports/pokemon-crystal/scripts/launch.py \
+            --help
+
+      - name: Exact-ROM Crystal release gate
+        if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && (inputs.verify_crystal || inputs.tag != ''))
+        run: *crystal_rom_gate
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -112,8 +286,23 @@ jobs:
           name: gb-recompiled-macos-arm64
           path: package/gb-recompiled-macos-arm64.tar.gz
 
+      - name: Upload Crystal artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: crystal-recompiled-macos-arm64
+          path: package/crystal-recompiled-macos-arm64.tar.gz
+
+      - name: Upload Crystal verification
+        if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && (inputs.verify_crystal || inputs.tag != ''))
+        uses: actions/upload-artifact@v4
+        with:
+          name: crystal-recompiled-macos-arm64-verification
+          path: ${{ runner.temp }}/crystal-release-verification.json
+
   build-windows:
     runs-on: windows-latest
+    env:
+      SDL2_DIR: ${{ github.workspace }}\SDL2\cmake
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -144,20 +333,105 @@ jobs:
 
       - name: Package
         run: |
-          New-Item -ItemType Directory -Force -Path "package/gb-recompiled-windows"
-          Copy-Item "build/bin/gbrecomp.exe" -Destination "package/gb-recompiled-windows/"
-          Copy-Item "SDL2/lib/x64/SDL2.dll" -Destination "package/gb-recompiled-windows/"
-          Copy-Item "README.md" -Destination "package/gb-recompiled-windows/"
-          if (Test-Path "LICENSE") { Copy-Item "LICENSE" -Destination "package/gb-recompiled-windows/" }
-          # Compress contents of the folder, not the folder itself
-          cd package/gb-recompiled-windows
-          Compress-Archive -Path * -DestinationPath "../gb-recompiled-windows-x64.zip"
+          New-Item -ItemType Directory -Force -Path "package"
+          python tools/create_gbrecomp_distribution.py `
+            --gbrecomp build/bin/gbrecomp.exe `
+            --runtime runtime `
+            --license LICENSE `
+            --readme README.md `
+            --extra-file "SDL2/lib/x64/SDL2.dll=SDL2.dll" `
+            --extra-file "SDL2/LICENSE.txt=THIRD_PARTY/SDL2-LICENSE.txt" `
+            --output package/gb-recompiled-windows `
+            --platform windows `
+            --architecture x64
+          Compress-Archive -Path "package/gb-recompiled-windows" -DestinationPath "package/gb-recompiled-windows-x64.zip"
+
+      - name: Smoke test release archive
+        run: |
+          Expand-Archive -Path "package/gb-recompiled-windows-x64.zip" -DestinationPath "package/smoke"
+          python tests/test_release_bundle.py `
+            --distribution-dir package/smoke/gb-recompiled-windows `
+            --fixture-generator tests/fixtures/make_mapper_rom.py `
+            "--cmake-arg=-DSDL2_DIR=$PWD/SDL2/cmake"
+
+      - name: Package Crystal Recompiled
+        run: |
+          python ports/pokemon-crystal/scripts/eject.py `
+            --output package/crystal-source
+          python ports/pokemon-crystal/scripts/create_release.py `
+            --source-tree package/crystal-source `
+            --distribution package/gb-recompiled-windows `
+            --output package/crystal-recompiled-windows `
+            --archive package/crystal-recompiled-windows-x64.zip `
+            --platform windows `
+            --architecture x64
+          Expand-Archive `
+            -Path "package/crystal-recompiled-windows-x64.zip" `
+            -DestinationPath "package/crystal-smoke"
+          python package/crystal-smoke/crystal-recompiled/ports/pokemon-crystal/scripts/launch.py `
+            --help
+
+      - name: Exact-ROM Crystal release gate
+        if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && (inputs.verify_crystal || inputs.tag != ''))
+        run: |
+          $privateRomB64 = "${{ runner.temp }}\crystal-rev1.xz.b64"
+          Set-Content -NoNewline -Path $privateRomB64 -Value '${{ secrets.CRYSTAL_ROM_XZ_B64_01 }}'
+          Add-Content -NoNewline -Path $privateRomB64 -Value '${{ secrets.CRYSTAL_ROM_XZ_B64_02 }}'
+          Add-Content -NoNewline -Path $privateRomB64 -Value '${{ secrets.CRYSTAL_ROM_XZ_B64_03 }}'
+          Add-Content -NoNewline -Path $privateRomB64 -Value '${{ secrets.CRYSTAL_ROM_XZ_B64_04 }}'
+          Add-Content -NoNewline -Path $privateRomB64 -Value '${{ secrets.CRYSTAL_ROM_XZ_B64_05 }}'
+          Add-Content -NoNewline -Path $privateRomB64 -Value '${{ secrets.CRYSTAL_ROM_XZ_B64_06 }}'
+          Add-Content -NoNewline -Path $privateRomB64 -Value '${{ secrets.CRYSTAL_ROM_XZ_B64_07 }}'
+          Add-Content -NoNewline -Path $privateRomB64 -Value '${{ secrets.CRYSTAL_ROM_XZ_B64_08 }}'
+          Add-Content -NoNewline -Path $privateRomB64 -Value '${{ secrets.CRYSTAL_ROM_XZ_B64_09 }}'
+          Add-Content -NoNewline -Path $privateRomB64 -Value '${{ secrets.CRYSTAL_ROM_XZ_B64_10 }}'
+          Add-Content -NoNewline -Path $privateRomB64 -Value '${{ secrets.CRYSTAL_ROM_XZ_B64_11 }}'
+          Add-Content -NoNewline -Path $privateRomB64 -Value '${{ secrets.CRYSTAL_ROM_XZ_B64_12 }}'
+          Add-Content -NoNewline -Path $privateRomB64 -Value '${{ secrets.CRYSTAL_ROM_XZ_B64_13 }}'
+          Add-Content -NoNewline -Path $privateRomB64 -Value '${{ secrets.CRYSTAL_ROM_XZ_B64_14 }}'
+          Add-Content -NoNewline -Path $privateRomB64 -Value '${{ secrets.CRYSTAL_ROM_XZ_B64_15 }}'
+          Add-Content -NoNewline -Path $privateRomB64 -Value '${{ secrets.CRYSTAL_ROM_XZ_B64_16 }}'
+          Add-Content -NoNewline -Path $privateRomB64 -Value '${{ secrets.CRYSTAL_ROM_XZ_B64_17 }}'
+          Add-Content -NoNewline -Path $privateRomB64 -Value '${{ secrets.CRYSTAL_ROM_XZ_B64_18 }}'
+          Add-Content -NoNewline -Path $privateRomB64 -Value '${{ secrets.CRYSTAL_ROM_XZ_B64_19 }}'
+          Add-Content -NoNewline -Path $privateRomB64 -Value '${{ secrets.CRYSTAL_ROM_XZ_B64_20 }}'
+          Add-Content -NoNewline -Path $privateRomB64 -Value '${{ secrets.CRYSTAL_ROM_XZ_B64_21 }}'
+          Add-Content -NoNewline -Path $privateRomB64 -Value '${{ secrets.CRYSTAL_ROM_XZ_B64_22 }}'
+          Add-Content -NoNewline -Path $privateRomB64 -Value '${{ secrets.CRYSTAL_ROM_XZ_B64_23 }}'
+          Add-Content -NoNewline -Path $privateRomB64 -Value '${{ secrets.CRYSTAL_ROM_XZ_B64_24 }}'
+          Add-Content -NoNewline -Path $privateRomB64 -Value '${{ secrets.CRYSTAL_ROM_XZ_B64_25 }}'
+          Add-Content -NoNewline -Path $privateRomB64 -Value '${{ secrets.CRYSTAL_ROM_XZ_B64_26 }}'
+          Add-Content -NoNewline -Path $privateRomB64 -Value '${{ secrets.CRYSTAL_ROM_XZ_B64_27 }}'
+          Add-Content -NoNewline -Path $privateRomB64 -Value '${{ secrets.CRYSTAL_ROM_XZ_B64_28 }}'
+          Add-Content -NoNewline -Path $privateRomB64 -Value '${{ secrets.CRYSTAL_ROM_XZ_B64_29 }}'
+          Add-Content -NoNewline -Path $privateRomB64 -Value '${{ secrets.CRYSTAL_ROM_XZ_B64_30 }}'
+          python tools/reconstruct_crystal_rom.py `
+            --input-base64 $privateRomB64 `
+            --output "${{ runner.temp }}\crystal-rev1.gbc"
+          python package/crystal-smoke/crystal-recompiled/ports/pokemon-crystal/scripts/verify_packaged_release.py `
+            --package-root package/crystal-smoke/crystal-recompiled `
+            --rom "${{ runner.temp }}\crystal-rev1.gbc" `
+            --cache "${{ runner.temp }}\crystal-cache" `
+            --output "${{ runner.temp }}\crystal-release-verification.json"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: gb-recompiled-windows-x64
           path: package/gb-recompiled-windows-x64.zip
+
+      - name: Upload Crystal artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: crystal-recompiled-windows-x64
+          path: package/crystal-recompiled-windows-x64.zip
+
+      - name: Upload Crystal verification
+        if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && (inputs.verify_crystal || inputs.tag != ''))
+        uses: actions/upload-artifact@v4
+        with:
+          name: crystal-recompiled-windows-x64-verification
+          path: ${{ runner.temp }}\crystal-release-verification.json
 
   upload-release:
     needs: [build-linux, build-macos, build-macos-arm, build-windows]
@@ -182,5 +456,9 @@ jobs:
             artifacts/gb-recompiled-macos-x64/gb-recompiled-macos-x64.tar.gz
             artifacts/gb-recompiled-macos-arm64/gb-recompiled-macos-arm64.tar.gz
             artifacts/gb-recompiled-windows-x64/gb-recompiled-windows-x64.zip
+            artifacts/crystal-recompiled-linux-x64/crystal-recompiled-linux-x64.tar.gz
+            artifacts/crystal-recompiled-macos-x64/crystal-recompiled-macos-x64.tar.gz
+            artifacts/crystal-recompiled-macos-arm64/crystal-recompiled-macos-arm64.tar.gz
+            artifacts/crystal-recompiled-windows-x64/crystal-recompiled-windows-x64.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -101,11 +101,15 @@ void audio_stats_update_buffer(uint32_t fill_samples, uint32_t capacity_samples,
 /**
  * Record a buffer underrun (SDL ran out of data)
  */
-static inline void audio_stats_underrun(void) {
+static inline void audio_stats_underruns(uint32_t count) {
     if (g_audio_stats.enabled) {
-        g_audio_stats.last_buffer_underruns++;
-        g_audio_stats.total_buffer_underruns++;
+        g_audio_stats.last_buffer_underruns += count;
+        g_audio_stats.total_buffer_underruns += count;
     }
+}
+
+static inline void audio_stats_underrun(void) {
+    audio_stats_underruns(1);
 }
 
 /**
