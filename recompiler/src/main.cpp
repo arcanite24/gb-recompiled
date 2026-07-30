@@ -1576,6 +1576,11 @@ static std::string make_multi_rom_cmake(const std::string& project_name,
     ss << "    endif()\n";
     ss << "endif()\n\n";
     ss << "target_link_libraries(" << project_name << " gbrt)\n";
+    ss << "if(TARGET SDL2::SDL2main)\n";
+    ss << "    target_link_libraries(" << project_name << " SDL2::SDL2main)\n";
+    ss << "elseif(TARGET SDL2main)\n";
+    ss << "    target_link_libraries(" << project_name << " SDL2main)\n";
+    ss << "endif()\n";
     return ss.str();
 }
 

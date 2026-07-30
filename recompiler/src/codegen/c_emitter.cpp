@@ -4986,6 +4986,11 @@ GeneratedOutput generate_output(const ir::Program& program,
         cmake_ss << "    endif()\n";
         cmake_ss << "endif()\n\n";
         cmake_ss << "target_link_libraries(" << options.output_prefix << " gbrt)\n";
+        cmake_ss << "if(TARGET SDL2::SDL2main)\n";
+        cmake_ss << "    target_link_libraries(" << options.output_prefix << " SDL2::SDL2main)\n";
+        cmake_ss << "elseif(TARGET SDL2main)\n";
+        cmake_ss << "    target_link_libraries(" << options.output_prefix << " SDL2main)\n";
+        cmake_ss << "endif()\n";
         cmake_ss << "if(GBRECOMP_ENABLE_STRIP AND NOT MSVC AND NOT CMAKE_BUILD_TYPE STREQUAL \"Debug\")\n";
         cmake_ss << "    if(APPLE)\n";
         cmake_ss << "        add_custom_command(TARGET " << options.output_prefix << " POST_BUILD\n";
