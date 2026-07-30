@@ -867,7 +867,7 @@ static std::string make_android_jni_src_cmake(const fs::path& output_dir,
     ss << "project(" << output_prefix << "_android_runtime C CXX)\n\n";
     ss << "set(CMAKE_C_STANDARD 11)\n";
     ss << "set(CMAKE_C_STANDARD_REQUIRED ON)\n";
-    ss << "set(CMAKE_CXX_STANDARD 17)\n";
+    ss << "set(CMAKE_CXX_STANDARD 20)\n";
     ss << "set(CMAKE_CXX_STANDARD_REQUIRED ON)\n\n";
     ss << "set(GBRECOMP_GENERATED_COMPILE_JOBS \"8\" CACHE STRING \"Maximum concurrent generated-source compiles under Ninja; 0 disables the pool\")\n\n";
     ss << "set(GBRECOMP_OUT_DIR \"${CMAKE_CURRENT_LIST_DIR}/" << output_rel << "\")\n";
@@ -917,7 +917,7 @@ static std::string make_android_jni_src_cmake(const fs::path& output_dir,
         ss << " GBRT_ENABLE_NATIVE_PATCHES";
     }
     ss << ")\n";
-    ss << "target_compile_features(gbrt PUBLIC c_std_11 cxx_std_17)\n";
+    ss << "target_compile_features(gbrt PUBLIC c_std_11 cxx_std_20)\n";
     ss << "target_link_libraries(gbrt PUBLIC ${GBRECOMP_SDL_TARGET})\n\n";
     ss << "add_library(main SHARED\n";
     for (const auto& filename : generated_source_files) {
@@ -1497,7 +1497,7 @@ static std::string make_multi_rom_cmake(const std::string& project_name,
     ss << "include(CheckIPOSupported)\n\n";
     ss << "set(CMAKE_C_STANDARD 11)\n";
     ss << "set(CMAKE_C_STANDARD_REQUIRED ON)\n\n";
-    ss << "set(CMAKE_CXX_STANDARD 17)\n";
+    ss << "set(CMAKE_CXX_STANDARD 20)\n";
     ss << "set(CMAKE_CXX_STANDARD_REQUIRED ON)\n\n";
     ss << "set(GBRECOMP_GENERATED_COMPILE_JOBS \"8\" CACHE STRING \"Maximum concurrent generated-source compiles under Ninja; 0 disables the pool\")\n\n";
     ss << "if(NOT CMAKE_BUILD_TYPE)\n";
@@ -1552,7 +1552,20 @@ static std::string make_multi_rom_cmake(const std::string& project_name,
         ss << "    " << filename << "\n";
     }
     ss << ")\n";
-    ss << "set_source_files_properties(${GBRECOMP_GENERATED_SOURCES} PROPERTIES COMPILE_OPTIONS \"-O${GBRECOMP_GENERATED_OPT_LEVEL}\")\n\n";
+    ss << "if(NOT CMAKE_BUILD_TYPE STREQUAL \"Debug\")\n";
+    ss << "    if(MSVC)\n";
+    ss << "        if(GBRECOMP_GENERATED_OPT_LEVEL STREQUAL \"0\")\n";
+    ss << "            set(GBRECOMP_GENERATED_OPT_FLAG \"/Od\")\n";
+    ss << "        elseif(GBRECOMP_GENERATED_OPT_LEVEL STREQUAL \"1\")\n";
+    ss << "            set(GBRECOMP_GENERATED_OPT_FLAG \"/O1\")\n";
+    ss << "        else()\n";
+    ss << "            set(GBRECOMP_GENERATED_OPT_FLAG \"/O2\")\n";
+    ss << "        endif()\n";
+    ss << "        set_source_files_properties(${GBRECOMP_GENERATED_SOURCES} PROPERTIES COMPILE_OPTIONS \"${GBRECOMP_GENERATED_OPT_FLAG}\")\n";
+    ss << "    else()\n";
+    ss << "        set_source_files_properties(${GBRECOMP_GENERATED_SOURCES} PROPERTIES COMPILE_OPTIONS \"-O${GBRECOMP_GENERATED_OPT_LEVEL}\")\n";
+    ss << "    endif()\n";
+    ss << "endif()\n\n";
     ss << "if(GBRECOMP_ENABLE_IPO AND NOT CMAKE_BUILD_TYPE STREQUAL \"Debug\")\n";
     ss << "    check_ipo_supported(RESULT GBRECOMP_IPO_SUPPORTED OUTPUT GBRECOMP_IPO_ERROR)\n";
     ss << "    if(GBRECOMP_IPO_SUPPORTED)\n";

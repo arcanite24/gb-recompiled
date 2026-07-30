@@ -4838,7 +4838,7 @@ GeneratedOutput generate_output(const ir::Program& program,
         cmake_ss << "# Set C standard\n";
         cmake_ss << "set(CMAKE_C_STANDARD 11)\n";
         cmake_ss << "set(CMAKE_C_STANDARD_REQUIRED ON)\n\n";
-        cmake_ss << "set(CMAKE_CXX_STANDARD 17)\n";
+        cmake_ss << "set(CMAKE_CXX_STANDARD 20)\n";
         cmake_ss << "set(CMAKE_CXX_STANDARD_REQUIRED ON)\n\n";
         cmake_ss << "option(GBRECOMP_ENABLE_PERFORMANCE_COUNTERS \"Compile generated/runtime performance counters\" OFF)\n\n";
         cmake_ss << "set(GBRECOMP_GENERATED_COMPILE_JOBS \"8\" CACHE STRING \"Maximum concurrent generated-source compiles under Ninja; 0 disables the pool\")\n\n";
@@ -4953,7 +4953,20 @@ GeneratedOutput generate_output(const ir::Program& program,
             cmake_ss << "    " << filename << "\n";
         }
         cmake_ss << ")\n";
-        cmake_ss << "set_source_files_properties(${GBRECOMP_GENERATED_SOURCES} PROPERTIES COMPILE_OPTIONS \"-O${GBRECOMP_GENERATED_OPT_LEVEL}\")\n\n";
+        cmake_ss << "if(NOT CMAKE_BUILD_TYPE STREQUAL \"Debug\")\n";
+        cmake_ss << "    if(MSVC)\n";
+        cmake_ss << "        if(GBRECOMP_GENERATED_OPT_LEVEL STREQUAL \"0\")\n";
+        cmake_ss << "            set(GBRECOMP_GENERATED_OPT_FLAG \"/Od\")\n";
+        cmake_ss << "        elseif(GBRECOMP_GENERATED_OPT_LEVEL STREQUAL \"1\")\n";
+        cmake_ss << "            set(GBRECOMP_GENERATED_OPT_FLAG \"/O1\")\n";
+        cmake_ss << "        else()\n";
+        cmake_ss << "            set(GBRECOMP_GENERATED_OPT_FLAG \"/O2\")\n";
+        cmake_ss << "        endif()\n";
+        cmake_ss << "        set_source_files_properties(${GBRECOMP_GENERATED_SOURCES} PROPERTIES COMPILE_OPTIONS \"${GBRECOMP_GENERATED_OPT_FLAG}\")\n";
+        cmake_ss << "    else()\n";
+        cmake_ss << "        set_source_files_properties(${GBRECOMP_GENERATED_SOURCES} PROPERTIES COMPILE_OPTIONS \"-O${GBRECOMP_GENERATED_OPT_LEVEL}\")\n";
+        cmake_ss << "    endif()\n";
+        cmake_ss << "endif()\n\n";
         cmake_ss << "if(NOT MSVC AND NOT CMAKE_BUILD_TYPE STREQUAL \"Debug\")\n";
         cmake_ss << "    if(APPLE)\n";
         cmake_ss << "        target_link_options(gbrt PRIVATE -Wl,-dead_strip)\n";
