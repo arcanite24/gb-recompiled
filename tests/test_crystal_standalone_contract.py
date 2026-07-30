@@ -63,6 +63,17 @@ def main() -> int:
 
     with tempfile.TemporaryDirectory(prefix="crystal-standalone-contract-") as raw:
         root = Path(raw)
+        runtime_fixture = root / "runtime-crlf"
+        shutil.copytree(
+            args.runtime,
+            runtime_fixture,
+            ignore=shutil.ignore_patterns(
+                ".DS_Store", "__pycache__", "build", "build_*", "*.pyc"
+            ),
+        )
+        crlf_fixture = runtime_fixture / "include/gbrt.h"
+        fixture_content = crlf_fixture.read_bytes().replace(b"\r\n", b"\n")
+        crlf_fixture.write_bytes(fixture_content.replace(b"\n", b"\r\n"))
         distribution = root / "distribution"
         run(
             [
@@ -71,7 +82,7 @@ def main() -> int:
                 "--gbrecomp",
                 str(args.gbrecomp),
                 "--runtime",
-                str(args.runtime),
+                str(runtime_fixture),
                 "--license",
                 str(args.license),
                 "--readme",

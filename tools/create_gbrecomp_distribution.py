@@ -31,6 +31,13 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def normalized_text_bytes(path: Path) -> bytes:
+    content = path.read_bytes()
+    if b"\0" not in content:
+        content = content.replace(b"\r\n", b"\n")
+    return content
+
+
 def tree_sha256(root: Path, *, clean_source: bool = False) -> str:
     digest = hashlib.sha256()
     for path in sorted(candidate for candidate in root.rglob("*") if candidate.is_file()):
@@ -44,12 +51,21 @@ def tree_sha256(root: Path, *, clean_source: bool = False) -> str:
             continue
         if path.suffix == ".pyc":
             continue
+        content = normalized_text_bytes(path)
         encoded = relative.as_posix().encode("utf-8")
         digest.update(len(encoded).to_bytes(4, "big"))
         digest.update(encoded)
-        digest.update(path.stat().st_size.to_bytes(8, "big"))
-        digest.update(bytes.fromhex(sha256(path)))
+        digest.update(len(content).to_bytes(8, "big"))
+        digest.update(hashlib.sha256(content).digest())
     return digest.hexdigest()
+
+
+def normalize_runtime_text_files(root: Path) -> None:
+    for path in sorted(candidate for candidate in root.rglob("*") if candidate.is_file()):
+        content = path.read_bytes()
+        normalized = content.replace(b"\r\n", b"\n") if b"\0" not in content else content
+        if normalized != content:
+            path.write_bytes(normalized)
 
 
 def require_file(path: Path, label: str, *, executable: bool = False) -> Path:
@@ -171,6 +187,7 @@ def main() -> int:
     shutil.copy2(gbrecomp, copied_executable)
     copied_executable.chmod(copied_executable.stat().st_mode | 0o111)
     shutil.copytree(runtime, output / "runtime", ignore=ignore_runtime)
+    normalize_runtime_text_files(output / "runtime")
     shutil.copy2(license_path, output / "LICENSE")
     if readme is not None:
         shutil.copy2(readme, output / "README.md")
