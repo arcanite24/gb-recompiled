@@ -413,5 +413,14 @@ int main() {
         std::cerr << "generated fast-memory paths do not expose an internal A/B control\n";
         return 1;
     }
+    if (generated.find(
+            "#define GBRECOMP_EXPECT(value, expected) (value)") ==
+            std::string::npos ||
+        generated.find("if (GBRECOMP_EXPECT(!ctx->dma.active, 1))") ==
+            std::string::npos ||
+        generated.find("if (__builtin_expect") != std::string::npos) {
+        std::cerr << "generated branch hints are not portable to non-GNU compilers\n";
+        return 1;
+    }
     return 0;
 }

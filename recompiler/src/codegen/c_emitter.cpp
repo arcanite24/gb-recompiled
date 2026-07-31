@@ -2498,6 +2498,12 @@ GeneratedOutput generate_output(const ir::Program& program,
     internal_header_ss << "#ifndef " << options.output_prefix << "_INTERNAL_H\n";
     internal_header_ss << "#define " << options.output_prefix << "_INTERNAL_H\n\n";
     internal_header_ss << "#include \"" << options.output_prefix << ".h\"\n\n";
+    internal_header_ss << "#if defined(__GNUC__) || defined(__clang__)\n";
+    internal_header_ss << "#define GBRECOMP_EXPECT(value, expected) "
+                          "__builtin_expect((value), (expected))\n";
+    internal_header_ss << "#else\n";
+    internal_header_ss << "#define GBRECOMP_EXPECT(value, expected) (value)\n";
+    internal_header_ss << "#endif\n\n";
     if (options.native_patch.enabled) {
         internal_header_ss << "#include \"gbrt_native_patch_internal.h\"\n\n";
     }
@@ -2568,7 +2574,7 @@ GeneratedOutput generate_output(const ir::Program& program,
     internal_header_ss << "#ifndef GBRT_DISABLE_GENERATED_FAST_MEMORY\n";
     internal_header_ss << "static inline uint8_t " << options.output_prefix
                        << "_fast_read8(GBContext* ctx, uint16_t addr) {\n";
-    internal_header_ss << "    if (__builtin_expect(!ctx->dma.active, 1)) {\n";
+    internal_header_ss << "    if (GBRECOMP_EXPECT(!ctx->dma.active, 1)) {\n";
     internal_header_ss << "        if (addr < 0x8000) {\n";
     internal_header_ss << "            gbrt_note_generated_generic_read(ctx);\n";
     internal_header_ss << "            return gb_read8(ctx, addr);\n";
@@ -2586,7 +2592,7 @@ GeneratedOutput generate_output(const ir::Program& program,
     internal_header_ss << "            return ctx->hram[addr - 0xFF80u];\n";
     internal_header_ss << "        }\n";
     internal_header_ss << "    }\n";
-    internal_header_ss << "    if (__builtin_expect(gbrt_benchmark_fast_tick_enabled && !ctx->dma.active, 1)) {\n";
+    internal_header_ss << "    if (GBRECOMP_EXPECT(gbrt_benchmark_fast_tick_enabled && !ctx->dma.active, 1)) {\n";
     internal_header_ss << "        if (addr == GB_IO_LY) {\n";
     internal_header_ss << "            gbrt_note_generated_specialized_read(ctx);\n";
     internal_header_ss << "            return ctx->io[0x44];\n";
@@ -2605,12 +2611,12 @@ GeneratedOutput generate_output(const ir::Program& program,
     internal_header_ss << "}\n\n";
     internal_header_ss << "static inline void " << options.output_prefix
                        << "_fast_write8(GBContext* ctx, uint16_t addr, uint8_t value) {\n";
-    internal_header_ss << "    if (__builtin_expect(addr < 0x8000, 0)) {\n";
+    internal_header_ss << "    if (GBRECOMP_EXPECT(addr < 0x8000, 0)) {\n";
     internal_header_ss << "        gbrt_note_generated_generic_write(ctx);\n";
     internal_header_ss << "        gb_write8(ctx, addr, value);\n";
     internal_header_ss << "        return;\n";
     internal_header_ss << "    }\n";
-    internal_header_ss << "    if (__builtin_expect(!ctx->dma.active, 1)) {\n";
+    internal_header_ss << "    if (GBRECOMP_EXPECT(!ctx->dma.active, 1)) {\n";
     internal_header_ss << "        if (addr >= 0xC000 && addr < 0xD000) {\n";
     internal_header_ss << "            gbrt_note_generated_specialized_write(ctx);\n";
     internal_header_ss << "            ctx->wram[addr - 0xC000u] = value;\n";
