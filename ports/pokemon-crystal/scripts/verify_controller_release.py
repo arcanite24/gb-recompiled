@@ -115,6 +115,13 @@ def main() -> int:
         "the window.",
         flush=True,
     )
+    environment = os.environ.copy()
+    if os.name == "nt":
+        environment["PATH"] = (
+            str(package_root / "sdk" / "gb-recompiled")
+            + os.pathsep
+            + environment.get("PATH", "")
+        )
     completed = subprocess.run(
         [
             str(executable),
@@ -133,6 +140,7 @@ def main() -> int:
         stderr=subprocess.STDOUT,
         check=False,
         timeout=360,
+        env=environment,
     )
     captured = completed.stdout
     controller = CONTROLLER_LINE.search(captured)

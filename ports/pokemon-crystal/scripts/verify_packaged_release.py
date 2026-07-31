@@ -33,6 +33,7 @@ def run(
     stage: str,
     redactions: tuple[Path, ...],
     capture: bool = False,
+    env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[bytes]:
     try:
         completed = subprocess.run(
@@ -43,6 +44,7 @@ def run(
             stderr=subprocess.STDOUT,
             check=False,
             timeout=COMMAND_TIMEOUT_SECONDS,
+            env=env,
         )
     except subprocess.TimeoutExpired as error:
         detail = failure_output_tail(error.stdout or b"", redactions)
@@ -103,6 +105,14 @@ def main() -> int:
     )
     crystal = package_root / "ports" / "pokemon-crystal"
     redactions = (package_root, rom, cache)
+    direct_game_env = None
+    if os.name == "nt":
+        direct_game_env = os.environ.copy()
+        direct_game_env["PATH"] = (
+            str(package_root / "sdk" / "gb-recompiled")
+            + os.pathsep
+            + direct_game_env.get("PATH", "")
+        )
     if not launch.is_file() or not (package_root / "crystal-release.json").is_file():
         raise RuntimeError("incomplete package")
 
@@ -157,6 +167,7 @@ def main() -> int:
         cwd=package_root,
         stage="four-segment route verification",
         redactions=redactions,
+        env=direct_game_env,
     )
     route = json.loads((route_dir / "result.json").read_text(encoding="utf-8"))
     if route.get("passed") is not True or len(route.get("segments", [])) != 4:
