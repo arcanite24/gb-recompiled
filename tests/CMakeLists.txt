@@ -121,6 +121,15 @@ set_tests_properties(
 )
 
 add_test(
+    NAME crystal_packaged_verifier_diagnostics_are_path_redacted
+    COMMAND
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_crystal_packaged_verifier_diagnostics.py"
+        --verifier
+        "${CMAKE_SOURCE_DIR}/ports/pokemon-crystal/scripts/verify_packaged_release.py"
+)
+
+add_test(
     NAME crystal_controller_verifier_is_fail_closed
     COMMAND
         "${Python3_EXECUTABLE}"

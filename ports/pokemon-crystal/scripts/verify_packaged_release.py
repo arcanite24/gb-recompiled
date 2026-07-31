@@ -8,12 +8,14 @@ import hashlib
 import json
 import os
 import platform
+import re
 import subprocess
 import sys
 from pathlib import Path
 
 
 COMMAND_TIMEOUT_SECONDS = 1800
+FAILURE_OUTPUT_LIMIT_BYTES = 12 * 1024
 
 
 def sha256(path: Path) -> str:
@@ -28,20 +30,54 @@ def run(
     command: list[str],
     *,
     cwd: Path,
+    stage: str,
+    redactions: tuple[Path, ...],
     capture: bool = False,
 ) -> subprocess.CompletedProcess[bytes]:
-    completed = subprocess.run(
-        command,
-        cwd=cwd,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE if capture else subprocess.DEVNULL,
-        stderr=subprocess.STDOUT if capture else subprocess.DEVNULL,
-        check=False,
-        timeout=COMMAND_TIMEOUT_SECONDS,
-    )
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=cwd,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            check=False,
+            timeout=COMMAND_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as error:
+        detail = failure_output_tail(error.stdout or b"", redactions)
+        raise RuntimeError(
+            f"packaged release stage timed out: {stage}{detail}"
+        ) from None
     if completed.returncode != 0:
-        raise RuntimeError("packaged release command failed")
+        detail = failure_output_tail(completed.stdout, redactions)
+        raise RuntimeError(
+            "packaged release stage failed: "
+            f"{stage} (exit {completed.returncode}){detail}"
+        )
+    if not capture:
+        completed.stdout = b""
     return completed
+
+
+def failure_output_tail(output: bytes, redactions: tuple[Path, ...]) -> str:
+    if not output:
+        return ""
+    text = output[-FAILURE_OUTPUT_LIMIT_BYTES:].decode("utf-8", errors="replace")
+    path_strings = set()
+    for path in redactions:
+        rendered = str(path)
+        path_strings.update(
+            {
+                rendered,
+                rendered.replace("\\", "/"),
+                rendered.replace("/", "\\"),
+            }
+        )
+    for rendered in sorted(path_strings, key=len, reverse=True):
+        if rendered:
+            text = re.sub(re.escape(rendered), "<private-path>", text, flags=re.I)
+    return "\n--- redacted command output tail ---\n" + text.rstrip()
 
 
 def main() -> int:
@@ -66,6 +102,7 @@ def main() -> int:
         / "launch.py"
     )
     crystal = package_root / "ports" / "pokemon-crystal"
+    redactions = (package_root, rom, cache)
     if not launch.is_file() or not (package_root / "crystal-release.json").is_file():
         raise RuntimeError("incomplete package")
 
@@ -80,6 +117,8 @@ def main() -> int:
             "--prepare-only",
         ],
         cwd=package_root,
+        stage="prepare generated Crystal build",
+        redactions=redactions,
     )
     run(
         [
@@ -90,6 +129,8 @@ def main() -> int:
             "--headless-smoke",
         ],
         cwd=package_root,
+        stage="vanilla headless smoke",
+        redactions=redactions,
     )
 
     executable_name = "pokemon_crystal.exe" if os.name == "nt" else "pokemon_crystal"
@@ -114,6 +155,8 @@ def main() -> int:
             "1700000000",
         ],
         cwd=package_root,
+        stage="four-segment route verification",
+        redactions=redactions,
     )
     route = json.loads((route_dir / "result.json").read_text(encoding="utf-8"))
     if route.get("passed") is not True or len(route.get("segments", [])) != 4:
@@ -148,6 +191,8 @@ def main() -> int:
             str(resolution),
         ],
         cwd=package_root,
+        stage="data-mod validation",
+        redactions=redactions,
     )
     run(
         [
@@ -163,6 +208,8 @@ def main() -> int:
             str(compile_report),
         ],
         cwd=package_root,
+        stage="data-mod compilation",
+        redactions=redactions,
     )
     save = cache / "user-data" / "pokemon_crystal.sav"
     before_save = sha256(save)
@@ -177,6 +224,8 @@ def main() -> int:
             "--headless-smoke",
         ],
         cwd=package_root,
+        stage="data-mod headless smoke",
+        redactions=redactions,
         capture=True,
     )
     if b"[DATA-MOD] Active entries=42" not in mod_run.stdout:
@@ -192,6 +241,8 @@ def main() -> int:
             "--headless-smoke",
         ],
         cwd=package_root,
+        stage="vanilla recovery smoke",
+        redactions=redactions,
     )
     if sha256(save) != before_save:
         raise RuntimeError("vanilla recovery changed the save")
