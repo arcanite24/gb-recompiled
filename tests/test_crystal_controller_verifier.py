@@ -44,6 +44,15 @@ def main() -> int:
     if module.input_action_counts("c10:A:/private/rom.gbc"):
         raise RuntimeError("record parser accepted malformed/private content")
 
+    controller = module.find_controller_line(
+        b"",
+        b"[SDL] Controller: 8BitDo Ultimate 2C Wired Controller [Unknown]\n",
+    )
+    if controller is None or controller.group(1) != b"Unknown":
+        raise RuntimeError("controller verifier did not inspect the runtime log")
+    if module.find_controller_line(b"[SDL] Controller: malformed\n") is not None:
+        raise RuntimeError("controller verifier accepted a malformed controller line")
+
     rejected = subprocess.run(
         [
             sys.executable,

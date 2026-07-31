@@ -725,6 +725,30 @@ static bool open_first_available_controller(void) {
     return false;
 }
 
+static void install_supplemental_controller_mappings(void) {
+#if defined(__APPLE__)
+    // SDL2's built-in database does not yet cover the wired 8BitDo Ultimate
+    // 2C on macOS. Do not replace a user or future SDL mapping when one is
+    // already available.
+    for (int i = 0; i < SDL_NumJoysticks(); i++) {
+        if (SDL_IsGameController(i) ||
+            SDL_JoystickGetDeviceVendor(i) != 0x2dc8 ||
+            SDL_JoystickGetDeviceProduct(i) != 0x301d) {
+            continue;
+        }
+        SDL_GameControllerAddMapping(
+            "03000000c82d00001d30000001000000,"
+            "8BitDo Ultimate 2C Wired Controller,"
+            "a:b0,b:b1,back:b10,dpdown:h0.4,dpleft:h0.8,dpright:h0.2,"
+            "dpup:h0.1,guide:b12,leftshoulder:b6,leftstick:b13,"
+            "lefttrigger:a5,leftx:a0,lefty:a1,paddle1:b5,paddle2:b2,"
+            "rightshoulder:b7,rightstick:b14,righttrigger:a4,rightx:a2,"
+            "righty:a3,start:b11,x:b3,y:b4,platform:Mac OS X,"
+        );
+    }
+#endif
+}
+
 static SDL_JoystickID active_controller_instance_id(void) {
     if (!g_controller) {
         return -1;
@@ -3067,6 +3091,7 @@ bool gb_platform_init(int scale) {
     SDL_SetHint(SDL_HINT_ANDROID_TRAP_BACK_BUTTON, "1");
 #endif
 
+    install_supplemental_controller_mappings();
     clear_controller_state();
     open_first_available_controller();
     refresh_audio_output_devices();

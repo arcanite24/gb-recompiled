@@ -38,6 +38,14 @@ def input_action_counts(text: str) -> Counter[str]:
     return counts
 
 
+def find_controller_line(*outputs: bytes) -> re.Match[bytes] | None:
+    for output in outputs:
+        controller = CONTROLLER_LINE.search(output)
+        if controller is not None:
+            return controller
+    return None
+
+
 def load_object(path: Path, label: str) -> dict[str, object]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
@@ -143,9 +151,13 @@ def main() -> int:
         env=environment,
     )
     captured = completed.stdout
-    controller = CONTROLLER_LINE.search(captured)
     if completed.returncode != 0:
         raise RuntimeError("packaged controller gameplay exited unsuccessfully")
+    try:
+        runtime_output = runtime_log.read_bytes()
+    except OSError as error:
+        raise RuntimeError("controller gameplay did not produce a runtime log") from error
+    controller = find_controller_line(captured, runtime_output)
     if controller is None:
         raise RuntimeError("SDL did not report an accepted controller")
     if not input_record.is_file():

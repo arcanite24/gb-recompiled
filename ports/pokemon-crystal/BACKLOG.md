@@ -611,6 +611,9 @@ and can be ejected into a reproducible public repository.
     smoke, save/restart, mod loading, and uninstall without losing user saves.
   - Evidence: raw `logs/pokemon-crystal/CR-M7-006/`; summary
     `evidence/CR-M7-006.md`.
+  - Progress: four-platform exact-ROM package verification and macOS arm64
+    physical-controller acceptance are retained; remaining host-family
+    controller attestations keep this item open.
 
 - [ ] **CR-M7-007 — Complete public-release review**
   - Depends on: CR-M7-002, CR-M7-003, CR-M7-006.
