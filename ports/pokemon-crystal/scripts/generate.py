@@ -49,6 +49,7 @@ SEMANTIC_HEADER_NAME = "crystal_semantic.h"
 SEMANTIC_SOURCE_NAME = "crystal_semantic.c"
 WIDESCREEN_PROBE = PORT_DIR / "tools" / "crystal_widescreen_probe.c"
 BATTLE_PROBE = PORT_DIR / "tools" / "crystal_battle_probe.c"
+PROBE_DISPATCH = PORT_DIR / "tools" / "crystal_probe_dispatch.c"
 PRESENTATION_ASSETS = PORT_DIR / "assets" / "presentation"
 
 
@@ -516,6 +517,11 @@ def main() -> int:
             )
             battle_presentation_probe = tools_output / battle_probe_input.name
             shutil.copyfile(battle_probe_input, battle_presentation_probe)
+            probe_dispatch_input = require_file(
+                PROBE_DISPATCH, "presentation probe dispatch fallback"
+            )
+            probe_dispatch = tools_output / probe_dispatch_input.name
+            shutil.copyfile(probe_dispatch_input, probe_dispatch)
             assets_output = port_output / "assets" / "presentation"
             assets_output.mkdir(parents=True)
             for asset_name in (
@@ -534,6 +540,8 @@ def main() -> int:
                 "add_executable(crystal_widescreen_probe\n"
                 "    ${CMAKE_CURRENT_SOURCE_DIR}/port/tools/"
                 "crystal_widescreen_probe.c\n"
+                "    ${CMAKE_CURRENT_SOURCE_DIR}/port/tools/"
+                "crystal_probe_dispatch.c\n"
                 ")\n"
                 "target_include_directories(crystal_widescreen_probe PRIVATE\n"
                 "    ${CMAKE_CURRENT_SOURCE_DIR}/port\n"
@@ -543,6 +551,8 @@ def main() -> int:
                 "\nadd_executable(crystal_battle_probe\n"
                 "    ${CMAKE_CURRENT_SOURCE_DIR}/port/tools/"
                 "crystal_battle_probe.c\n"
+                "    ${CMAKE_CURRENT_SOURCE_DIR}/port/tools/"
+                "crystal_probe_dispatch.c\n"
                 ")\n"
                 "target_include_directories(crystal_battle_probe PRIVATE\n"
                 "    ${CMAKE_CURRENT_SOURCE_DIR}/port\n"
