@@ -4,6 +4,9 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
+import importlib.util
+import io
 import subprocess
 import sys
 import tempfile
@@ -47,6 +50,50 @@ def main() -> int:
         expected_code = '"code":"unsupported-rom"'
         if expected_code not in retained:
             raise RuntimeError(f"missing stable rejection code: {retained}")
+
+        spec = importlib.util.spec_from_file_location(
+            "crystal_first_run",
+            args.first_run,
+        )
+        if spec is None or spec.loader is None:
+            raise RuntimeError("could not load first-run module")
+        first_run = importlib.util.module_from_spec(spec)
+        sys.path.insert(0, str(args.first_run.parent))
+        try:
+            spec.loader.exec_module(first_run)
+        finally:
+            sys.path.pop(0)
+
+        diagnostics = io.StringIO()
+        try:
+            with contextlib.redirect_stderr(diagnostics):
+                first_run.run_private(
+                    [
+                        sys.executable,
+                        "-c",
+                        (
+                            "import sys; "
+                            f"print('compile failed at {rom}'); "
+                            "raise SystemExit(7)"
+                        ),
+                    ],
+                    redactions=(root, rom),
+                )
+        except subprocess.CalledProcessError as error:
+            if error.returncode != 7:
+                raise
+        else:
+            raise RuntimeError("failing private command unexpectedly passed")
+        diagnostic_text = diagnostics.getvalue()
+        if (
+            "redacted private command output tail" not in diagnostic_text
+            or "<private-path>" not in diagnostic_text
+            or secret in diagnostic_text
+            or str(root) in diagnostic_text
+        ):
+            raise RuntimeError(
+                f"unsafe or incomplete private command diagnostic: {diagnostic_text}"
+            )
 
     print("first run rejects unsupported ROMs before cache creation without path disclosure")
     return 0

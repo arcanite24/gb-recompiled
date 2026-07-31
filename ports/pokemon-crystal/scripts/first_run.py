@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -28,6 +29,7 @@ DEFAULT_GBRECOMP = (
 DEFAULT_RUNTIME = REPO_ROOT / "runtime"
 OUTPUT_NAME = "crystal-rev1-v1"
 PROGRESS_SCHEMA = "crystal-recompiled.first-run-progress"
+FAILURE_OUTPUT_LIMIT_BYTES = 12 * 1024
 
 
 def default_cache_dir() -> Path:
@@ -116,15 +118,40 @@ def is_inside(path: Path, parent: Path) -> bool:
     return True
 
 
-def run_private(command: list[str]) -> None:
-    subprocess.run(
+def private_output_tail(output: bytes, redactions: tuple[Path, ...]) -> str:
+    if not output:
+        return ""
+    text = output[-FAILURE_OUTPUT_LIMIT_BYTES:].decode("utf-8", errors="replace")
+    path_strings = set()
+    for path in redactions:
+        rendered = str(path)
+        path_strings.update(
+            {
+                rendered,
+                rendered.replace("\\", "/"),
+                rendered.replace("/", "\\"),
+            }
+        )
+    for rendered in sorted(path_strings, key=len, reverse=True):
+        if rendered:
+            text = re.sub(re.escape(rendered), "<private-path>", text, flags=re.I)
+    return "--- redacted private command output tail ---\n" + text.rstrip()
+
+
+def run_private(command: list[str], *, redactions: tuple[Path, ...]) -> None:
+    completed = subprocess.run(
         command,
         cwd=REPO_ROOT,
         stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=False,
     )
+    if completed.returncode != 0:
+        detail = private_output_tail(completed.stdout, redactions)
+        if detail:
+            print(detail, file=sys.stderr)
+        completed.check_returncode()
 
 
 def parse_args() -> argparse.Namespace:
@@ -166,6 +193,7 @@ def main() -> int:
         progress.emit("failure", "cache-validation", 1, code="cache-inside-source")
         return 2
     output = cache / "generated" / OUTPUT_NAME
+    redactions = (rom.resolve(), cache, source_root)
     if output.exists():
         progress.emit("failure", "cache-validation", 1, code="output-already-exists")
         return 2
@@ -195,7 +223,7 @@ def main() -> int:
             str(recompiler_progress),
         ]
         try:
-            run_private(generate_command)
+            run_private(generate_command, redactions=redactions)
         except (OSError, subprocess.CalledProcessError):
             if output.exists():
                 shutil.rmtree(output)
@@ -217,7 +245,8 @@ def main() -> int:
                     str(output),
                     "-B",
                     str(build),
-                ]
+                ],
+                redactions=redactions,
             )
         except (OSError, subprocess.CalledProcessError):
             progress.emit("failure", "configure", 2, code="configure-failed")
@@ -225,7 +254,10 @@ def main() -> int:
         progress.emit("stage", "configure", 3)
 
         try:
-            run_private(["ninja", "-C", str(build)])
+            run_private(
+                ["ninja", "-C", str(build)],
+                redactions=redactions,
+            )
         except (OSError, subprocess.CalledProcessError):
             progress.emit("failure", "build", 3, code="build-failed")
             return 4
