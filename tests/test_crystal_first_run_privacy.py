@@ -16,6 +16,7 @@ from pathlib import Path
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--first-run", type=Path, required=True)
+    parser.add_argument("--privacy-verifier", type=Path, required=True)
     args = parser.parse_args()
 
     with tempfile.TemporaryDirectory(prefix="crystal-first-run-test-") as raw:
@@ -63,6 +64,35 @@ def main() -> int:
             spec.loader.exec_module(first_run)
         finally:
             sys.path.pop(0)
+        challenge_args = first_run.generation_feature_args()
+        if (
+            len(challenge_args) != 2
+            or challenge_args[0] != "--native-patch"
+            or Path(challenge_args[1]).name != "manifest.json"
+            or not Path(challenge_args[1]).is_file()
+            or Path(challenge_args[1]).parent.name != "challenge-mode"
+        ):
+            raise RuntimeError("first run does not compile the Challenge patch")
+
+        launch_path = args.first_run.parent / "launch.py"
+        launch_spec = importlib.util.spec_from_file_location(
+            "crystal_launch",
+            launch_path,
+        )
+        if launch_spec is None or launch_spec.loader is None:
+            raise RuntimeError("could not load launch module")
+        launch = importlib.util.module_from_spec(launch_spec)
+        sys.path.insert(0, str(args.first_run.parent))
+        try:
+            launch_spec.loader.exec_module(launch)
+        finally:
+            sys.path.pop(0)
+        configuration = launch.host_configuration_path(cache)
+        if (
+            configuration != cache / "configuration" / "challenge-v1.json"
+            or configuration.exists()
+        ):
+            raise RuntimeError("launcher does not use an external Challenge config")
 
         diagnostics = io.StringIO()
         try:
@@ -94,6 +124,50 @@ def main() -> int:
             raise RuntimeError(
                 f"unsafe or incomplete private command diagnostic: {diagnostic_text}"
             )
+
+        privacy_spec = importlib.util.spec_from_file_location(
+            "crystal_first_run_privacy",
+            args.privacy_verifier,
+        )
+        if privacy_spec is None or privacy_spec.loader is None:
+            raise RuntimeError("could not load first-run privacy verifier")
+        privacy = importlib.util.module_from_spec(privacy_spec)
+        privacy_spec.loader.exec_module(privacy)
+
+        public_tree = root / "public-tree"
+        public_tree.mkdir()
+        (public_tree / "safe.txt").write_text("public data\n", encoding="utf-8")
+        rom_bytes = b"exact-private-rom-payload"
+        selected_path = str(rom).encode("utf-8")
+        if privacy.audit_public_tree(
+            public_tree,
+            selected_path_bytes=selected_path,
+            rom_bytes=rom_bytes,
+        ) != 1:
+            raise RuntimeError("privacy verifier miscounted safe public files")
+
+        controls = (
+            ("path.bin", b"prefix" + selected_path + b"suffix", "ROM path"),
+            ("rom.bin", b"prefix" + rom_bytes + b"suffix", "ROM bytes"),
+            ("save.sav", b"save", "private/derived artifact"),
+        )
+        for name, payload, expected in controls:
+            control = public_tree / name
+            control.write_bytes(payload)
+            try:
+                privacy.audit_public_tree(
+                    public_tree,
+                    selected_path_bytes=selected_path,
+                    rom_bytes=rom_bytes,
+                )
+            except RuntimeError as error:
+                if expected not in str(error):
+                    raise RuntimeError(
+                        f"privacy control {name} failed for the wrong reason: {error}"
+                    ) from error
+            else:
+                raise RuntimeError(f"privacy verifier accepted {name}")
+            control.unlink()
 
     print("first run rejects unsupported ROMs before cache creation without path disclosure")
     return 0

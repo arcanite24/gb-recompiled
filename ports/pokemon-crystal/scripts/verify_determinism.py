@@ -48,6 +48,7 @@ def normalized_command(command: object) -> list[object]:
         "--log-file",
         "--save-dir",
         "--screenshot-prefix",
+        "--host-configuration",
     }
     normalized: list[object] = ["$EXECUTABLE"]
     index = 1
@@ -136,6 +137,7 @@ def comparable_result(payload: object, run_dir: Path) -> dict[str, object]:
         "manifest_sha256": payload.get("manifest_sha256"),
         "executable_sha256": payload.get("executable_sha256"),
         "generation_receipt_sha256": payload.get("generation_receipt_sha256"),
+        "replay_preflight": payload.get("replay_preflight"),
         "segments": segments,
         "persistence": persistence_inventory(run_dir),
     }
@@ -179,6 +181,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--manifest", required=True, type=Path)
     parser.add_argument("--executable", required=True, type=Path)
     parser.add_argument("--generation-receipt", required=True, type=Path)
+    parser.add_argument("--native-patch-manifest", type=Path)
+    parser.add_argument("--host-configuration", type=Path)
     parser.add_argument("--evidence-dir", required=True, type=Path)
     parser.add_argument("--runs", type=int, default=3)
     parser.add_argument("--pcm-seconds", type=int, default=10)
@@ -204,6 +208,18 @@ def main() -> int:
     ):
         if not path.is_file():
             raise VerificationError(f"missing {label}: {path}")
+    if (args.native_patch_manifest is None) != (
+        args.host_configuration is None
+    ):
+        raise VerificationError(
+            "native patch and host configuration must be provided together"
+        )
+    for label, path in (
+        ("native patch manifest", args.native_patch_manifest),
+        ("host configuration", args.host_configuration),
+    ):
+        if path is not None and not path.resolve().is_file():
+            raise VerificationError(f"missing {label}: {path.resolve()}")
 
     evidence = args.evidence_dir.resolve()
     if evidence.exists():
@@ -240,6 +256,20 @@ def main() -> int:
             "--pcm-seconds",
             str(args.pcm_seconds),
         ]
+        if args.native_patch_manifest is not None:
+            command.extend(
+                [
+                    "--native-patch-manifest",
+                    str(args.native_patch_manifest.resolve()),
+                ]
+            )
+        if args.host_configuration is not None:
+            command.extend(
+                [
+                    "--host-configuration",
+                    str(args.host_configuration.resolve()),
+                ]
+            )
         completed = subprocess.run(
             command, text=True, capture_output=True, check=False
         )

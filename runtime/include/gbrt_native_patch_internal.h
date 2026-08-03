@@ -21,6 +21,21 @@ typedef struct GBNativeBinding {
     GBNativeHookFn post;
 } GBNativeBinding;
 
+typedef enum GBNativePhase {
+    GB_NATIVE_PHASE_PRE = 1,
+    GB_NATIVE_PHASE_REPLACEMENT = 2,
+    GB_NATIVE_PHASE_ORIGINAL = 3,
+    GB_NATIVE_PHASE_POST = 4
+} GBNativePhase;
+
+struct GBNativeCall {
+    GBContext* ctx;
+    const GBNativeBinding* binding;
+    GBNativePhase phase;
+    uint8_t original_requested;
+    uint8_t failed;
+};
+
 typedef enum GBNativeEnterResult {
     GB_NATIVE_ENTER_SKIP = 0,
     GB_NATIVE_ENTER_RUN_ORIGINAL = 1,

@@ -1129,6 +1129,18 @@ GBContext* gb_context_create(const GBConfig* config) {
     return ctx;
 }
 
+void gb_context_set_host_configuration_service(
+    GBContext* ctx,
+    const GBHostConfigurationContract* contract,
+    const char* path) {
+    if (ctx == NULL) return;
+    ctx->host_configuration_contract = contract != NULL
+        ? *contract
+        : (GBHostConfigurationContract){0};
+    ctx->host_configuration_path =
+        path != NULL && path[0] != '\0' ? path : NULL;
+}
+
 void gb_context_destroy(GBContext* ctx) {
     if (!ctx) return;
     gbrt_port_detach(ctx);
@@ -1549,9 +1561,22 @@ bool gb_context_write_state_json(const GBContext* ctx, const char* path) {
         success = fprintf(
                       file,
                       "],\n"
+                      "  \"host_configuration\": {"
+                      "\"present\": %s, \"applied\": %s, "
+                      "\"enabled\": %s, \"policy_id\": \"%s\", "
+                      "\"sha256\": \"%s\"},\n"
                       "  \"semantic_transaction\": {"
                       "\"sequence\": %llu, \"outcome\": \"%s\", "
                       "\"dirty_ranges\": [",
+                      ctx->config.host_configuration.present ? "true" : "false",
+                      ctx->config.host_configuration.applied ? "true" : "false",
+                      ctx->config.host_configuration.enabled ? "true" : "false",
+                      ctx->config.host_configuration.present
+                          ? ctx->config.host_configuration.policy_id
+                          : "",
+                      ctx->config.host_configuration.present
+                          ? ctx->config.host_configuration.sha256
+                          : "",
                       (unsigned long long)ctx->semantic_transaction_sequence,
                       gbrt_semantic_transaction_outcome_name(
                           ctx->semantic_transaction_outcome)) > 0;

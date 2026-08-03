@@ -9,6 +9,7 @@ import json
 import os
 import platform
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -24,6 +25,48 @@ def sha256(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def canonical_sha256(value: object) -> str:
+    return hashlib.sha256(
+        json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+def materialize_challenge_manifest(
+    source: Path,
+    destination: Path,
+    executable: Path,
+    generation_receipt: Path,
+) -> Path:
+    shutil.copytree(source.parent, destination)
+    if os.name != "nt":
+        for directory in [
+            destination,
+            *[path for path in destination.rglob("*") if path.is_dir()],
+        ]:
+            directory.chmod(0o700)
+        for path in destination.rglob("*"):
+            if path.is_file():
+                path.chmod(0o600)
+    manifest_path = destination / source.name
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    receipt = json.loads(generation_receipt.read_text(encoding="utf-8"))
+    manifest["build"] = {
+        "executable_sha256": sha256(executable),
+        "generation_receipt_sha256": sha256(generation_receipt),
+        "source_inventory_sha256": receipt["generated"][
+            "source_inventory_sha256"
+        ],
+    }
+    portable = dict(manifest)
+    portable.pop("portable_seed_sha256", None)
+    manifest["portable_seed_sha256"] = canonical_sha256(portable)
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return manifest_path
 
 
 def run(
@@ -146,6 +189,15 @@ def main() -> int:
     executable_name = "pokemon_crystal.exe" if os.name == "nt" else "pokemon_crystal"
     generated = cache / "generated" / "crystal-rev1-v1"
     executable = generated / "build" / executable_name
+    generation_receipt = generated / "crystal-generation.json"
+    generated_identity = json.loads(generation_receipt.read_text(encoding="utf-8"))
+    challenge_patch = crystal / "native-patches" / "challenge-mode" / "manifest.json"
+    if generated_identity.get("native_patch") != {
+        "kind": "file",
+        "name": challenge_patch.name,
+        "sha256": sha256(challenge_patch),
+    }:
+        raise RuntimeError("packaged first run omitted the Challenge native patch")
     route_dir = cache / "verification" / "route"
     run(
         [
@@ -172,6 +224,64 @@ def main() -> int:
     route = json.loads((route_dir / "result.json").read_text(encoding="utf-8"))
     if route.get("passed") is not True or len(route.get("segments", [])) != 4:
         raise RuntimeError("packaged route did not pass")
+
+    challenge_root = cache / "verification" / "challenge-route-source"
+    challenge_manifest = materialize_challenge_manifest(
+        crystal / "route" / "challenge-v1.json",
+        challenge_root,
+        executable,
+        generation_receipt,
+    )
+    challenge_route_dir = cache / "verification" / "challenge-route"
+    run(
+        [
+            sys.executable,
+            str(crystal / "scripts" / "validate_route.py"),
+            "--manifest",
+            str(challenge_manifest),
+            "--executable",
+            str(executable),
+            "--generation-receipt",
+            str(generation_receipt),
+            "--native-patch-manifest",
+            str(challenge_patch),
+            "--host-configuration",
+            str(crystal / "config" / "challenge-route-v1.json"),
+            "--evidence-dir",
+            str(challenge_route_dir),
+            "--fallback-policy",
+            str(crystal / "route" / "fallback-policy.json"),
+            "--capture-port-state",
+        ],
+        cwd=package_root,
+        stage="Challenge wild-and-trainer route verification",
+        redactions=redactions,
+        env=direct_game_env,
+    )
+    challenge_route = json.loads(
+        (challenge_route_dir / "result.json").read_text(encoding="utf-8")
+    )
+    if (
+        challenge_route.get("passed") is not True
+        or len(challenge_route.get("segments", [])) != 2
+    ):
+        raise RuntimeError("packaged Challenge route did not pass")
+
+    challenge_panel_dir = cache / "verification" / "challenge-panel"
+    run(
+        [
+            sys.executable,
+            str(crystal / "scripts" / "verify_challenge_panel.py"),
+            "--executable",
+            str(executable),
+            "--output",
+            str(challenge_panel_dir),
+        ],
+        cwd=package_root,
+        stage="Challenge controller-panel verification",
+        redactions=redactions,
+        env=direct_game_env,
+    )
 
     mod_dir = cache / "verification" / "mod"
     mod_dir.mkdir(parents=True)
@@ -276,7 +386,7 @@ def main() -> int:
         ),
         "first_run_receipt_sha256": sha256(cache / "first-run.json"),
         "generation_receipt_sha256": sha256(
-            generated / "crystal-generation.json"
+            generation_receipt
         ),
         "executable_sha256": sha256(executable),
         "route_result_sha256": sha256(route_dir / "result.json"),
@@ -287,6 +397,25 @@ def main() -> int:
         "fallback_entries": sum(
             segment["fallbacks"]["summary"]["interpreter_entries"]
             for segment in route["segments"]
+        ),
+        "challenge_route_result_sha256": sha256(
+            challenge_route_dir / "result.json"
+        ),
+        "challenge_route_segments": 2,
+        "challenge_route_checkpoints": sum(
+            len(segment["checkpoints"])
+            for segment in challenge_route["segments"]
+        ),
+        "challenge_fallback_entries": sum(
+            segment["fallbacks"]["summary"]["interpreter_entries"]
+            for segment in challenge_route["segments"]
+        ),
+        "challenge_panel_result_sha256": sha256(
+            challenge_panel_dir / "result.json"
+        ),
+        "challenge_native_patch_sha256": sha256(challenge_patch),
+        "challenge_configuration_sha256": sha256(
+            crystal / "config" / "challenge-route-v1.json"
         ),
         "mod_artifact_sha256": sha256(artifact),
         "mod_entries": 42,

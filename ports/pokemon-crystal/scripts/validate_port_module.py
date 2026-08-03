@@ -43,8 +43,8 @@ def main() -> int:
         if (
             module != {
                 "id": "crystal-workbench",
-                "version": 8,
-                "abi_version": 2,
+                "version": 9,
+                "abi_version": 3,
             }
         ):
             raise ValueError("unsupported module identity or ABI")

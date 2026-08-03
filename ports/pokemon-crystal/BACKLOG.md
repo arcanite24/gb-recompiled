@@ -11,9 +11,11 @@ that has no concrete Crystal consumer.
 
 ## How to use this backlog
 
-The current frontier is **CR-M7-006**. Later work may be investigated, but an
-item cannot be checked until all listed dependencies and its complete gate
-pass.
+M8 is complete for the initial alpha scope. The incomplete
+CR-M7-006/CR-M7-007 broad cross-platform and public-package gates remain release
+truth, but do not block the private standalone repository or a later source-only
+fan-project preview. An item cannot be checked until all listed dependencies and
+its release-owner-approved gate pass.
 
 Checkbox meaning:
 
@@ -630,6 +632,128 @@ and can be ejected into a reproducible public repository.
 Milestone exit: a clean public checkout creates the port from a user-selected
 exact ROM, supports deterministic mods and native presentation, preserves
 accurate mode, and distributes no prohibited content.
+
+## M8 — Deterministic Challenge Mode
+
+Status: complete for the initial alpha scope. [`CHALLENGE_MODE.md`](CHALLENGE_MODE.md)
+is the authoritative milestone context. Automated clean-package acceptance is
+complete; the combined physical-controller walkthrough remains explicit
+post-alpha usability work.
+
+Outcome: a player can enable a deterministic, controller-configurable battle
+difficulty ruleset without rewriting the ROM or editing generated C. GB
+Recompiled gains a reusable bounded gameplay-mutation contract, while Crystal
+proves wild and trainer level changes, exact vanilla fallback, replay
+provenance, restart, removal, and save compatibility.
+
+- [x] **CR-M8-001 — Prove a wild-battle mutation tracer**
+  - Depends on: CR-M4-001, CR-M4-006, CR-M5-002.
+  - Recompiler: add a versioned exact-ROM, field-bounded gameplay-mutation
+    contract that stages, validates, commits, or aborts one typed level change
+    at a paused native-hook safepoint.
+  - Crystal: bind `LoadEnemyMon` (`gbfn:v1:000f:68eb`) and apply one bounded
+    deterministic level adjustment only for a reviewed wild-battle state.
+  - Gate: a fresh generated exact-ROM route shows coherent changed level/stats;
+    disabled, wrong-ROM, wrong-hook, invalid-range, and aborted transactions
+    execute the original path without partial mutation; synthetic scheduling
+    coverage preserves original-at-most-once behavior.
+  - Evidence: raw `logs/pokemon-crystal/CR-M8-001/`; summary
+    `evidence/CR-M8-001.md`.
+
+- [x] **CR-M8-002 — Prove a trainer-battle mutation tracer**
+  - Depends on: CR-M8-001.
+  - Recompiler: extend the same contract with a typed trainer-party event while
+    retaining exact hook identity and bounded transaction rules.
+  - Crystal: bind `TryAddMonToParty` (`gbfn:v1:0003:588c`) only while building
+    an opposing trainer party, before the original derives stats, experience,
+    moves, and party records.
+  - Gate: a route-covered trainer battle produces the expected coherent party;
+    player-party, caught-mon, gift, trade, link, and unsupported trainer paths
+    remain unchanged or fail closed.
+  - Evidence: raw `logs/pokemon-crystal/CR-M8-002/`; summary
+    `evidence/CR-M8-002.md`.
+
+- [x] **CR-M8-003 — Ship Challenge Ruleset v1**
+  - Depends on: CR-M8-001, CR-M8-002.
+  - Recompiler: expose deterministic typed policy inputs and a stable result
+    explanation without embedding Crystal rules in the shared runtime.
+  - Crystal: calculate levels from the original level, strongest conscious
+    party member, badge progress, bounded offset, and hard minimum/maximum.
+  - Gate: arithmetic and boundary fixtures cover empty/fainted parties, badge
+    transitions, underflow/overflow, caps, both battle variants, and identical
+    repeated results.
+  - Evidence: raw `logs/pokemon-crystal/CR-M8-003/`; summary
+    `evidence/CR-M8-003.md`.
+
+- [x] **CR-M8-004 — Persist versioned configuration and provenance**
+  - Depends on: CR-M8-003.
+  - Recompiler: provide canonical host-configuration serialization, hashing,
+    replay/diagnostic provenance, and pre-execution identity checks.
+  - Crystal: persist `challenge-v1` configuration outside the guest save with
+    explicit Apply semantics and missing/malformed/incompatible states.
+  - Gate: restart retains an applied configuration; missing means disabled;
+    malformed or mismatched ruleset/configuration fails closed; artifacts and
+    diagnostics contain hashes but no private paths.
+  - Evidence: raw `logs/pokemon-crystal/CR-M8-004/`; summary
+    `evidence/CR-M8-004.md`.
+
+- [x] **CR-M8-005 — Add the controller-first Challenge Mode panel**
+  - Depends on: CR-M8-004.
+  - Recompiler: extend renderer-neutral port input/presentation only where the
+    existing contract cannot express the reviewed configuration flow.
+  - Crystal: let a controller user enable/disable the ruleset, adjust its
+    bounded offset, inspect every effective input/result, and explicitly Apply
+    or cancel before the next battle.
+  - Gate: automated UI state/input tests cover navigation and cancel/apply;
+    headless execution needs no SDL/ImGui/GPU; later physical UAT uses only the
+    controller.
+  - Evidence: raw `logs/pokemon-crystal/CR-M8-005/`; summary
+    `evidence/CR-M8-005.md`.
+
+- [x] **CR-M8-006 — Prove deterministic replay controls**
+  - Depends on: CR-M8-004.
+  - Recompiler: make ruleset/configuration identity part of replay preflight
+    alongside ROM, executable, mods, seed, and input identity.
+  - Crystal: run the same enabled wild-and-trainer route three times and retain
+    battle-input, guest-state, replay, and provenance hashes.
+  - Gate: equivalent runs match; each identity dimension has a negative control
+    that fails before guest execution; disabled windows remain eligible for
+    strict differential comparison.
+  - Evidence: raw `logs/pokemon-crystal/CR-M8-006/`; summary
+    `evidence/CR-M8-006.md`.
+
+- [x] **CR-M8-007 — Prove vanilla and save lifecycle equivalence**
+  - Depends on: CR-M8-003, CR-M8-004.
+  - Recompiler: preserve the no-package/direct-original path, transactional
+    persistence, accurate rendering, and headless operation.
+  - Crystal: compare disabled and removed modes to the retained vanilla route,
+    then save, restart, Continue, remove, and reinstall Challenge Mode without
+    altering the guest save schema.
+  - Gate: state, selected frames, persistence, fallback, and save hashes meet
+    the documented equivalence policy; invalid configurations never partially
+    mutate a battle or save.
+  - Evidence: raw `logs/pokemon-crystal/CR-M8-007/`; summary
+    `evidence/CR-M8-007.md`.
+
+- [x] **CR-M8-008 — Complete clean-package integrated acceptance**
+  - Depends on: CR-M8-005, CR-M8-006, CR-M8-007.
+  - Recompiler: reconstruct a fresh generated project from the supported BYOR
+    package and run repository, generated-project, replay, and privacy gates.
+  - Crystal: exercise native UI apply/cancel/disable/restart behavior and complete
+    one wild and one trainer battle through the deterministic packaged route. A
+    combined physical-controller walkthrough is post-alpha usability work.
+  - Gate: accurate and headless routes pass; three-run determinism and vanilla
+    recovery remain reproducible; release/archive scans contain no ROM bytes,
+    generated game source, extracted assets, saves, private paths, or prohibited
+    content; deferred manual boundaries are named explicitly.
+  - Evidence: raw `logs/pokemon-crystal/CR-M8-008/`; summary
+    `evidence/CR-M8-008.md`.
+
+Milestone exit: the clean BYOR build provides deterministic controller-configurable
+wild and trainer level scaling through stable exact-ROM hooks, preserves the
+original game and save lifecycle when disabled or removed, and retains
+provenance-complete ROM-free evidence. Physical-controller comprehension remains
+a documented post-alpha usability check rather than a claim of completed UAT.
 
 ## Standard verification matrix
 

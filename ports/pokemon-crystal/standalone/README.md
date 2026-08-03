@@ -16,10 +16,28 @@ distribution and
 [`ports/pokemon-crystal/README.md`](ports/pokemon-crystal/README.md) for the
 complete engineering workflow.
 
+## Alpha status
+
+This is an early fan-project release. The checked vanilla and Challenge Mode
+routes are deterministic and ROM-free package reconstruction has passed on
+macOS arm64. That is meaningful evidence, not a whole-game compatibility claim.
+Linux, macOS Intel, and Windows remain best-effort until contributors exercise
+the current alpha on those hosts.
+
+Current game-aware features include:
+
+- a native Pokégear Workbench, Pokédex replacement, and transactional PC tools;
+- deterministic Challenge Mode rules for reviewed wild and trainer battles;
+- versioned ROM-free data mods and a source-built Encounter Lens extension;
+- bounded widescreen and native battle-presentation experiments; and
+- exact-ROM, replay, persistence, privacy, and original-function fallback
+  contracts.
+
 ## Bootstrap a compatible GB Recompiled SDK
 
-Obtain a GB Recompiled distribution that includes
-`gbrecomp-release.json`, then run:
+Download and extract the matching GB Recompiled 0.1.0 distribution from the
+[GB Recompiled releases](https://github.com/arcanite24/gb-recompiled/releases/tag/v0.1.0).
+Pass the extracted directory containing `gbrecomp-release.json` to:
 
 ```bash
 python3 ports/pokemon-crystal/scripts/bootstrap.py \
@@ -73,3 +91,9 @@ Before publishing an archive, complete
 [`ports/pokemon-crystal/RELEASE.md`](ports/pokemon-crystal/RELEASE.md) and
 retain the notices in
 [`ports/pokemon-crystal/THIRD_PARTY_NOTICES.md`](ports/pokemon-crystal/THIRD_PARTY_NOTICES.md).
+
+## Support boundary
+
+Do not attach ROMs, saves, generated game source, or extracted game assets to
+issues or discussions. Reports should include the host, Crystal Recompiled and
+GB Recompiled versions, the failing command, and path-redacted diagnostics.

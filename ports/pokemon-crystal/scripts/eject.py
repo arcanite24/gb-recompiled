@@ -16,6 +16,7 @@ PORT_DIR = SCRIPT_DIR.parent
 REPO_ROOT = PORT_DIR.parent.parent
 PUBLIC_FILES = {
     "BACKLOG.md",
+    "CHALLENGE_MODE.md",
     "LEGAL.md",
     "NATIVE_EXTENSIONS.md",
     "PACKAGING.md",
@@ -30,6 +31,7 @@ PUBLIC_FILES = {
 PUBLIC_DIRS = {
     "annotations",
     "assets",
+    "config",
     "evidence",
     "mods",
     "module",

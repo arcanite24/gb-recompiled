@@ -3,8 +3,8 @@
   "version": 1,
   "module": {
     "id": "crystal-workbench",
-    "version": 8,
-    "abi_version": 2
+    "version": 9,
+    "abi_version": 3
   },
   "rom": {
     "size": 2097152,
@@ -13,7 +13,7 @@
   "sources": [
     {
       "path": "crystal_port.c",
-      "sha256": "218496cc00965c899f541491b93f7762871a8cae665eef33af21404d4712b08e"
+      "sha256": "08f2fbff7234aabccc31238b442763bcb496d6ebb6183bcfa588a9472830a432"
     },
     {
       "path": "crystal_pc.c",

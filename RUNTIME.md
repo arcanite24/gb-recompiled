@@ -25,12 +25,12 @@ The default desktop controls are:
 | Previous / next state slot | F6 / F7 | — |
 | Quick load | F8 | — |
 | Debug overlay | F1 | — |
-| Native port UI | F2 | — |
+| Native port UI | F2 | Controller R3 |
 | Encounter Lens extension | F3 | — |
 | Mute | M | — |
 | Settings menu | F10 or Escape | — |
 
-Controllers are enabled automatically. The default mapping uses the D-pad or left stick, physical south/east face buttons for Game Boy B/A, and Start/Back for Start/Select. L3, R3, Escape, and Android Back can open the settings menu.
+Controllers are enabled automatically. The default mapping uses the D-pad or left stick, physical south/east face buttons for Game Boy B/A, and Start/Back for Start/Select. Guide/Home or L3 opens the settings menu; R3 opens the native game panel when the exact-ROM port supplies one. Escape and Android Back also open the settings menu. While a native panel captures input, its D-pad/left-stick and A/B actions do not reach the guest game.
 
 The settings menu can remap keyboard and controller gameplay actions and shortcuts. It also exposes audio output, speed, savestate slots, display smoothing, and diagnostic controls. Preferences are stored in SDL's per-application preference directory.
 
@@ -52,6 +52,7 @@ Treat savestates as local to a compatible runtime/game build. A runtime update c
 | `--record-input <file>` | Record live input as a cycle-anchored script |
 | `--save-dir <directory>` | Place battery RAM, RTC, and savestate files in an existing directory |
 | `--data-mod <artifact.gbdm>` | Activate one precompiled, exact-ROM data-overlay artifact without changing the generated executable or embedded ROM |
+| `--host-configuration <file>` | Load a canonical applied host configuration for a native-patch package that declares an exact configuration contract |
 | `--rtc-unix-time <seconds>` | Use a fixed Unix timestamp for deterministic MBC3 RTC load/save and replay |
 | `--ignore-rtc-persistence` | Start RTC registers clean while still loading battery RAM; intended for explicitly isolated test routes |
 | `--no-audio` | Disable APU/audio emulation for CPU/PPU-focused runs |
@@ -65,6 +66,19 @@ Treat savestates as local to a compatible runtime/game build. A runtime update c
 | `--port-state <file>` | Write port lifecycle/render counters, ordered source-built extensions, and the final renderer-independent command frame as JSON |
 
 `--model cgb` runs a DMG cartridge in CGB compatibility mode. `--model dmg` rejects a CGB-only cartridge.
+
+`--host-configuration` is emitted only when an exact-ROM native-patch manifest
+declares a host-configuration contract. The runtime requires canonical JSON,
+the declared schema/version and policy identity, and values within the declared
+bounds before it creates a guest context. Missing configuration means the
+feature is disabled. Malformed, non-canonical, incompatible, or out-of-range
+files exit before guest execution. Diagnostics and `--dump-state` expose only
+the policy and SHA-256 identity, never the configuration path. Configuration
+is host-owned and does not alter battery RAM or the cartridge save schema.
+When a compiled native panel applies a new configuration, the runtime validates
+the same exact contract, writes canonical JSON through an atomic replacement,
+and only then publishes the new live value. Challenge Mode changes take effect
+at the next battle boundary, never in the middle of an active battle.
 
 Data overlays are opt-in. Without `--data-mod`, every ROM read uses the
 untouched user-provided ROM. With it, the runtime validates the artifact ABI,
@@ -124,18 +138,21 @@ outcome, and merged dirty ranges appear under `semantic_transaction` in
 synchronous safepoint operation: guest execution must remain paused from
 `begin` through `commit` or `abort`.
 
-Port ABI v2 exposes that lifecycle to reviewed source-built modules as the
+Port ABI v3 exposes that lifecycle to reviewed source-built modules as the
 one-shot `run_semantic_edit` service. The runtime begins the transaction,
 invokes a callback that may stage and validate bounded semantic records, then
 commits only if the callback returns success with a still-active validated
 transaction. The callback-scoped transaction must not be retained, committed,
 or aborted by the module. Failure is aborted before guest execution resumes.
+The same ABI exposes path-free host-configuration identity, a runtime-owned
+atomic Apply callback, and explicit modal input capture. It does not grant a
+module direct filesystem access.
 
 The three `--port-*` options are present only when the generated project
 compiled an exact-ROM port module. They work in `--headless` mode without a
 graphics device. `--port-state` reports host/module lifecycle state plus the
 ordered active extension identities and final panel/text command frame. Port
-state schema v2 adds the `extensions` array; it remains separate from
+state schema v3 adds `input_captured` to the v2 extension inventory; it remains separate from
 `--dump-state`, which is guest-only. See
 [Port and frontend modules](PORT_MODULES.md) for the ABI and activation rules.
 The separate [native presentation contract](NATIVE_PRESENTATION.md) defines
@@ -151,6 +168,7 @@ for future exact-game renderers.
 | `--trace-entries <file>` | Record executed bank/address entry points |
 | `--dump-state <file>` | Write the final machine state as JSON |
 | `--save-state-file <file>` | Write a complete binary savestate when execution stops |
+| `--load-state-file <file>` | Resume normal execution from a compatible complete savestate; intended for local diagnostics and replay calibration |
 | `--dump-frames <list>` | Dump selected guest frames |
 | `--dump-present-frames <list>` | Dump every host present associated with selected guest frames |
 | `--screenshot-prefix <path>` | Set the output prefix for frame captures |

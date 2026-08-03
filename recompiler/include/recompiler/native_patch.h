@@ -14,6 +14,7 @@ namespace gbrecomp {
 struct NativePatchSource {
     std::string relative_path;
     std::string content;
+    bool is_translation_unit = true;
 };
 
 struct NativePatchBinding {
@@ -32,6 +33,13 @@ struct NativePatchPackage {
     std::string rom_sha256;
     size_t rom_size = 0;
     std::string manifest_json;
+    bool host_configuration_enabled = false;
+    std::string host_configuration_schema;
+    uint32_t host_configuration_version = 0;
+    std::string host_configuration_policy_id;
+    uint32_t host_configuration_offset_limit = 0;
+    uint32_t host_configuration_value_minimum = 0;
+    uint32_t host_configuration_value_maximum = 0;
     std::vector<NativePatchSource> sources;
     std::vector<NativePatchBinding> bindings;
 };

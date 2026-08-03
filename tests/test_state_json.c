@@ -49,6 +49,13 @@ int main(void) {
             .address = 0xA865,
             .width = 428,
         };
+    ctx->config.host_configuration.present = 1;
+    ctx->config.host_configuration.applied = 1;
+    ctx->config.host_configuration.enabled = 1;
+    strcpy(ctx->config.host_configuration.policy_id, "challenge-v1");
+    strcpy(
+        ctx->config.host_configuration.sha256,
+        "f9ee2131f80d8194535bc7cd50fc26593516afb948506869350a14b5a5353f30");
 
     const char* path = "test_state_json_output.json";
     if (!gb_context_write_state_json(ctx, path)) {
@@ -132,6 +139,16 @@ int main(void) {
     }
     if (!strstr(buffer, "\"wram_bank_1_d000_dfff\": [")) {
         fputs("state JSON omitted switchable WRAM bank 1\n", stderr);
+        gb_context_destroy(ctx);
+        return 1;
+    }
+    if (!strstr(
+            buffer,
+            "\"host_configuration\": {\"present\": true, "
+            "\"applied\": true, \"enabled\": true, "
+            "\"policy_id\": \"challenge-v1\", "
+            "\"sha256\": \"f9ee2131f80d8194535bc7cd50fc2659")) {
+        fputs("state JSON omitted path-free host configuration identity\n", stderr);
         gb_context_destroy(ctx);
         return 1;
     }

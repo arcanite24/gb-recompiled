@@ -14,6 +14,8 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#include "gbrt_host_configuration.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -46,6 +48,7 @@ typedef struct {
     uint64_t rtc_unix_time_override; /**< Unix seconds used when the override is enabled */
     bool ignore_rtc_persistence; /**< Start the cartridge RTC clean instead of loading its .rtc file */
     bool native_presentation_enabled; /**< Allow exact-ROM native hooks to replace guest presentation */
+    GBHostConfiguration host_configuration; /**< Applied host-owned gameplay configuration and path-free identity */
 } GBConfig;
 
 /* ============================================================================
@@ -331,6 +334,8 @@ typedef struct GBContext {
     GBSemanticTransactionRangeMetadata
         semantic_transaction_dirty[GB_SEMANTIC_TRANSACTION_MAX_DIRTY_RANGES];
     void* port_state; /**< Opaque optional native port/frontend state */
+    GBHostConfigurationContract host_configuration_contract; /**< Host-only configuration validation service */
+    const char* host_configuration_path; /**< Host-only persistence destination; never serialized or logged */
     
     /* MBC state */
     uint8_t mbc_type;
@@ -612,6 +617,10 @@ void gbrt_report_performance_counters(GBContext* ctx);
  * @return New context or NULL on failure
  */
 GBContext* gb_context_create(const GBConfig* config);
+void gb_context_set_host_configuration_service(
+    GBContext* ctx,
+    const GBHostConfigurationContract* contract,
+    const char* path);
 
 /**
  * @brief Destroy a GameBoy context

@@ -15,6 +15,7 @@ from typing import Any
 
 SCHEMA = "gbrecompiled.pokemon-crystal.route"
 GENERATION_SCHEMA = "crystal-recompiled.generation"
+SHA256_RE = re.compile(r"[0-9a-f]{64}")
 REQUIRED_CHECKPOINTS = (
     "title",
     "new_game",
@@ -29,6 +30,8 @@ REQUIRED_CHECKPOINTS = (
     "restart",
     "continue",
 )
+CHALLENGE_CHECKPOINTS = REQUIRED_CHECKPOINTS[:6]
+CHALLENGE_PROFILE = "challenge-wild-trainer-v1"
 FALLBACK_POLICY_SCHEMA = "gbrecompiled.pokemon-crystal.fallback-policy"
 FALLBACK_INVENTORY_RE = re.compile(
     r"^\[INTERP\] Fallback inventory: sites=(?P<sites>\d+) "
@@ -75,6 +78,23 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def canonical_sha256(value: object) -> str:
+    encoded = json.dumps(value, sort_keys=True, separators=(",", ":")).encode(
+        "utf-8"
+    )
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def is_sha256(value: object) -> bool:
+    return isinstance(value, str) and SHA256_RE.fullmatch(value) is not None
+
+
+def exact_object(value: object, keys: set[str], label: str) -> dict[str, Any]:
+    if not isinstance(value, dict) or set(value) != keys:
+        raise ValidationError(f"{label} fields are missing or unknown")
+    return value
+
+
 def load_json(path: Path) -> Any:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
@@ -95,14 +115,60 @@ def confined_file(root: Path, relative: object) -> Path:
     return candidate
 
 
-def cycle_input(path: Path) -> str:
+def cycle_input(
+    path: Path,
+    cycle_shift: object = None,
+    prefix_actions: object = None,
+    overlay_path: Path | None = None,
+) -> str:
     actions = load_json(path)
     if not isinstance(actions, list) or not actions:
         raise ValidationError(f"input must contain at least one action: {path}")
+    if prefix_actions is not None:
+        if (
+            not isinstance(prefix_actions, int)
+            or isinstance(prefix_actions, bool)
+            or prefix_actions <= 0
+            or prefix_actions > len(actions)
+        ):
+            raise ValidationError(f"invalid input prefix action count: {path}")
+        actions = actions[:prefix_actions]
+    shift_start = len(actions)
+    shift_delta = 0
+    if cycle_shift is not None:
+        shift = exact_object(
+            cycle_shift, {"start_index", "delta"}, "input cycle shift"
+        )
+        shift_start = shift["start_index"]
+        shift_delta = shift["delta"]
+        if (
+            not isinstance(shift_start, int)
+            or isinstance(shift_start, bool)
+            or shift_start < 0
+            or shift_start >= len(actions)
+            or not isinstance(shift_delta, int)
+            or isinstance(shift_delta, bool)
+            or shift_delta <= 0
+        ):
+            raise ValidationError(f"invalid input cycle shift: {path}")
     rendered: list[str] = []
-    for action in actions:
+    for action_index, source_action in enumerate(actions):
+        action = (
+            dict(source_action)
+            if isinstance(source_action, dict)
+            else source_action
+        )
         if not isinstance(action, dict):
             raise ValidationError(f"input action must be an object: {path}")
+        if action_index >= shift_start:
+            for key in ("cycle", "start_cycle", "end_cycle"):
+                if key in action:
+                    value = action[key]
+                    if not isinstance(value, int) or isinstance(value, bool):
+                        raise ValidationError(
+                            f"invalid shifted cycle input action: {action!r}"
+                        )
+                    action[key] = value + shift_delta
         buttons = action.get("buttons")
         duration = action.get("duration")
         if (
@@ -168,6 +234,57 @@ def cycle_input(path: Path) -> str:
             rendered.append(f"p{start}-{end}/{step}:{buttons}:{duration}")
         if len(rendered) > 2048:
             raise ValidationError(f"input expands beyond 2048 actions: {path}")
+    if overlay_path is not None:
+        try:
+            overlay_text = overlay_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as error:
+            raise ValidationError(
+                f"cannot read cycle-input overlay: {overlay_path}"
+            ) from error
+        if (
+            not overlay_text.endswith("\n")
+            or overlay_text.count("\n") != 1
+            or overlay_text[:-1].strip() != overlay_text[:-1]
+            or not overlay_text[:-1]
+        ):
+            raise ValidationError(
+                f"cycle-input overlay is not canonical: {overlay_path}"
+            )
+        overlay_tokens = overlay_text[:-1].split(",")
+        cycle_token = re.compile(
+            r"c(?P<cycle>\d+):(?P<cycle_buttons>[ABUDLRSE]+):(?P<cycle_duration>\d+)"
+            r"|p(?P<start>\d+)-(?P<end>\d+)/(?P<step>\d+):"
+            r"(?P<periodic_buttons>[ABUDLRSE]+):(?P<periodic_duration>\d+)"
+        )
+        for token in overlay_tokens:
+            match = cycle_token.fullmatch(token)
+            valid = match is not None
+            if match is not None and match.group("cycle") is not None:
+                buttons = match.group("cycle_buttons")
+                duration = int(match.group("cycle_duration"))
+                valid = duration > 0 and len(set(buttons)) == len(buttons)
+            elif match is not None:
+                start = int(match.group("start"))
+                end = int(match.group("end"))
+                step = int(match.group("step"))
+                buttons = match.group("periodic_buttons")
+                duration = int(match.group("periodic_duration"))
+                valid = (
+                    end >= start
+                    and step > 0
+                    and duration > 0
+                    and duration < step
+                    and len(set(buttons)) == len(buttons)
+                )
+            if not valid:
+                raise ValidationError(
+                    f"invalid cycle-input overlay token: {overlay_path}"
+                )
+        if len(rendered) + len(overlay_tokens) > 2048:
+            raise ValidationError(
+                f"input plus overlay expands beyond 2048 actions: {path}"
+            )
+        rendered.extend(overlay_tokens)
     return ",".join(rendered)
 
 
@@ -189,8 +306,32 @@ def state_value(state: object, dotted_path: str) -> object:
 def validate_manifest(payload: object) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValidationError("manifest root must be an object")
-    if payload.get("schema") != SCHEMA or payload.get("version") != 1:
+    version = payload.get("version")
+    if payload.get("schema") != SCHEMA or version not in (1, 2):
         raise ValidationError("unsupported route manifest schema or version")
+    if version == 2:
+        exact_object(
+            payload,
+            {
+                "schema",
+                "version",
+                "profile",
+                "rom_sha256",
+                "rtc_unix_time",
+                "ignore_rtc_persistence",
+                "build",
+                "native_patch",
+                "host_configuration",
+                "mods",
+                "segments",
+                "portable_seed_sha256",
+            },
+            "v2 route manifest",
+        )
+        if payload["profile"] != CHALLENGE_PROFILE:
+            raise ValidationError("unsupported v2 route profile")
+        if not is_sha256(payload["portable_seed_sha256"]):
+            raise ValidationError("v2 route portable seed hash is invalid")
     rom_hash = payload.get("rom_sha256")
     if (
         not isinstance(rom_hash, str)
@@ -203,6 +344,7 @@ def validate_manifest(payload: object) -> dict[str, Any]:
         raise ValidationError("manifest must contain at least one segment")
     checkpoint_ids: list[object] = []
     segment_ids: set[str] = set()
+    segment_order: list[str] = []
     for index, segment in enumerate(segments):
         if not isinstance(segment, dict):
             raise ValidationError(f"segment {index} must be an object")
@@ -215,6 +357,54 @@ def validate_manifest(payload: object) -> dict[str, Any]:
         if segment_id in segment_ids:
             raise ValidationError(f"duplicate segment id: {segment_id}")
         segment_ids.add(segment_id)
+        segment_order.append(segment_id)
+        if version == 2:
+            input_hash = segment.get("input_sha256")
+            if not is_sha256(input_hash):
+                raise ValidationError(
+                    f"segment {segment_id} has invalid input_sha256"
+                )
+            cycle_shift = segment.get("input_cycle_shift")
+            if cycle_shift is not None:
+                shift = exact_object(
+                    cycle_shift,
+                    {"start_index", "delta"},
+                    f"segment {segment_id} input cycle shift",
+                )
+                if (
+                    not isinstance(shift["start_index"], int)
+                    or isinstance(shift["start_index"], bool)
+                    or shift["start_index"] < 0
+                    or not isinstance(shift["delta"], int)
+                    or isinstance(shift["delta"], bool)
+                    or shift["delta"] <= 0
+                ):
+                    raise ValidationError(
+                        f"segment {segment_id} has invalid input cycle shift"
+                    )
+            prefix_actions = segment.get("input_prefix_actions")
+            if prefix_actions is not None and (
+                not isinstance(prefix_actions, int)
+                or isinstance(prefix_actions, bool)
+                or prefix_actions <= 0
+            ):
+                raise ValidationError(
+                    f"segment {segment_id} has invalid input prefix action count"
+                )
+            overlay = segment.get("input_overlay")
+            overlay_hash = segment.get("input_overlay_sha256")
+            if (overlay is None) != (overlay_hash is None):
+                raise ValidationError(
+                    f"segment {segment_id} input overlay identity is incomplete"
+                )
+            if overlay is not None and (
+                not isinstance(overlay, str)
+                or not overlay
+                or not is_sha256(overlay_hash)
+            ):
+                raise ValidationError(
+                    f"segment {segment_id} input overlay identity is invalid"
+                )
         frame_limit = segment.get("frame_limit")
         if (
             not isinstance(frame_limit, int)
@@ -255,11 +445,204 @@ def validate_manifest(payload: object) -> dict[str, Any]:
                     f"checkpoint {checkpoint_id} has invalid frame hash"
                 )
             checkpoint_ids.append(checkpoint_id)
-    if tuple(checkpoint_ids) != REQUIRED_CHECKPOINTS:
+    expected_checkpoints = (
+        CHALLENGE_CHECKPOINTS if version == 2 else REQUIRED_CHECKPOINTS
+    )
+    if tuple(checkpoint_ids) != expected_checkpoints:
         raise ValidationError(
-            "route checkpoints must be exactly: " + ", ".join(REQUIRED_CHECKPOINTS)
+            "route checkpoints must be exactly: "
+            + ", ".join(expected_checkpoints)
+        )
+    if version == 2 and segment_order != ["new-game", "adventure"]:
+        raise ValidationError(
+            "Challenge replay segments must be new-game then adventure"
         )
     return payload
+
+
+def validate_challenge_replay_preflight(
+    manifest: dict[str, Any],
+    route_root: Path,
+    executable: Path,
+    receipt_path: Path,
+    receipt: dict[str, Any],
+    native_patch_path: Path | None,
+    host_configuration_path: Path | None,
+) -> dict[str, Any] | None:
+    if manifest["version"] == 1:
+        if native_patch_path is not None or host_configuration_path is not None:
+            raise ValidationError(
+                "native patch/configuration inputs require a v2 replay manifest"
+            )
+        return None
+    if native_patch_path is None or host_configuration_path is None:
+        raise ValidationError(
+            "v2 Challenge replay requires native patch and host configuration"
+        )
+    if not native_patch_path.is_file():
+        raise ValidationError("missing native patch manifest")
+    if not host_configuration_path.is_file():
+        raise ValidationError("missing host configuration")
+
+    build = exact_object(
+        manifest["build"],
+        {
+            "executable_sha256",
+            "generation_receipt_sha256",
+            "source_inventory_sha256",
+        },
+        "replay build",
+    )
+    if any(not is_sha256(value) for value in build.values()):
+        raise ValidationError("replay build hashes are invalid")
+    if (
+        sha256(executable) != build["executable_sha256"]
+        or sha256(receipt_path) != build["generation_receipt_sha256"]
+        or receipt.get("generated", {}).get("source_inventory_sha256")
+        != build["source_inventory_sha256"]
+    ):
+        raise ValidationError("replay build identity mismatch")
+
+    native_patch = exact_object(
+        manifest["native_patch"],
+        {"kind", "patch_id", "manifest_sha256"},
+        "replay native patch",
+    )
+    if (
+        native_patch["kind"] != "file"
+        or not isinstance(native_patch["patch_id"], str)
+        or not native_patch["patch_id"]
+        or not is_sha256(native_patch["manifest_sha256"])
+    ):
+        raise ValidationError("replay native patch identity is invalid")
+    patch_payload = load_json(native_patch_path)
+    receipt_patch = receipt.get("native_patch")
+    if (
+        not isinstance(patch_payload, dict)
+        or patch_payload.get("schema") != "gbrecomp.native-patch"
+        or patch_payload.get("version") != 1
+        or patch_payload.get("patch_id") != native_patch["patch_id"]
+        or patch_payload.get("rom", {}).get("sha256") != manifest["rom_sha256"]
+        or sha256(native_patch_path) != native_patch["manifest_sha256"]
+        or not isinstance(receipt_patch, dict)
+        or receipt_patch.get("kind") != "file"
+        or receipt_patch.get("sha256") != native_patch["manifest_sha256"]
+    ):
+        raise ValidationError("replay native patch mismatch")
+
+    host_identity = exact_object(
+        manifest["host_configuration"],
+        {"schema", "version", "policy_id", "sha256"},
+        "replay host configuration",
+    )
+    if (
+        host_identity["schema"] != "gbrecomp.host-configuration"
+        or host_identity["version"] != 1
+        or not isinstance(host_identity["policy_id"], str)
+        or not host_identity["policy_id"]
+        or not is_sha256(host_identity["sha256"])
+        or sha256(host_configuration_path) != host_identity["sha256"]
+    ):
+        raise ValidationError("replay host configuration identity mismatch")
+    configuration = load_json(host_configuration_path)
+    expected_config_keys = [
+        "schema",
+        "version",
+        "policy_id",
+        "applied",
+        "enabled",
+        "offset",
+        "minimum",
+        "maximum",
+    ]
+    contract = patch_payload.get("host_configuration")
+    contract_offset_limit = (
+        contract.get("offset_limit") if isinstance(contract, dict) else None
+    )
+    contract_minimum = (
+        contract.get("value_minimum") if isinstance(contract, dict) else None
+    )
+    contract_maximum = (
+        contract.get("value_maximum") if isinstance(contract, dict) else None
+    )
+    if (
+        not isinstance(configuration, dict)
+        or list(configuration) != expected_config_keys
+        or set(configuration) != set(expected_config_keys)
+        or configuration["schema"] != host_identity["schema"]
+        or configuration["version"] != host_identity["version"]
+        or configuration["policy_id"] != host_identity["policy_id"]
+        or configuration["applied"] is not True
+        or configuration["enabled"] is not True
+        or not isinstance(configuration["offset"], int)
+        or isinstance(configuration["offset"], bool)
+        or not isinstance(configuration["minimum"], int)
+        or isinstance(configuration["minimum"], bool)
+        or not isinstance(configuration["maximum"], int)
+        or isinstance(configuration["maximum"], bool)
+        or not isinstance(contract, dict)
+        or not isinstance(contract_offset_limit, int)
+        or isinstance(contract_offset_limit, bool)
+        or contract_offset_limit < 0
+        or not isinstance(contract_minimum, int)
+        or isinstance(contract_minimum, bool)
+        or not isinstance(contract_maximum, int)
+        or isinstance(contract_maximum, bool)
+        or contract.get("schema") != configuration["schema"]
+        or contract.get("version") != configuration["version"]
+        or contract.get("policy_id") != configuration["policy_id"]
+        or abs(configuration["offset"]) > contract_offset_limit
+        or configuration["minimum"] != contract_minimum
+        or configuration["maximum"] != contract_maximum
+    ):
+        raise ValidationError("replay host configuration violates its contract")
+    canonical_configuration = (
+        json.dumps(configuration, separators=(",", ":"), ensure_ascii=True) + "\n"
+    ).encode("utf-8")
+    if host_configuration_path.read_bytes() != canonical_configuration:
+        raise ValidationError("replay host configuration is not canonical")
+
+    mods = exact_object(manifest["mods"], {"kind"}, "replay mods")
+    if mods != {"kind": "none"}:
+        raise ValidationError("unsupported replay mod identity")
+
+    for segment in manifest["segments"]:
+        input_path = confined_file(route_root, segment["input"])
+        if sha256(input_path) != segment["input_sha256"]:
+            raise ValidationError(
+                f"replay input hash mismatch: {segment['id']}"
+            )
+        overlay_relative = segment.get("input_overlay")
+        overlay_path = (
+            confined_file(route_root, overlay_relative)
+            if overlay_relative is not None
+            else None
+        )
+        if overlay_path is not None and sha256(overlay_path) != segment[
+            "input_overlay_sha256"
+        ]:
+            raise ValidationError(
+                f"replay input overlay hash mismatch: {segment['id']}"
+            )
+        cycle_input(
+            input_path,
+            segment.get("input_cycle_shift"),
+            segment.get("input_prefix_actions"),
+            overlay_path,
+        )
+
+    portable = dict(manifest)
+    expected_portable_hash = portable.pop("portable_seed_sha256")
+    if canonical_sha256(portable) != expected_portable_hash:
+        raise ValidationError("replay portable seed hash mismatch")
+
+    return {
+        "portable_seed_sha256": expected_portable_hash,
+        "build": build,
+        "native_patch": native_patch,
+        "host_configuration": host_identity,
+        "mods": mods,
+    }
 
 
 def load_fallback_policy(path: Path) -> tuple[dict[str, Any], set[tuple[int, int, str]]]:
@@ -385,6 +768,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--manifest", required=True, type=Path)
     parser.add_argument("--executable", required=True, type=Path)
     parser.add_argument("--generation-receipt", required=True, type=Path)
+    parser.add_argument("--native-patch-manifest", type=Path)
+    parser.add_argument("--host-configuration", type=Path)
     parser.add_argument("--evidence-dir", required=True, type=Path)
     parser.add_argument("--pcm-seconds", type=int, default=0)
     parser.add_argument("--fallback-policy", type=Path)
@@ -423,6 +808,9 @@ def main() -> int:
         "--log-file",
         "--rtc-unix-time",
         "--port-state",
+        "--host-configuration",
+        "--data-mod",
+        "--load-state-file",
     }
     if (
         any(
@@ -461,6 +849,25 @@ def main() -> int:
         or receipt["rom"].get("sha256") != manifest["rom_sha256"]
     ):
         raise ValidationError("generation receipt does not match the route ROM")
+    native_patch_path = (
+        args.native_patch_manifest.resolve()
+        if args.native_patch_manifest is not None
+        else None
+    )
+    host_configuration_path = (
+        args.host_configuration.resolve()
+        if args.host_configuration is not None
+        else None
+    )
+    replay_preflight = validate_challenge_replay_preflight(
+        manifest,
+        route_root,
+        executable,
+        receipt_path,
+        receipt,
+        native_patch_path,
+        host_configuration_path,
+    )
     fallback_policy_path = args.fallback_policy.resolve() if args.fallback_policy else None
     fallback_policy = None
     allowed_fallbacks: set[tuple[int, int, str]] = set()
@@ -486,7 +893,20 @@ def main() -> int:
         segment_dir = evidence / f"{index + 1:02d}-{segment_id}"
         segment_dir.mkdir(exist_ok=True)
         input_path = confined_file(route_root, segment.get("input"))
-        input_script = cycle_input(input_path)
+        input_cycle_shift = segment.get("input_cycle_shift")
+        input_prefix_actions = segment.get("input_prefix_actions")
+        input_overlay_relative = segment.get("input_overlay")
+        input_overlay_path = (
+            confined_file(route_root, input_overlay_relative)
+            if input_overlay_relative is not None
+            else None
+        )
+        input_script = cycle_input(
+            input_path,
+            input_cycle_shift,
+            input_prefix_actions,
+            input_overlay_path,
+        )
         frame_limit = segment.get("frame_limit")
         if not isinstance(frame_limit, int) or isinstance(frame_limit, bool) or frame_limit <= 0:
             raise ValidationError(f"segment {segment_id} has invalid frame_limit")
@@ -534,6 +954,10 @@ def main() -> int:
             command.extend(["--rtc-unix-time", str(rtc_unix_time)])
         if ignore_rtc_persistence:
             command.append("--ignore-rtc-persistence")
+        if host_configuration_path is not None:
+            command.extend(
+                ["--host-configuration", str(host_configuration_path)]
+            )
         if fallback_policy is not None:
             command.extend(
                 [
@@ -560,7 +984,30 @@ def main() -> int:
             raise ValidationError(
                 f"segment {segment_id} exited with status {completed.returncode}"
             )
+        if host_configuration_path is not None:
+            diagnostics = completed.stdout + completed.stderr
+            if log_path.is_file():
+                diagnostics += log_path.read_text(
+                    encoding="utf-8", errors="replace"
+                )
+            if str(host_configuration_path) in diagnostics:
+                raise ValidationError(
+                    f"segment {segment_id} leaked the host configuration path"
+                )
         state = load_json(state_path)
+        if replay_preflight is not None:
+            host_identity = replay_preflight["host_configuration"]
+            expected_host_state = {
+                "present": True,
+                "applied": True,
+                "enabled": True,
+                "policy_id": host_identity["policy_id"],
+                "sha256": host_identity["sha256"],
+            }
+            if state.get("host_configuration") != expected_host_state:
+                raise ValidationError(
+                    f"segment {segment_id} host configuration state mismatch"
+                )
         checkpoint_reports: list[dict[str, Any]] = []
         for checkpoint in checkpoints:
             checkpoint_id = checkpoint.get("id")
@@ -677,6 +1124,14 @@ def main() -> int:
                 "passed": True,
                 "input": str(input_path.relative_to(route_root)),
                 "input_sha256": sha256(input_path),
+                "input_cycle_shift": input_cycle_shift,
+                "input_prefix_actions": input_prefix_actions,
+                "input_overlay": input_overlay_relative,
+                "input_overlay_sha256": (
+                    sha256(input_overlay_path)
+                    if input_overlay_path is not None
+                    else None
+                ),
                 "command": command,
                 "checkpoints": checkpoint_reports,
                 "final_state": state_assertions,
@@ -743,6 +1198,7 @@ def main() -> int:
         "fallback_policy": fallback_policy_report,
         "runtime_args": args.runtime_arg,
         "capture_port_state": args.capture_port_state,
+        "replay_preflight": replay_preflight,
         "persistence": persistence_artifacts,
         "segments": segment_reports,
     }

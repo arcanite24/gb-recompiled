@@ -11,7 +11,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from first_run import OUTPUT_NAME, default_cache_dir
+from first_run import DEFAULT_NATIVE_PATCH, OUTPUT_NAME, default_cache_dir
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -21,6 +21,10 @@ EMBEDDED_DISTRIBUTION = REPO_ROOT / "sdk" / "gb-recompiled"
 BOOTSTRAP = SCRIPT_DIR / "bootstrap.py"
 FIRST_RUN = SCRIPT_DIR / "first_run.py"
 LAUNCH_SCHEMA = "crystal-recompiled.launch-progress"
+
+
+def host_configuration_path(cache: Path) -> Path:
+    return cache / "configuration" / "challenge-v1.json"
 
 
 def sha256_file(path: Path) -> str:
@@ -105,6 +109,12 @@ def verify_existing(cache: Path) -> Path | None:
         != dependencies.get("cli_sha256")
         or generation_receipt.get("runtime", {}).get("source_tree_sha256")
         != dependencies.get("runtime_tree_sha256")
+        or generation_receipt.get("native_patch")
+        != {
+            "kind": "file",
+            "name": DEFAULT_NATIVE_PATCH.name,
+            "sha256": sha256_file(DEFAULT_NATIVE_PATCH),
+        }
     ):
         return None
     return executable
@@ -176,12 +186,21 @@ def main() -> int:
     try:
         user_data = cache / "user-data"
         user_data.mkdir(parents=True, exist_ok=True, mode=0o700)
+        configuration = host_configuration_path(cache)
+        configuration.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         if os.name != "nt":
             user_data.chmod(0o700)
+            configuration.parent.chmod(0o700)
     finally:
         os.umask(old_umask)
 
-    game_command = [str(executable), "--save-dir", str(user_data)]
+    game_command = [
+        str(executable),
+        "--save-dir",
+        str(user_data),
+        "--host-configuration",
+        str(configuration),
+    ]
     if args.data_mod is not None:
         game_command.extend(("--data-mod", str(args.data_mod.expanduser().resolve())))
     if args.headless_smoke:

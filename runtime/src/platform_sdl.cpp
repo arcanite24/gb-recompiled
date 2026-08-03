@@ -113,7 +113,8 @@ typedef enum GBInputAction {
     GB_INPUT_ACTION_TOGGLE_OVERLAY = 14,
     GB_INPUT_ACTION_TOGGLE_MUTE = 15,
     GB_INPUT_ACTION_TOGGLE_MENU = 16,
-    GB_INPUT_ACTION_COUNT = 17,
+    GB_INPUT_ACTION_TOGGLE_PORT_UI = 17,
+    GB_INPUT_ACTION_COUNT = 18,
 } GBInputAction;
 typedef enum GBInputBindingKind {
     GB_INPUT_BINDING_NONE = 0,
@@ -206,6 +207,7 @@ static const char* g_input_action_names[GB_INPUT_ACTION_COUNT] = {
     "Toggle Overlay",
     "Toggle Mute",
     "Toggle Menu",
+    "Toggle Game Panel",
 };
 
 static bool has_interpreter_activity(const GBContext* ctx) {
@@ -836,6 +838,7 @@ static const char* input_action_config_name(GBInputAction action) {
         case GB_INPUT_ACTION_TOGGLE_OVERLAY: return "toggle_overlay";
         case GB_INPUT_ACTION_TOGGLE_MUTE: return "toggle_mute";
         case GB_INPUT_ACTION_TOGGLE_MENU: return "toggle_menu";
+        case GB_INPUT_ACTION_TOGGLE_PORT_UI: return "toggle_port_ui";
         case GB_INPUT_ACTION_COUNT:
         default:
             return "unknown";
@@ -939,6 +942,7 @@ static void set_default_input_bindings(void) {
     g_keyboard_bindings[GB_INPUT_ACTION_TOGGLE_OVERLAY][0] = make_binding(GB_INPUT_BINDING_KEY, SDL_SCANCODE_F1);
     g_keyboard_bindings[GB_INPUT_ACTION_TOGGLE_MUTE][0] = make_binding(GB_INPUT_BINDING_KEY, SDL_SCANCODE_M);
     g_keyboard_bindings[GB_INPUT_ACTION_TOGGLE_MENU][0] = make_binding(GB_INPUT_BINDING_KEY, SDL_SCANCODE_F10);
+    g_keyboard_bindings[GB_INPUT_ACTION_TOGGLE_PORT_UI][0] = make_binding(GB_INPUT_BINDING_KEY, SDL_SCANCODE_F2);
 
     g_controller_bindings[GB_INPUT_ACTION_UP][0] = make_binding(GB_INPUT_BINDING_CONTROLLER_BUTTON, SDL_CONTROLLER_BUTTON_DPAD_UP);
     g_controller_bindings[GB_INPUT_ACTION_UP][1] = make_binding(GB_INPUT_BINDING_CONTROLLER_AXIS_NEGATIVE, SDL_CONTROLLER_AXIS_LEFTY);
@@ -959,7 +963,7 @@ static void set_default_input_bindings(void) {
     g_controller_bindings[GB_INPUT_ACTION_SAVE_STATE][0] = make_binding(GB_INPUT_BINDING_CONTROLLER_BUTTON, SDL_CONTROLLER_BUTTON_X);
     g_controller_bindings[GB_INPUT_ACTION_LOAD_STATE][0] = make_binding(GB_INPUT_BINDING_CONTROLLER_BUTTON, SDL_CONTROLLER_BUTTON_Y);
     g_controller_bindings[GB_INPUT_ACTION_TOGGLE_MENU][0] = make_binding(GB_INPUT_BINDING_CONTROLLER_BUTTON, SDL_CONTROLLER_BUTTON_LEFTSTICK);
-    g_controller_bindings[GB_INPUT_ACTION_TOGGLE_MENU][1] = make_binding(GB_INPUT_BINDING_CONTROLLER_BUTTON, SDL_CONTROLLER_BUTTON_RIGHTSTICK);
+    g_controller_bindings[GB_INPUT_ACTION_TOGGLE_PORT_UI][0] = make_binding(GB_INPUT_BINDING_CONTROLLER_BUTTON, SDL_CONTROLLER_BUTTON_RIGHTSTICK);
 
     clear_all_binding_pressed_state();
 }
@@ -980,6 +984,7 @@ static void load_runtime_preferences(void) {
     g_savestate_slot = 0;
     g_savestate_status.clear();
     g_max_speed_mode = false;
+    bool saw_controller_port_ui_binding = false;
 
     const std::string path = runtime_preferences_path();
     if (!path.empty()) {
@@ -1101,10 +1106,30 @@ static void load_runtime_preferences(void) {
                     g_keyboard_bindings[action][slot] = binding;
                 } else {
                     g_controller_bindings[action][slot] = binding;
+                    if (action == GB_INPUT_ACTION_TOGGLE_PORT_UI) {
+                        saw_controller_port_ui_binding = true;
+                    }
                 }
             }
             fclose(file);
         }
+    }
+
+    /*
+     * Runtime preferences written before the game-panel action existed stored
+     * the old default R3 binding as Toggle Menu slot 1. Preserve every custom
+     * binding, but migrate that one recognizable legacy default so an upgrade
+     * cannot open both the settings menu and the native game panel at once.
+     * Once a file contains any explicit game-panel controller binding (even
+     * "none"), the user's current choices are authoritative.
+     */
+    const GBInputBinding& legacy_menu_binding =
+        g_controller_bindings[GB_INPUT_ACTION_TOGGLE_MENU][1];
+    if (!saw_controller_port_ui_binding &&
+        legacy_menu_binding.kind == GB_INPUT_BINDING_CONTROLLER_BUTTON &&
+        legacy_menu_binding.code == SDL_CONTROLLER_BUTTON_RIGHTSTICK) {
+        g_controller_bindings[GB_INPUT_ACTION_TOGGLE_MENU][1] =
+            make_binding(GB_INPUT_BINDING_NONE, 0);
     }
     update_effective_joypad_state();
 }
@@ -1285,6 +1310,14 @@ static void update_runtime_action_state(GBContext* ctx) {
 
                 case GB_INPUT_ACTION_TOGGLE_MENU:
                     g_show_menu = !g_show_menu;
+                    break;
+
+                case GB_INPUT_ACTION_TOGGLE_PORT_UI:
+                    if (ctx != NULL) {
+                        const GBPortInputEvent event = {
+                            GB_PORT_INPUT_TOGGLE_UI, true};
+                        gbrt_port_input(ctx, &event);
+                    }
                     break;
 
                 case GB_INPUT_ACTION_FAST_FORWARD:
@@ -1918,6 +1951,41 @@ static bool input_transition_creates_press(uint8_t previous_dpad,
         return true;
     }
     return false;
+}
+
+static bool dispatch_captured_port_input(
+    GBContext* ctx,
+    uint8_t previous_dpad,
+    uint8_t previous_buttons) {
+    if (ctx == NULL || !gbrt_port_snapshot(ctx).input_captured) return false;
+    static const GBPortInputAction dpad_actions[4] = {
+        GB_PORT_INPUT_RIGHT,
+        GB_PORT_INPUT_LEFT,
+        GB_PORT_INPUT_UP,
+        GB_PORT_INPUT_DOWN,
+    };
+    for (unsigned bit = 0; bit < 4; ++bit) {
+        const uint8_t mask = (uint8_t)(1u << bit);
+        if ((previous_dpad & mask) != 0u && (g_joypad_dpad & mask) == 0u) {
+            const GBPortInputEvent event = {dpad_actions[bit], true};
+            gbrt_port_input(ctx, &event);
+        }
+    }
+    static const GBPortInputAction button_actions[2] = {
+        GB_PORT_INPUT_ACCEPT,
+        GB_PORT_INPUT_BACK,
+    };
+    for (unsigned bit = 0; bit < 2; ++bit) {
+        const uint8_t mask = (uint8_t)(1u << bit);
+        if ((previous_buttons & mask) != 0u &&
+            (g_joypad_buttons & mask) == 0u) {
+            const GBPortInputEvent event = {button_actions[bit], true};
+            gbrt_port_input(ctx, &event);
+        }
+    }
+    g_joypad_dpad = 0xffu;
+    g_joypad_buttons = 0xffu;
+    return true;
 }
 
 static void render_binding_editor(const char* section_label,
@@ -3294,7 +3362,9 @@ static bool handle_runtime_event(const SDL_Event* event, GBContext* ctx) {
             update_controller_axis_binding_state();
             update_effective_joypad_state();
             update_runtime_action_state(ctx);
-            if (ctx &&
+            const bool port_captured = dispatch_captured_port_input(
+                ctx, previous_dpad, previous_buttons);
+            if (ctx && !port_captured &&
                 input_transition_creates_press(previous_dpad,
                                               previous_buttons,
                                               g_joypad_dpad,
@@ -3329,7 +3399,9 @@ static bool handle_runtime_event(const SDL_Event* event, GBContext* ctx) {
 
             update_effective_joypad_state();
             update_runtime_action_state(ctx);
-            if (ctx &&
+            const bool port_captured = dispatch_captured_port_input(
+                ctx, previous_dpad, previous_buttons);
+            if (ctx && !port_captured &&
                 pressed &&
                 input_transition_creates_press(previous_dpad,
                                               previous_buttons,
@@ -3386,7 +3458,9 @@ static bool handle_runtime_event(const SDL_Event* event, GBContext* ctx) {
 
             update_effective_joypad_state();
             update_runtime_action_state(ctx);
-            if (ctx &&
+            const bool port_captured = dispatch_captured_port_input(
+                ctx, previous_dpad, previous_buttons);
+            if (ctx && !port_captured &&
                 pressed &&
                 event->key.repeat == 0 &&
                 input_transition_creates_press(previous_dpad,

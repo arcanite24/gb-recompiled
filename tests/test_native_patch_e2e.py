@@ -76,10 +76,43 @@ def write_manifest(
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
-PATCH_SOURCE = r'''#include "gbrt_native_patch.h"
+PATCH_SOURCE_TEMPLATE = r'''#include "gbrt_gameplay_mutation.h"
+#include "gbrt_native_patch.h"
+
+static const GBGameplayMutationFieldSpec level_field = {
+    "battle.enemy_level",
+    GB_GAMEPLAY_MUTATION_U8,
+    GB_SEMANTIC_BANKED_WRAM,
+    1,
+    0xd000,
+    1,
+    100,
+};
+
+static const GBGameplayMutationSpec mutation_spec = {
+    GB_GAMEPLAY_MUTATION_ABI_VERSION,
+    "synthetic.wild-level",
+    "@ROM_SHA256@",
+    @ROM_SIZE@,
+    GB_NATIVE_FUNCTION_ID(0x0000, 0x0160),
+    &level_field,
+    1,
+};
 
 GB_NATIVE_HOOK(nl5_pre) {
     GBContext* ctx = gb_native_context(call);
+    const GBGameplayMutationValue value = {"battle.enemy_level", 42};
+    const GBGameplayMutationRequest request = {
+        GB_GAMEPLAY_MUTATION_ABI_VERSION,
+        &value,
+        1,
+        NULL,
+        NULL,
+    };
+    if (gb_native_apply_gameplay_mutation(call, &mutation_spec, &request) !=
+        GB_GAMEPLAY_MUTATION_APPLIED) {
+        return GB_NATIVE_STATUS_ERROR;
+    }
     ctx->hram[0]++;
     return GB_NATIVE_STATUS_OK;
 }
@@ -96,6 +129,75 @@ GB_NATIVE_HOOK(nl5_post) {
     return GB_NATIVE_STATUS_OK;
 }
 '''
+
+
+def patch_source(rom: Path) -> str:
+    rom_bytes = rom.read_bytes()
+    return PATCH_SOURCE_TEMPLATE.replace(
+        "@ROM_SHA256@", hashlib.sha256(rom_bytes).hexdigest()
+    ).replace("@ROM_SIZE@", str(len(rom_bytes)))
+
+
+FALLBACK_PATCH_SOURCE_TEMPLATE = r'''#include "gbrt_gameplay_mutation.h"
+#include "gbrt_native_patch.h"
+
+static const GBGameplayMutationFieldSpec level_field = {
+    "battle.enemy_level",
+    GB_GAMEPLAY_MUTATION_U8,
+    GB_SEMANTIC_BANKED_WRAM,
+    1,
+    0xd000,
+    1,
+    100,
+};
+
+static const GBGameplayMutationSpec wrong_hook_spec = {
+    GB_GAMEPLAY_MUTATION_ABI_VERSION,
+    "synthetic.wild-level",
+    "@ROM_SHA256@",
+    @ROM_SIZE@,
+    GB_NATIVE_FUNCTION_ID(0x0000, 0x0161),
+    &level_field,
+    1,
+};
+
+GB_NATIVE_HOOK(nl5_pre) {
+    GBContext* ctx = gb_native_context(call);
+    const GBGameplayMutationValue value = {"battle.enemy_level", 42};
+    const GBGameplayMutationRequest request = {
+        GB_GAMEPLAY_MUTATION_ABI_VERSION,
+        &value,
+        1,
+        NULL,
+        NULL,
+    };
+    if (gb_native_apply_gameplay_mutation(call, &wrong_hook_spec, &request) !=
+        GB_GAMEPLAY_MUTATION_HOOK_MISMATCH) {
+        return GB_NATIVE_STATUS_ERROR;
+    }
+    ctx->hram[0]++;
+    return GB_NATIVE_STATUS_OK;
+}
+
+GB_NATIVE_REPLACEMENT(nl5_replace) {
+    GBContext* ctx = gb_native_context(call);
+    ctx->hram[1]++;
+    return gb_native_call_original(call);
+}
+
+GB_NATIVE_HOOK(nl5_post) {
+    GBContext* ctx = gb_native_context(call);
+    ctx->hram[2]++;
+    return GB_NATIVE_STATUS_OK;
+}
+'''
+
+
+def fallback_patch_source(rom: Path) -> str:
+    rom_bytes = rom.read_bytes()
+    return FALLBACK_PATCH_SOURCE_TEMPLATE.replace(
+        "@ROM_SHA256@", hashlib.sha256(rom_bytes).hexdigest()
+    ).replace("@ROM_SIZE@", str(len(rom_bytes)))
 
 FAILING_PATCH_SOURCE = r'''#include "gbrt_native_patch.h"
 
@@ -203,9 +305,33 @@ def main() -> int:
 
         patch_dir = root / "patch"
         patch_dir.mkdir()
-        (patch_dir / "patch.c").write_text(PATCH_SOURCE, encoding="utf-8")
+        source = patch_source(rom)
+        packaged_source = source.replace(
+            '#include "gbrt_native_patch.h"',
+            '#include "gbrt_native_patch.h"\n#include "patch_config.h"',
+        ).replace(
+            'const GBGameplayMutationValue value = {"battle.enemy_level", 42};',
+            'const GBGameplayMutationValue value = {"battle.enemy_level", PATCH_LEVEL};',
+        )
+        (patch_dir / "patch.c").write_text(packaged_source, encoding="utf-8")
+        (patch_dir / "patch_config.h").write_text(
+            "#define PATCH_LEVEL 42u\n", encoding="utf-8"
+        )
         manifest = patch_dir / "manifest.json"
         write_manifest(manifest, rom=rom, source_name="patch.c")
+        manifest_payload = json.loads(manifest.read_text(encoding="utf-8"))
+        manifest_payload["sources"].append("patch_config.h")
+        manifest_payload["host_configuration"] = {
+            "schema": "gbrecomp.host-configuration",
+            "version": 1,
+            "policy_id": "synthetic-v1",
+            "offset_limit": 5,
+            "value_minimum": 1,
+            "value_maximum": 100,
+        }
+        manifest.write_text(
+            json.dumps(manifest_payload, indent=2) + "\n", encoding="utf-8"
+        )
 
         generated = root / "generated-original-location"
         generate(
@@ -230,6 +356,12 @@ def main() -> int:
         assert target["patchable"] is True
         assert (generated / "native_patch/manifest.json").is_file()
         assert (generated / "native_patch/patch.c").is_file()
+        assert (generated / "native_patch/patch_config.h").read_text(
+            encoding="utf-8"
+        ) == "#define PATCH_LEVEL 42u\n"
+        assert "--host-configuration" in (
+            generated / "native_patch_main.c"
+        ).read_text(encoding="utf-8")
 
         generated_sources = "\n".join(
             path.read_text(encoding="utf-8")
@@ -250,10 +382,30 @@ def main() -> int:
             patched_executable, root / "patched-yielded-state.json", frames=1
         )
         assert yielded_state["hram_ff80_ff90"][:4] == [0x01, 0x01, 0x00, 0x00]
+        assert yielded_state["wram_bank_1_d000_dfff"][0] == 42
         patched_state = run_state(patched_executable, root / "patched-state.json")
         assert patched_state["hram_ff80_ff90"][:4] == [0x01, 0x01, 0x01, 0x01]
+        assert patched_state["wram_bank_1_d000_dfff"][0] == 42
         replay_state = run_state(patched_executable, root / "patched-replay-state.json")
         assert replay_state == patched_state
+
+        # A rejected optional mutation keeps the wrapper's original scheduling:
+        # no partial write, one original body, and one matching post callback.
+        fallback_dir = root / "patch-fallback"
+        fallback_dir.mkdir()
+        (fallback_dir / "patch.c").write_text(
+            fallback_patch_source(rom), encoding="utf-8"
+        )
+        fallback_manifest = fallback_dir / "manifest.json"
+        write_manifest(fallback_manifest, rom=rom, source_name="patch.c")
+        fallback_generated = root / "fallback-generated"
+        generate(gbrecomp, rom, fallback_generated, manifest=fallback_manifest)
+        fallback_executable = configure_and_build(fallback_generated)
+        fallback_state = run_state(
+            fallback_executable, root / "fallback-state.json"
+        )
+        assert fallback_state["hram_ff80_ff90"][:4] == [0x01, 0x01, 0x01, 0x01]
+        assert fallback_state["wram_bank_1_d000_dfff"][0] == 0
 
         # Runtime identity is checked against the bytes actually embedded in
         # the executable, not only against generation-time inputs.
@@ -277,6 +429,7 @@ def main() -> int:
         unpatched_executable = configure_and_build(unpatched)
         unpatched_state = run_state(unpatched_executable, root / "unpatched-state.json")
         assert unpatched_state["hram_ff80_ff90"][:4] == [0x00, 0x00, 0x00, 0x01]
+        assert unpatched_state["wram_bank_1_d000_dfff"][0] == 0
         for key in ("a", "f", "b", "c", "d", "e", "h", "l", "sp", "pc", "cycles"):
             assert patched_state[key] == unpatched_state[key], key
 
@@ -301,6 +454,7 @@ def main() -> int:
         assert "[DIFF] Injected mismatch at step 10" in injected_mismatch.stdout
         assert "[DIFF] Mismatch at step 10" in injected_mismatch.stdout
         differential_seed = root / "differential-seed.gbs"
+        differential_seed_state = root / "differential-seed.json"
         run(
             [
                 str(unpatched_executable),
@@ -309,10 +463,30 @@ def main() -> int:
                 "2",
                 "--save-state-file",
                 str(differential_seed),
+                "--dump-state",
+                str(differential_seed_state),
             ],
             cwd=unpatched_executable.parent,
         )
         assert differential_seed.is_file()
+        resumed_state_path = root / "resumed-state.json"
+        resumed = run(
+            [
+                str(unpatched_executable),
+                "--headless",
+                "--limit-frames",
+                "1",
+                "--load-state-file",
+                str(differential_seed),
+                "--dump-state",
+                str(resumed_state_path),
+            ],
+            cwd=unpatched_executable.parent,
+        )
+        assert "[GBRT] Loaded execution state" in resumed.stdout
+        seed_state = json.loads(differential_seed_state.read_text(encoding="utf-8"))
+        resumed_state = json.loads(resumed_state_path.read_text(encoding="utf-8"))
+        assert resumed_state["completed_frames"] == seed_state["completed_frames"] + 1
         seeded_differential = run(
             [
                 str(unpatched_executable),
@@ -335,7 +509,7 @@ def main() -> int:
         # C++ callbacks use the same C-linkage declaration macros.
         cpp_dir = root / "patch-cpp"
         cpp_dir.mkdir()
-        (cpp_dir / "patch.cpp").write_text(PATCH_SOURCE, encoding="utf-8")
+        (cpp_dir / "patch.cpp").write_text(source, encoding="utf-8")
         cpp_manifest = cpp_dir / "manifest.json"
         write_manifest(cpp_manifest, rom=rom, source_name="patch.cpp")
         cpp_generated = root / "cpp-generated"
@@ -437,7 +611,7 @@ def main() -> int:
         # Containment is based on the resolved file, so a symlink cannot point
         # outside the source package even when its lexical name looks safe.
         outside = root / "outside.c"
-        outside.write_text(PATCH_SOURCE, encoding="utf-8")
+        outside.write_text(source, encoding="utf-8")
         symlink = patch_dir / "linked.c"
         try:
             symlink.symlink_to(outside)
@@ -468,6 +642,21 @@ def main() -> int:
             expect_success=False,
         )
         assert "portable path name" in result.stdout
+
+        invalid_host_configuration = patch_dir / "invalid-host-configuration.json"
+        invalid_host_payload = json.loads(manifest.read_text(encoding="utf-8"))
+        invalid_host_payload["host_configuration"]["offset_limit"] = 2**63
+        invalid_host_configuration.write_text(
+            json.dumps(invalid_host_payload), encoding="utf-8"
+        )
+        result = generate(
+            gbrecomp,
+            rom,
+            root / "invalid-host-configuration-output",
+            manifest=invalid_host_configuration,
+            expect_success=False,
+        )
+        assert "host_configuration" in result.stdout
 
         leading_zero = patch_dir / "leading-zero.json"
         leading_zero.write_text(

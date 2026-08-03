@@ -30,6 +30,9 @@ on:
 env:
   BUILD_TYPE: Release
 
+permissions:
+  contents: read
+
 jobs:
   build-linux:
     if: github.event_name != 'workflow_dispatch' || inputs.tag != '' || inputs.verify_crystal_platform == 'all' || inputs.verify_crystal_platform == 'linux-x64'
@@ -90,7 +93,7 @@ jobs:
             --help
 
       - name: Exact-ROM Crystal release gate
-        if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && (inputs.verify_crystal || inputs.tag != ''))
+        if: github.event_name == 'workflow_dispatch' && inputs.verify_crystal
         run: &crystal_rom_gate |
           private_rom_b64="${{ runner.temp }}/crystal-rev1.xz.b64"
           : > "$private_rom_b64"
@@ -141,13 +144,14 @@ jobs:
           path: package/gb-recompiled-linux-x64.tar.gz
 
       - name: Upload Crystal artifact
+        if: github.event_name == 'workflow_dispatch' && inputs.verify_crystal
         uses: actions/upload-artifact@v4
         with:
           name: crystal-recompiled-linux-x64
           path: package/crystal-recompiled-linux-x64.tar.gz
 
       - name: Upload Crystal verification
-        if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && (inputs.verify_crystal || inputs.tag != ''))
+        if: github.event_name == 'workflow_dispatch' && inputs.verify_crystal
         uses: actions/upload-artifact@v4
         with:
           name: crystal-recompiled-linux-x64-verification
@@ -211,7 +215,7 @@ jobs:
             --help
 
       - name: Exact-ROM Crystal release gate
-        if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && (inputs.verify_crystal || inputs.tag != ''))
+        if: github.event_name == 'workflow_dispatch' && inputs.verify_crystal
         run: *crystal_rom_gate
 
       - name: Upload artifact
@@ -221,13 +225,14 @@ jobs:
           path: package/gb-recompiled-macos-x64.tar.gz
 
       - name: Upload Crystal artifact
+        if: github.event_name == 'workflow_dispatch' && inputs.verify_crystal
         uses: actions/upload-artifact@v4
         with:
           name: crystal-recompiled-macos-x64
           path: package/crystal-recompiled-macos-x64.tar.gz
 
       - name: Upload Crystal verification
-        if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && (inputs.verify_crystal || inputs.tag != ''))
+        if: github.event_name == 'workflow_dispatch' && inputs.verify_crystal
         uses: actions/upload-artifact@v4
         with:
           name: crystal-recompiled-macos-x64-verification
@@ -291,7 +296,7 @@ jobs:
             --help
 
       - name: Exact-ROM Crystal release gate
-        if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && (inputs.verify_crystal || inputs.tag != ''))
+        if: github.event_name == 'workflow_dispatch' && inputs.verify_crystal
         run: *crystal_rom_gate
 
       - name: Upload artifact
@@ -301,13 +306,14 @@ jobs:
           path: package/gb-recompiled-macos-arm64.tar.gz
 
       - name: Upload Crystal artifact
+        if: github.event_name == 'workflow_dispatch' && inputs.verify_crystal
         uses: actions/upload-artifact@v4
         with:
           name: crystal-recompiled-macos-arm64
           path: package/crystal-recompiled-macos-arm64.tar.gz
 
       - name: Upload Crystal verification
-        if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && (inputs.verify_crystal || inputs.tag != ''))
+        if: github.event_name == 'workflow_dispatch' && inputs.verify_crystal
         uses: actions/upload-artifact@v4
         with:
           name: crystal-recompiled-macos-arm64-verification
@@ -387,7 +393,7 @@ jobs:
             --help
 
       - name: Exact-ROM Crystal release gate
-        if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && (inputs.verify_crystal || inputs.tag != ''))
+        if: github.event_name == 'workflow_dispatch' && inputs.verify_crystal
         run: |
           $privateRomB64 = "${{ runner.temp }}\crystal-rev1.xz.b64"
           Set-Content -NoNewline -Path $privateRomB64 -Value '${{ secrets.CRYSTAL_ROM_XZ_B64_01 }}'
@@ -436,13 +442,14 @@ jobs:
           path: package/gb-recompiled-windows-x64.zip
 
       - name: Upload Crystal artifact
+        if: github.event_name == 'workflow_dispatch' && inputs.verify_crystal
         uses: actions/upload-artifact@v4
         with:
           name: crystal-recompiled-windows-x64
           path: package/crystal-recompiled-windows-x64.zip
 
       - name: Upload Crystal verification
-        if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && (inputs.verify_crystal || inputs.tag != ''))
+        if: github.event_name == 'workflow_dispatch' && inputs.verify_crystal
         uses: actions/upload-artifact@v4
         with:
           name: crystal-recompiled-windows-x64-verification
@@ -471,9 +478,5 @@ jobs:
             artifacts/gb-recompiled-macos-x64/gb-recompiled-macos-x64.tar.gz
             artifacts/gb-recompiled-macos-arm64/gb-recompiled-macos-arm64.tar.gz
             artifacts/gb-recompiled-windows-x64/gb-recompiled-windows-x64.zip
-            artifacts/crystal-recompiled-linux-x64/crystal-recompiled-linux-x64.tar.gz
-            artifacts/crystal-recompiled-macos-x64/crystal-recompiled-macos-x64.tar.gz
-            artifacts/crystal-recompiled-macos-arm64/crystal-recompiled-macos-arm64.tar.gz
-            artifacts/crystal-recompiled-windows-x64/crystal-recompiled-windows-x64.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

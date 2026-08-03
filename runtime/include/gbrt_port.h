@@ -1,6 +1,7 @@
 #ifndef GBRT_PORT_H
 #define GBRT_PORT_H
 
+#include "gbrt_host_configuration.h"
 #include "gbrt_semantic.h"
 
 #include <stdbool.h>
@@ -11,7 +12,7 @@
 extern "C" {
 #endif
 
-#define GB_PORT_ABI_VERSION 2u
+#define GB_PORT_ABI_VERSION 3u
 #define GB_PORT_EXTENSION_ABI_VERSION 1u
 #define GB_PORT_MAX_EXTENSIONS 16u
 #define GB_PORT_MAX_DRAW_COMMANDS 128u
@@ -111,6 +112,14 @@ typedef GBSemanticStatus (*GBPortRunSemanticEditFn)(
     GBPortSemanticEditFn edit,
     void* edit_user);
 
+typedef GBHostConfigurationStatus (*GBPortApplyHostConfigurationFn)(
+    void* service_user,
+    const GBHostConfiguration* configuration);
+
+typedef void (*GBPortSetInputCaptureFn)(
+    void* service_user,
+    bool captured);
+
 typedef struct GBPortHost {
     uint32_t abi_version;
     bool headless;
@@ -126,6 +135,12 @@ typedef struct GBPortServices {
     const GBSemanticReader* semantic_reader;
     void* semantic_edit_user;
     GBPortRunSemanticEditFn run_semantic_edit;
+    const GBHostConfiguration* host_configuration;
+    const GBHostConfigurationContract* host_configuration_contract;
+    void* host_configuration_user;
+    GBPortApplyHostConfigurationFn apply_host_configuration;
+    void* input_capture_user;
+    GBPortSetInputCaptureFn set_input_capture;
     void* host_user;
     GBPortLogFn log;
 } GBPortServices;
@@ -208,6 +223,7 @@ typedef struct GBPortSnapshot {
     uint64_t renders;
     size_t last_command_count;
     size_t extension_count;
+    bool input_captured;
 } GBPortSnapshot;
 
 GBPortStatus gbrt_port_attach(

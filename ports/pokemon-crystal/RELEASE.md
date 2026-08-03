@@ -70,12 +70,31 @@ The release owner must retain:
 - the GitHub Actions run URL and toolchain/runner identities; and
 - the legal-review record and named approver.
 
-## Final checklist
+## Source-only alpha checklist
+
+A source-only fan-project alpha publishes the standalone repository without
+platform archives or ROM-derived executables. It may ship with one currently
+verified host while other hosts remain explicitly best-effort.
 
 - [ ] The release commit is clean, reviewed, and tagged.
+- [ ] The standalone source inventory contains only intended original/permitted
+  files and reproduces from the tagged parent commit.
+- [ ] The required GB Recompiled 0.1.0 distribution is publicly available.
+- [x] macOS arm64 exact-ROM packaged verification passes for the M8 candidate.
+- [x] Automated Challenge Mode panel, wild/trainer route, determinism,
+  persistence, vanilla recovery, and privacy gates pass.
+- [ ] `THIRD_PARTY_NOTICES.md`, the trademark disclaimer, and the distribution
+  boundary have been reviewed for the intended source-only publication.
+- [ ] Release notes link the current evidence and identify Linux, macOS Intel,
+  Windows, and combined physical-controller acceptance as incomplete.
+
+## Broad platform-package checklist
+
+This later gate applies when publishing downloadable Crystal Recompiled
+platform archives. It does not block a source-only alpha repository.
+
 - [ ] Linux x64 exact-ROM packaged verification passes.
 - [ ] macOS x64 exact-ROM packaged verification passes.
-- [ ] macOS arm64 exact-ROM packaged verification passes.
 - [ ] Windows x64 exact-ROM packaged verification passes.
 - [ ] Physical controller selection and gameplay smoke pass on each host
   family represented by the supported packages.
@@ -86,7 +105,8 @@ The release owner must retain:
 - [ ] The trademark disclaimer and distribution boundary have been reviewed.
 - [ ] Qualified legal review approves the intended jurisdictions and release
   model.
-- [ ] Release notes link the current evidence and repeat the known limitations
-  without broadening compatibility, accuracy, or performance claims.
+- [ ] Package release notes repeat the known limitations without broadening
+  compatibility, accuracy, or performance claims.
 
-No public release should proceed while any item above is unchecked.
+Do not publish broad platform packages while an item in this section is
+unchecked. A source-only alpha follows the narrower checklist above.

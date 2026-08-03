@@ -55,6 +55,30 @@ def contains_bytes(path: Path, needle: bytes) -> bool:
     return False
 
 
+def audit_public_tree(
+    public_tree: Path,
+    *,
+    selected_path_bytes: bytes,
+    rom_bytes: bytes,
+) -> int:
+    public_file_count = 0
+    for path in public_tree.rglob("*"):
+        if not path.is_file():
+            continue
+        public_file_count += 1
+        if path.suffix.lower() in FORBIDDEN_PUBLIC_SUFFIXES:
+            raise RuntimeError("public source tree contains a private/derived artifact")
+        if selected_path_bytes and contains_bytes(path, selected_path_bytes):
+            raise RuntimeError("public source tree disclosed selected ROM path")
+        if (
+            rom_bytes
+            and path.stat().st_size >= len(rom_bytes)
+            and contains_bytes(path, rom_bytes)
+        ):
+            raise RuntimeError("public source tree contains exact ROM bytes")
+    return public_file_count
+
+
 def require_sequence(
     events: list[dict[str, object]],
     *,
@@ -166,19 +190,11 @@ def main() -> int:
     public_file_count = 0
     if args.public_tree is not None:
         public_tree = args.public_tree.resolve()
-        forbidden = []
-        for path in public_tree.rglob("*"):
-            if not path.is_file():
-                continue
-            public_file_count += 1
-            if path.suffix.lower() in FORBIDDEN_PUBLIC_SUFFIXES:
-                forbidden.append(path)
-        if forbidden:
-            raise RuntimeError("public source tree contains a private/derived artifact")
-        if contains_bytes(
-            public_tree / "SOURCE-MANIFEST.json", selected_path_bytes
-        ):
-            raise RuntimeError("public source manifest disclosed selected ROM path")
+        public_file_count = audit_public_tree(
+            public_tree,
+            selected_path_bytes=selected_path_bytes,
+            rom_bytes=selected_rom.read_bytes(),
+        )
 
     report = {
         "schema": "crystal-recompiled.first-run-privacy-audit",

@@ -27,9 +27,17 @@ DEFAULT_GBRECOMP = (
     / ("gbrecomp.exe" if os.name == "nt" else "gbrecomp")
 )
 DEFAULT_RUNTIME = REPO_ROOT / "runtime"
+DEFAULT_NATIVE_PATCH = (
+    PORT_DIR / "native-patches" / "challenge-mode" / "manifest.json"
+)
 OUTPUT_NAME = "crystal-rev1-v1"
 PROGRESS_SCHEMA = "crystal-recompiled.first-run-progress"
 FAILURE_OUTPUT_LIMIT_BYTES = 12 * 1024
+
+
+def generation_feature_args() -> list[str]:
+    """Compile optional host features while leaving gameplay opt-in at runtime."""
+    return ["--native-patch", str(DEFAULT_NATIVE_PATCH)]
 
 
 def default_cache_dir() -> Path:
@@ -222,6 +230,7 @@ def main() -> int:
             "--progress-json",
             str(recompiler_progress),
         ]
+        generate_command.extend(generation_feature_args())
         try:
             run_private(generate_command, redactions=redactions)
         except (OSError, subprocess.CalledProcessError):

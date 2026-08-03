@@ -8,6 +8,15 @@
 typedef struct CrystalPortState {
     bool visible;
     bool native_pokedex;
+    bool challenge_panel;
+    bool challenge_available;
+    bool challenge_draft_enabled;
+    bool challenge_dirty;
+    bool challenge_inputs_available;
+    int32_t challenge_draft_offset;
+    uint8_t challenge_focus;
+    uint8_t challenge_strongest_level;
+    char challenge_status[96];
     bool location_available;
     bool party_available;
     bool badges_available;
@@ -41,6 +50,199 @@ enum {
     CRYSTAL_PC_FOCUS_SORT = 3,
     CRYSTAL_PC_FOCUS_COUNT = 4,
 };
+
+enum {
+    CRYSTAL_CHALLENGE_FOCUS_ENABLED = 0,
+    CRYSTAL_CHALLENGE_FOCUS_OFFSET = 1,
+    CRYSTAL_CHALLENGE_FOCUS_APPLY = 2,
+    CRYSTAL_CHALLENGE_FOCUS_COUNT = 3,
+};
+
+#define CRYSTAL_CHALLENGE_SCHEMA "gbrecomp.host-configuration"
+#define CRYSTAL_CHALLENGE_POLICY "challenge-v1"
+#define CRYSTAL_CHALLENGE_MINIMUM 1u
+#define CRYSTAL_CHALLENGE_MAXIMUM 100u
+#define CRYSTAL_CHALLENGE_DEFAULT_OFFSET 3
+#define CRYSTAL_W_PARTY_COUNT 0xdcd7u
+#define CRYSTAL_W_PARTY_MONS 0xdcdfu
+#define CRYSTAL_PARTY_MON_SIZE 48u
+#define CRYSTAL_PARTY_MON_LEVEL_OFFSET 31u
+#define CRYSTAL_PARTY_MON_HP_OFFSET 34u
+
+static bool crystal_challenge_service_available(
+    const GBPortServices* services) {
+    return services != NULL && services->host_configuration != NULL &&
+           services->host_configuration_contract != NULL &&
+           services->apply_host_configuration != NULL &&
+           services->host_configuration_user != NULL &&
+           services->host_configuration_contract->abi_version ==
+               GB_HOST_CONFIGURATION_ABI_VERSION &&
+           services->host_configuration_contract->schema != NULL &&
+           services->host_configuration_contract->policy_id != NULL &&
+           strcmp(
+               services->host_configuration_contract->schema,
+               CRYSTAL_CHALLENGE_SCHEMA) == 0 &&
+           services->host_configuration_contract->schema_version == 1u &&
+           strcmp(
+               services->host_configuration_contract->policy_id,
+               CRYSTAL_CHALLENGE_POLICY) == 0;
+}
+
+static void crystal_challenge_sync_draft(
+    CrystalPortState* state,
+    const GBPortServices* services) {
+    const GBHostConfiguration* current = services->host_configuration;
+    state->challenge_draft_enabled =
+        current != NULL && current->present && current->applied &&
+        current->enabled;
+    state->challenge_draft_offset =
+        current != NULL && current->present
+            ? current->offset
+            : CRYSTAL_CHALLENGE_DEFAULT_OFFSET;
+    state->challenge_dirty = false;
+}
+
+static void crystal_port_capture(
+    const GBPortServices* services,
+    bool captured) {
+    if (services->set_input_capture != NULL &&
+        services->input_capture_user != NULL) {
+        services->set_input_capture(
+            services->input_capture_user, captured);
+    }
+}
+
+static bool crystal_challenge_read_strongest(
+    const GBSemanticReader* reader,
+    uint8_t* strongest) {
+    uint8_t count = 0;
+    uint8_t result = 0;
+    if (reader == NULL || strongest == NULL ||
+        gbrt_semantic_read(
+            reader,
+            CRYSTAL_SEMANTIC_ROM_SHA256,
+            GB_SEMANTIC_READ_LIVE,
+            GB_SEMANTIC_BANKED_WRAM,
+            1,
+            CRYSTAL_W_PARTY_COUNT,
+            &count,
+            1) != GB_SEMANTIC_OK ||
+        count > CRYSTAL_PARTY_CAPACITY) {
+        return false;
+    }
+    for (uint8_t index = 0; index < count; ++index) {
+        const uint16_t base = (uint16_t)(
+            CRYSTAL_W_PARTY_MONS + CRYSTAL_PARTY_MON_SIZE * index);
+        uint8_t level = 0;
+        uint8_t hp[2] = {0, 0};
+        if (gbrt_semantic_read(
+                reader,
+                CRYSTAL_SEMANTIC_ROM_SHA256,
+                GB_SEMANTIC_READ_LIVE,
+                GB_SEMANTIC_BANKED_WRAM,
+                1,
+                (uint16_t)(base + CRYSTAL_PARTY_MON_LEVEL_OFFSET),
+                &level,
+                1) != GB_SEMANTIC_OK ||
+            gbrt_semantic_read(
+                reader,
+                CRYSTAL_SEMANTIC_ROM_SHA256,
+                GB_SEMANTIC_READ_LIVE,
+                GB_SEMANTIC_BANKED_WRAM,
+                1,
+                (uint16_t)(base + CRYSTAL_PARTY_MON_HP_OFFSET),
+                hp,
+                sizeof(hp)) != GB_SEMANTIC_OK) {
+            return false;
+        }
+        if ((hp[0] != 0u || hp[1] != 0u) && level > result) result = level;
+    }
+    *strongest = result;
+    return true;
+}
+
+static void crystal_challenge_apply(
+    CrystalPortState* state,
+    const GBPortServices* services) {
+    GBHostConfiguration candidate = {0};
+    candidate.abi_version = GB_HOST_CONFIGURATION_ABI_VERSION;
+    candidate.present = 1u;
+    candidate.applied = 1u;
+    candidate.enabled = state->challenge_draft_enabled ? 1u : 0u;
+    snprintf(candidate.schema, sizeof(candidate.schema), "%s", CRYSTAL_CHALLENGE_SCHEMA);
+    candidate.schema_version = 1u;
+    snprintf(candidate.policy_id, sizeof(candidate.policy_id), "%s", CRYSTAL_CHALLENGE_POLICY);
+    candidate.offset = state->challenge_draft_offset;
+    candidate.minimum = CRYSTAL_CHALLENGE_MINIMUM;
+    candidate.maximum = CRYSTAL_CHALLENGE_MAXIMUM;
+    const GBHostConfigurationStatus status =
+        services->apply_host_configuration(
+            services->host_configuration_user, &candidate);
+    if (status == GB_HOST_CONFIGURATION_OK) {
+        crystal_challenge_sync_draft(state, services);
+        snprintf(
+            state->challenge_status,
+            sizeof(state->challenge_status),
+            "Applied for the next battle");
+        services->log(
+            services->host_user,
+            GB_PORT_LOG_INFO,
+            "crystal-challenge",
+            "Challenge settings applied for the next battle");
+    } else {
+        snprintf(
+            state->challenge_status,
+            sizeof(state->challenge_status),
+            "Apply failed: %s",
+            gbrt_host_configuration_status_string(status));
+        services->log(
+            services->host_user,
+            GB_PORT_LOG_ERROR,
+            "crystal-challenge",
+            "Challenge settings rejected");
+    }
+}
+
+static void crystal_challenge_input(
+    CrystalPortState* state,
+    const GBPortServices* services,
+    GBPortInputAction action) {
+    const GBHostConfigurationContract* contract =
+        services->host_configuration_contract;
+    if (action == GB_PORT_INPUT_UP) {
+        state->challenge_focus = state->challenge_focus == 0u
+            ? CRYSTAL_CHALLENGE_FOCUS_COUNT - 1u
+            : (uint8_t)(state->challenge_focus - 1u);
+    } else if (action == GB_PORT_INPUT_DOWN) {
+        state->challenge_focus = (uint8_t)(
+            (state->challenge_focus + 1u) % CRYSTAL_CHALLENGE_FOCUS_COUNT);
+    } else if (action == GB_PORT_INPUT_LEFT || action == GB_PORT_INPUT_RIGHT) {
+        if (state->challenge_focus == CRYSTAL_CHALLENGE_FOCUS_ENABLED) {
+            state->challenge_draft_enabled = !state->challenge_draft_enabled;
+            state->challenge_dirty = true;
+        } else if (state->challenge_focus == CRYSTAL_CHALLENGE_FOCUS_OFFSET) {
+            const int32_t delta = action == GB_PORT_INPUT_RIGHT ? 1 : -1;
+            const int32_t next = state->challenge_draft_offset + delta;
+            if (next >= contract->offset_minimum && next <= contract->offset_maximum) {
+                state->challenge_draft_offset = next;
+                state->challenge_dirty = true;
+            }
+        }
+    } else if (action == GB_PORT_INPUT_ACCEPT) {
+        if (state->challenge_focus == CRYSTAL_CHALLENGE_FOCUS_APPLY) {
+            crystal_challenge_apply(state, services);
+        } else if (state->challenge_focus == CRYSTAL_CHALLENGE_FOCUS_ENABLED) {
+            state->challenge_draft_enabled = !state->challenge_draft_enabled;
+            state->challenge_dirty = true;
+        }
+    } else if (action == GB_PORT_INPUT_BACK) {
+        crystal_challenge_sync_draft(state, services);
+        snprintf(
+            state->challenge_status,
+            sizeof(state->challenge_status),
+            "Draft canceled; applied settings unchanged");
+    }
+}
 
 static void crystal_port_log_status(
     const GBPortServices* services,
@@ -262,7 +464,20 @@ static bool crystal_port_activate(
         return false;
     }
     *state = (CrystalPortState){0};
+    state->challenge_available =
+        crystal_challenge_service_available(services);
+    if (state->challenge_available) {
+        crystal_challenge_sync_draft(state, services);
+    }
     return true;
+}
+
+static void crystal_port_deactivate(
+    void* user,
+    const GBPortServices* services) {
+    CrystalPortState* state = (CrystalPortState*)user;
+    if (state != NULL) state->visible = false;
+    crystal_port_capture(services, false);
 }
 
 static void crystal_port_input(
@@ -274,6 +489,8 @@ static void crystal_port_input(
     if (event->action == GB_PORT_INPUT_OPEN_UI) {
         state->visible = true;
         state->native_pokedex = true;
+        state->challenge_panel = false;
+        crystal_port_capture(services, true);
         services->log(
             services->host_user,
             GB_PORT_LOG_INFO,
@@ -282,6 +499,8 @@ static void crystal_port_input(
     } else if (event->action == GB_PORT_INPUT_OPEN_PC) {
         state->visible = true;
         state->native_pokedex = false;
+        state->challenge_panel = false;
+        crystal_port_capture(services, true);
         state->pc_pending = false;
         state->pc_available = false;
         state->pc_box_initialized = false;
@@ -295,7 +514,19 @@ static void crystal_port_input(
             "native PC shown");
     } else if (event->action == GB_PORT_INPUT_TOGGLE_UI) {
         state->visible = !state->visible;
-        if (!state->visible) state->native_pokedex = false;
+        if (state->visible && state->challenge_available) {
+            state->native_pokedex = false;
+            state->challenge_panel = true;
+            state->challenge_focus = CRYSTAL_CHALLENGE_FOCUS_ENABLED;
+            state->challenge_status[0] = '\0';
+            crystal_challenge_sync_draft(state, services);
+        } else if (!state->visible) {
+            state->native_pokedex = false;
+            state->challenge_panel = false;
+            state->pc_pending = false;
+            crystal_challenge_sync_draft(state, services);
+        }
+        crystal_port_capture(services, state->visible);
         services->log(
             services->host_user,
             GB_PORT_LOG_INFO,
@@ -303,17 +534,27 @@ static void crystal_port_input(
             state->visible ? "native UI shown" : "native UI hidden");
     } else if (event->action == GB_PORT_INPUT_CLOSE_UI) {
         const bool closing_pokedex = state->native_pokedex;
+        const bool closing_challenge = state->challenge_panel;
         state->visible = false;
         state->native_pokedex = false;
+        state->challenge_panel = false;
         state->pc_pending = false;
         state->pc_available = false;
+        if (state->challenge_available) {
+            crystal_challenge_sync_draft(state, services);
+        }
+        crystal_port_capture(services, false);
         services->log(
             services->host_user,
             GB_PORT_LOG_INFO,
             "crystal-workbench",
-            closing_pokedex
+            closing_challenge
+                ? "Challenge panel hidden"
+                : closing_pokedex
                 ? "native Pokedex hidden"
                 : "native PC hidden");
+    } else if (state->challenge_panel) {
+        crystal_challenge_input(state, services, event->action);
     } else if (state->native_pokedex &&
                (event->action == GB_PORT_INPUT_RIGHT ||
                 event->action == GB_PORT_INPUT_DOWN)) {
@@ -345,7 +586,8 @@ static void crystal_port_input(
             GB_PORT_LOG_INFO,
             "crystal-workbench",
             message);
-    } else if (state->visible && !state->native_pokedex) {
+    } else if (state->visible && !state->native_pokedex &&
+               !state->challenge_panel) {
         crystal_port_pc_input(state, services, event->action);
     }
 }
@@ -374,6 +616,11 @@ static void crystal_port_update(
             services->semantic_reader,
             GB_SEMANTIC_READ_LIVE,
             &state->badges) == GB_SEMANTIC_OK;
+    state->challenge_inputs_available =
+        state->badges_available &&
+        crystal_challenge_read_strongest(
+            services->semantic_reader,
+            &state->challenge_strongest_level);
     state->pokedex_available =
         crystal_semantic_read_pokedex(
             services->semantic_reader,
@@ -429,7 +676,6 @@ static void crystal_port_render(
     void* user,
     const GBPortServices* services,
     GBPortFrame* frame) {
-    (void)services;
     const CrystalPortState* state = (const CrystalPortState*)user;
     if (state == NULL || !state->visible) return;
     char line[128];
@@ -440,9 +686,139 @@ static void crystal_port_render(
         frame,
         &y,
         0xf3f7ffffu,
-        state->native_pokedex
+        state->challenge_panel
+            ? "Crystal Recompiled - Challenge Mode"
+            : state->native_pokedex
             ? "Crystal Recompiled - Native Pokedex"
             : "Crystal Recompiled - Pokegear Workbench");
+
+    if (state->challenge_panel) {
+        const GBHostConfiguration* applied =
+            services->host_configuration;
+        const char* enabled_focus =
+            state->challenge_focus == CRYSTAL_CHALLENGE_FOCUS_ENABLED
+                ? ">"
+                : " ";
+        const char* offset_focus =
+            state->challenge_focus == CRYSTAL_CHALLENGE_FOCUS_OFFSET
+                ? ">"
+                : " ";
+        const char* apply_focus =
+            state->challenge_focus == CRYSTAL_CHALLENGE_FOCUS_APPLY
+                ? ">"
+                : " ";
+        snprintf(
+            line,
+            sizeof(line),
+            "%s Enabled  %s%s",
+            enabled_focus,
+            state->challenge_draft_enabled ? "ON" : "OFF",
+            state->challenge_dirty ? "  (draft)" : "");
+        crystal_port_line(frame, &y, 0x8ff0ffffu, line);
+        snprintf(
+            line,
+            sizeof(line),
+            "%s Offset  %+d  (allowed -5..+5)",
+            offset_focus,
+            state->challenge_draft_offset);
+        crystal_port_line(frame, &y, 0x8ff0ffffu, line);
+        snprintf(
+            line,
+            sizeof(line),
+            "%s Apply settings for the next battle",
+            apply_focus);
+        crystal_port_line(frame, &y, 0xffdc8affu, line);
+        crystal_port_line(
+            frame,
+            &y,
+            0x8fa6c4ffu,
+            "D-pad: navigate/change  A: choose/apply  B: cancel draft");
+        crystal_port_line(
+            frame,
+            &y,
+            0xd7e4ffffu,
+            "Rule: max(original, strongest + floor(badges/4) + offset)");
+        crystal_port_line(
+            frame,
+            &y,
+            0xd7e4ffffu,
+            "Final level is clamped to 1..100");
+        if (state->challenge_inputs_available &&
+            state->challenge_strongest_level == 0u) {
+            snprintf(
+                line,
+                sizeof(line),
+                "Inputs now: no conscious party reference, badges %u, offset %+d",
+                state->badges.total_count,
+                state->challenge_draft_offset);
+            crystal_port_line(frame, &y, 0xb7f3c4ffu, line);
+            crystal_port_line(
+                frame,
+                &y,
+                0xb7f3c4ffu,
+                "Next result: original level is preserved (no reference)");
+        } else if (state->challenge_inputs_available) {
+            const uint8_t badge_step =
+                (uint8_t)(state->badges.total_count / 4u);
+            int32_t baseline =
+                (int32_t)state->challenge_strongest_level +
+                (int32_t)badge_step +
+                state->challenge_draft_offset;
+            if (baseline < (int32_t)CRYSTAL_CHALLENGE_MINIMUM) {
+                baseline = (int32_t)CRYSTAL_CHALLENGE_MINIMUM;
+            }
+            if (baseline > (int32_t)CRYSTAL_CHALLENGE_MAXIMUM) {
+                baseline = (int32_t)CRYSTAL_CHALLENGE_MAXIMUM;
+            }
+            snprintf(
+                line,
+                sizeof(line),
+                "Inputs now: strongest %u, badges %u, badge step %u, offset %+d",
+                state->challenge_strongest_level,
+                state->badges.total_count,
+                badge_step,
+                state->challenge_draft_offset);
+            crystal_port_line(frame, &y, 0xb7f3c4ffu, line);
+            snprintf(
+                line,
+                sizeof(line),
+                "Next result: max(original level, %d), then clamp 1..100",
+                baseline);
+            crystal_port_line(frame, &y, 0xb7f3c4ffu, line);
+        } else {
+            crystal_port_line(
+                frame,
+                &y,
+                0xffc38affu,
+                "Live party/badge inputs are not available yet");
+        }
+        snprintf(
+            line,
+            sizeof(line),
+            "Applied: %s  offset %+d  policy %s",
+            applied != NULL && applied->present && applied->applied
+                ? (applied->enabled ? "ON" : "OFF")
+                : "OFF (missing)",
+            applied != NULL && applied->present ? applied->offset : 0,
+            CRYSTAL_CHALLENGE_POLICY);
+        crystal_port_line(frame, &y, 0xd7e4ffffu, line);
+        if (applied != NULL && applied->present) {
+            snprintf(
+                line,
+                sizeof(line),
+                "Configuration SHA-256: %.16s...",
+                applied->sha256);
+            crystal_port_line(frame, &y, 0x8fa6c4ffu, line);
+        }
+        if (state->challenge_status[0] != '\0') {
+            crystal_port_line(
+                frame,
+                &y,
+                0xffdc8affu,
+                state->challenge_status);
+        }
+        return;
+    }
 
     if (state->location_available) {
         snprintf(
@@ -654,11 +1030,12 @@ static void crystal_port_render(
 static const GBPortModule crystal_port_module = {
     .abi_version = GB_PORT_ABI_VERSION,
     .module_id = "crystal-workbench",
-    .module_version = 8,
+    .module_version = 9,
     .rom_sha256 = CRYSTAL_SEMANTIC_ROM_SHA256,
     .rom_size = 2097152u,
     .user = &crystal_port_state,
     .activate = crystal_port_activate,
+    .deactivate = crystal_port_deactivate,
     .input = crystal_port_input,
     .update = crystal_port_update,
     .render = crystal_port_render,

@@ -167,6 +167,43 @@ static GBSemanticStatus run_semantic_edit(
     return gbrt_semantic_transaction_commit(&transaction);
 }
 
+static GBHostConfigurationStatus apply_host_configuration(
+    void* service_user,
+    const GBHostConfiguration* configuration) {
+    GBPortState* state = (GBPortState*)service_user;
+    char canonical[GB_HOST_CONFIGURATION_CANONICAL_CAPACITY];
+    size_t canonical_size = 0;
+    GBHostConfiguration validated = {0};
+    GBHostConfigurationStatus status;
+    if (state == NULL || state->context == NULL || configuration == NULL ||
+        state->context->host_configuration_path == NULL ||
+        state->context->host_configuration_path[0] == '\0' ||
+        state->context->host_configuration_contract.schema == NULL ||
+        state->context->host_configuration_contract.policy_id == NULL) {
+        return GB_HOST_CONFIGURATION_WRITE_ERROR;
+    }
+    status = gbrt_host_configuration_serialize(
+        configuration, canonical, sizeof(canonical), &canonical_size);
+    if (status != GB_HOST_CONFIGURATION_OK) return status;
+    status = gbrt_host_configuration_parse(
+        (const uint8_t*)canonical,
+        canonical_size,
+        &state->context->host_configuration_contract,
+        &validated);
+    if (status != GB_HOST_CONFIGURATION_OK) return status;
+    if (!validated.applied) return GB_HOST_CONFIGURATION_MALFORMED;
+    status = gbrt_host_configuration_write_file(
+        state->context->host_configuration_path, &validated);
+    if (status != GB_HOST_CONFIGURATION_OK) return status;
+    state->context->config.host_configuration = validated;
+    return GB_HOST_CONFIGURATION_OK;
+}
+
+static void set_input_capture(void* service_user, bool captured) {
+    GBPortState* state = (GBPortState*)service_user;
+    if (state != NULL) state->snapshot.input_captured = captured;
+}
+
 GBPortStatus gbrt_port_attach(
     GBContext* context,
     const GBPortModule* module,
@@ -220,12 +257,25 @@ GBPortStatus gbrt_port_attach(
         .semantic_reader = &state->semantic_reader,
         .semantic_edit_user = state,
         .run_semantic_edit = run_semantic_edit,
+        .host_configuration = &context->config.host_configuration,
+        .host_configuration_contract =
+            &context->host_configuration_contract,
+        .host_configuration_user = state,
+        .apply_host_configuration = apply_host_configuration,
+        .input_capture_user = state,
+        .set_input_capture = set_input_capture,
         .host_user = state->host.user,
         .log = state->host.log,
     };
     state->extension_services = state->services;
     state->extension_services.semantic_edit_user = NULL;
     state->extension_services.run_semantic_edit = NULL;
+    state->extension_services.host_configuration = NULL;
+    state->extension_services.host_configuration_contract = NULL;
+    state->extension_services.host_configuration_user = NULL;
+    state->extension_services.apply_host_configuration = NULL;
+    state->extension_services.input_capture_user = NULL;
+    state->extension_services.set_input_capture = NULL;
 #ifdef GBRT_ENABLE_PORT_EXTENSIONS
     if (!load_extensions(state, gb_port_extension_set_get())) {
         free(state);
@@ -398,7 +448,7 @@ bool gbrt_port_write_state_json(const GBContext* context, const char* path) {
         file,
         "{\n"
         "  \"schema\": \"gbrecompiled.port-state\",\n"
-        "  \"version\": 2,\n"
+        "  \"version\": 3,\n"
         "  \"module_id\": \"%s\",\n"
         "  \"module_version\": %u,\n"
         "  \"active\": %s,\n"
@@ -407,6 +457,7 @@ bool gbrt_port_write_state_json(const GBContext* context, const char* path) {
         "  \"updates\": %llu,\n"
         "  \"renders\": %llu,\n"
         "  \"last_command_count\": %zu,\n"
+        "  \"input_captured\": %s,\n"
         "  \"extensions\": [",
         state->module->module_id,
         state->module->module_version,
@@ -415,7 +466,8 @@ bool gbrt_port_write_state_json(const GBContext* context, const char* path) {
         (unsigned long long)state->snapshot.input_events,
         (unsigned long long)state->snapshot.updates,
         (unsigned long long)state->snapshot.renders,
-        state->snapshot.last_command_count);
+        state->snapshot.last_command_count,
+        state->snapshot.input_captured ? "true" : "false");
     bool wrote = result > 0;
     for (size_t index = 0;
          wrote && index < state->active_extension_count;

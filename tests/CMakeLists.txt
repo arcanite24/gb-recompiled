@@ -54,6 +54,20 @@ add_test(
 )
 
 add_test(
+    NAME crystal_challenge_replay_preflight_is_provenance_complete
+    COMMAND
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_crystal_challenge_replay_preflight.py"
+)
+
+add_test(
+    NAME crystal_challenge_save_lifecycle_is_vanilla_compatible
+    COMMAND
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_crystal_challenge_lifecycle.py"
+)
+
+add_test(
     NAME multi_rom_analysis_isolation
     COMMAND
         "${Python3_EXECUTABLE}"
@@ -97,6 +111,8 @@ add_test(
         "${CMAKE_CURRENT_SOURCE_DIR}/test_crystal_first_run_privacy.py"
         --first-run
         "${PROJECT_SOURCE_DIR}/ports/pokemon-crystal/scripts/first_run.py"
+        --privacy-verifier
+        "${PROJECT_SOURCE_DIR}/ports/pokemon-crystal/scripts/verify_first_run_privacy.py"
 )
 
 add_test(
@@ -414,6 +430,36 @@ if(TARGET gbrt)
     target_link_libraries(test_semantic_reader PRIVATE gbrt)
     add_test(NAME semantic_reader_is_bounded_and_exact_rom
              COMMAND test_semantic_reader)
+
+    add_executable(test_gameplay_mutation test_gameplay_mutation.c)
+    target_link_libraries(test_gameplay_mutation PRIVATE gbrt)
+    add_test(NAME gameplay_mutation_is_atomic_and_fail_closed
+             COMMAND test_gameplay_mutation)
+
+    add_executable(test_host_configuration test_host_configuration.c)
+    target_link_libraries(test_host_configuration PRIVATE gbrt)
+    add_test(NAME host_configuration_is_canonical_and_fail_closed
+             COMMAND test_host_configuration)
+
+    add_executable(test_crystal_challenge_patch
+        test_crystal_challenge_patch.c
+        "${PROJECT_SOURCE_DIR}/ports/pokemon-crystal/native-patches/challenge-mode/challenge_mode_patch.c"
+        "${PROJECT_SOURCE_DIR}/ports/pokemon-crystal/native-patches/challenge-mode/challenge_rules.c"
+    )
+    target_link_libraries(test_crystal_challenge_patch PRIVATE gbrt)
+    add_test(NAME crystal_challenge_trainer_guard_is_fail_closed
+             COMMAND test_crystal_challenge_patch)
+
+    add_executable(test_crystal_challenge_rules
+        test_crystal_challenge_rules.c
+        "${PROJECT_SOURCE_DIR}/ports/pokemon-crystal/native-patches/challenge-mode/challenge_rules.c"
+    )
+    target_include_directories(test_crystal_challenge_rules PRIVATE
+        "${PROJECT_SOURCE_DIR}/ports/pokemon-crystal/native-patches/challenge-mode"
+    )
+    target_link_libraries(test_crystal_challenge_rules PRIVATE gbrt)
+    add_test(NAME crystal_challenge_rules_are_bounded_and_deterministic
+             COMMAND test_crystal_challenge_rules)
 
     add_executable(test_data_mod_overlay test_data_mod_overlay.c)
     target_link_libraries(test_data_mod_overlay PRIVATE gbrt)

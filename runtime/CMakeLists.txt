@@ -5,6 +5,7 @@ add_library(gbrt STATIC
     src/gbrt.c
     src/gbrt_data_mod.c
     src/gbrt_hash.c
+    src/gbrt_host_configuration.c
     src/gbrt_port.c
     src/gbrt_presentation.c
     src/gbrt_semantic.c
@@ -19,7 +20,10 @@ add_library(gbrt STATIC
 option(GBRECOMP_ENABLE_NATIVE_PATCHES
     "Compile the native replacement SDK runtime" ${BUILD_TESTS})
 if(GBRECOMP_ENABLE_NATIVE_PATCHES)
-    target_sources(gbrt PRIVATE src/gbrt_native_patch.c)
+    target_sources(gbrt PRIVATE
+        src/gbrt_gameplay_mutation.c
+        src/gbrt_native_patch.c
+    )
     target_compile_definitions(gbrt PUBLIC GBRT_ENABLE_NATIVE_PATCHES)
 endif()
 

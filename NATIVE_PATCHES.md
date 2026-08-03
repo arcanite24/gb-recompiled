@@ -49,7 +49,15 @@ body yield does not incorrectly trigger post.
     "sha256": "64 lowercase hexadecimal digits",
     "size": 32768
   },
-  "sources": ["patch.c"],
+  "host_configuration": {
+    "schema": "gbrecomp.host-configuration",
+    "version": 1,
+    "policy_id": "example-v1",
+    "offset_limit": 5,
+    "value_minimum": 1,
+    "value_maximum": 100
+  },
+  "sources": ["patch.c", "patch_config.h"],
   "bindings": [
     {
       "function": "gbfn:v1:0000:0160",
@@ -67,6 +75,14 @@ callback symbol names are validated before output is written. One v1 package
 can bind each function at most once. A binding can omit any callback, but must
 declare at least one. `patch_id` accepts ASCII letters, digits, `.`, `_`, and
 `-` so the same value is safe in generated C and diagnostics.
+
+`host_configuration` is optional. When present, generated executables expose
+`--host-configuration <file>` and validate canonical JSON against the declared
+schema, policy, symmetric offset limit, and value bounds before constructing a
+guest context. A missing file is the disabled state. Other failures terminate
+before guest execution, and diagnostics retain only stable status, policy, and
+content hash. Native callbacks read the applied, path-free identity and scalar
+values from `GBContext.config.host_configuration`.
 
 Bindings reached through a verified ROM trampoline rather than a generated
 direct `CALL` may opt into `"entry_contract": "return-stack"`. The runtime
@@ -89,6 +105,12 @@ stops with a native-patch diagnostic; it never silently disables the package or
 falls back to the interpreter.
 
 ## Callback ABI
+
+Patch packages may contain C/C++ translation units and private headers. All
+declared files are copied into the relocatable generated project; only `.c`,
+`.cc`, `.cpp`, and `.cxx` entries are compiled directly. Header entries use
+`.h`, `.hh`, `.hpp`, or `.hxx` and remain subject to the same containment and
+portable-name checks.
 
 Patch sources include `gbrt_native_patch.h` and use the declaration macros:
 
@@ -129,6 +151,36 @@ or persistence effects.
 V1 directly exposes the source-compatible `GBContext` and runtime helpers.
 Patches must be rebuilt when the ABI changes. Exceptions must not cross the C
 callback boundary, and callbacks must not retain `GBNativeCall*` after return.
+
+## Bounded gameplay mutations
+
+Pre hooks that need to change reviewed guest inputs can include
+`gbrt_gameplay_mutation.h`. The v1 API accepts an exact-ROM event
+specification, stable function ID, one to eight named typed fields, per-field
+ranges, and a matching value request. V1 deliberately supports only `uint8_t`
+fields; adding another representation requires an ABI review rather than an
+implicit cast.
+
+`gb_native_apply_gameplay_mutation()` is valid only during the named binding's
+pre phase. It rejects the wrong ABI, ROM identity, function, field set, type,
+or range before beginning a transaction. It then stages every field, verifies
+the staged values, optionally runs a patch-owned semantic validator, and
+commits all fields together. Every result other than
+`GB_GAMEPLAY_MUTATION_APPLIED` leaves live guest memory without a partial
+write. The exact ROM is already rehashed by native-patch entry validation
+before a callback can receive its opaque `GBNativeCall`.
+
+The pre hook should propose only inputs consumed by the original function and
+then return `GB_NATIVE_STATUS_OK`; the generated original body remains
+responsible for derived state and guest timing. A rejected optional gameplay
+rule may log its stable mutation status and preserve the original path. A
+native-patch contract failure, by contrast, remains a fatal runtime error as
+described above.
+
+This is not a general writable-memory API. A package must enumerate the exact
+semantic fields and lifecycle hook it owns. Crystal's first consumer binds the
+wild-battle `LoadEnemyMon` pre hook, changes only `wCurPartyLevel`, and lets the
+original body calculate `wEnemyMonLevel`, HP, and battle stats.
 
 ## Scope limits
 

@@ -5,11 +5,13 @@ of exact-ROM source-built extensions into a generated project. This host
 functionality is optional: the generated game, accurate PPU path, and headless
 execution remain available independently.
 
-The v2 ABI is declared in `runtime/include/gbrt_port.h`. It deliberately does
+The v3 ABI is declared in `runtime/include/gbrt_port.h`. It deliberately does
 not expose SDL, ImGui, a graphics API, generated function names, `GBContext`,
 or writable guest-memory pointers. In addition to bounded read services, a
 reviewed source-built exact-ROM integration can submit one synchronous
-semantic edit through the runtime-owned transaction service.
+semantic edit through the runtime-owned transaction service, inspect an exact
+host-configuration contract, and request one runtime-owned atomic
+configuration replacement.
 
 ## Activation boundary
 
@@ -21,7 +23,7 @@ const GBPortModule* gb_port_module_get(void);
 
 Before `activate` runs, the runtime validates:
 
-- port ABI version 2;
+- port ABI version 3;
 - module and generated metadata ROM size;
 - module and generated metadata ROM SHA-256;
 - the SHA-256 of the actual embedded ROM bytes; and
@@ -36,6 +38,10 @@ Any mismatch fails activation. The module is never called partially.
 - immutable game ID, title, ROM size, and ROM SHA-256 metadata;
 - an exact-ROM `GBSemanticReader` for bounded read-only views;
 - a one-shot `run_semantic_edit` callback and opaque service token;
+- a path-free view of the live host configuration and its exact contract;
+- a one-shot `apply_host_configuration` callback that validates, canonicalizes,
+  and atomically replaces the configured host file before publishing it live;
+- an input-capture callback for controller-first modal panels;
 - a headless flag;
 - host-owned structured logging; and
 - an opaque host user value.
@@ -61,8 +67,13 @@ still-active validated transaction after the callback returns. Guest execution
 is paused at this synchronous host-input safepoint.
 
 The SDL host adapter renders panels and text through its ImGui foreground
-layer. F2 sends the renderer-independent base-module toggle and F3 sends the
-encounter-extension toggle. The same final command frame is retained in
+layer. F2 or controller R3 sends the renderer-independent base-module toggle;
+F3 sends the encounter-extension toggle. While a module captures input, D-pad
+or left-stick navigation and A/B are delivered as semantic port actions and
+are withheld from the guest. Controller Guide/Home or L3 opens the settings
+menu. A legacy preference file whose old default mapped R3 to a second menu
+slot is migrated without overriding explicit modern bindings. The same final
+command frame is retained in
 `--port-state` JSON, so headless evidence can validate the exact presentation
 without requiring a graphics device or inspecting pixels produced by one host
 renderer.
@@ -95,13 +106,14 @@ Activation runs base-first then in resolved order; partial failure unwinds
 already active extensions in reverse. Input, update, and render use the same
 order, and detach uses reverse order.
 
-Extensions receive a reduced v2 service view and the bounded command frame.
+Extensions receive a reduced v3 service view and the bounded command frame.
 The first capability profile permits host input, host draw commands, logging,
 metadata, and semantic reads.
 It exposes no SDL or graphics API, `GBContext`, generated function entry,
 guest-memory pointer, filesystem, network, native-patch call, or semantic
-write service. Native-patch scheduling and `gb_native_call_original()`
-safepoints are therefore unchanged.
+write service. Host-configuration Apply and input capture are also cleared
+from the extension view. Native-patch scheduling and
+`gb_native_call_original()` safepoints are therefore unchanged.
 
 Dynamic native libraries and portable sandboxed bytecode remain unsupported.
 The retained source-built model is documented with its concrete Crystal

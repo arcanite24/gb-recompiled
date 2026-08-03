@@ -632,7 +632,8 @@ bool load_native_patch_manifest(const std::filesystem::path& manifest_path,
             throw std::runtime_error("manifest root must be an object");
         }
         require_only_fields(root,
-                            {"schema", "version", "patch_id", "rom", "sources", "bindings"},
+                            {"schema", "version", "patch_id", "rom", "sources", "bindings",
+                             "host_configuration"},
                             "manifest");
         if (required_member(root, "schema", JsonValue::Type::String).string !=
             "gbrecomp.native-patch") {
@@ -674,6 +675,53 @@ bool load_native_patch_manifest(const std::filesystem::path& manifest_path,
                                      package.rom_sha256 + ", input is " + actual_sha256);
         }
 
+        const JsonValue* host_configuration =
+            optional_member(root, "host_configuration", JsonValue::Type::Object);
+        if (host_configuration != nullptr) {
+            require_only_fields(
+                *host_configuration,
+                {"schema", "version", "policy_id", "offset_limit",
+                 "value_minimum", "value_maximum"},
+                "host_configuration");
+            package.host_configuration_schema = required_member(
+                *host_configuration, "schema", JsonValue::Type::String).string;
+            const uint64_t host_version = required_member(
+                *host_configuration, "version", JsonValue::Type::Number).number;
+            package.host_configuration_policy_id = required_member(
+                *host_configuration, "policy_id", JsonValue::Type::String).string;
+            const uint64_t offset_limit = required_member(
+                *host_configuration, "offset_limit", JsonValue::Type::Number).number;
+            const uint64_t value_minimum = required_member(
+                *host_configuration, "value_minimum", JsonValue::Type::Number).number;
+            const uint64_t value_maximum = required_member(
+                *host_configuration, "value_maximum", JsonValue::Type::Number).number;
+            const auto portable_id = [](const std::string& value) {
+                return !value.empty() && value.size() < 64u &&
+                    std::all_of(value.begin(), value.end(), [](unsigned char ch) {
+                        return (ch >= 'a' && ch <= 'z') ||
+                               (ch >= 'A' && ch <= 'Z') ||
+                               (ch >= '0' && ch <= '9') || ch == '.' ||
+                               ch == '_' || ch == '-';
+                    });
+            };
+            if (host_version > UINT32_MAX || offset_limit > INT32_MAX ||
+                value_minimum > UINT32_MAX || value_maximum > UINT32_MAX ||
+                !portable_id(package.host_configuration_schema) ||
+                !portable_id(package.host_configuration_policy_id) ||
+                host_version == 0u || value_minimum == 0u ||
+                value_minimum > value_maximum) {
+                throw std::runtime_error("invalid host_configuration contract");
+            }
+            package.host_configuration_version = static_cast<uint32_t>(host_version);
+            package.host_configuration_offset_limit =
+                static_cast<uint32_t>(offset_limit);
+            package.host_configuration_value_minimum =
+                static_cast<uint32_t>(value_minimum);
+            package.host_configuration_value_maximum =
+                static_cast<uint32_t>(value_maximum);
+            package.host_configuration_enabled = true;
+        }
+
         const JsonValue& sources = required_member(root, "sources", JsonValue::Type::Array);
         if (sources.array.empty()) throw std::runtime_error("sources must not be empty");
         const std::filesystem::path manifest_dir =
@@ -696,8 +744,13 @@ bool load_native_patch_manifest(const std::filesystem::path& manifest_path,
             std::string extension = relative.extension().string();
             std::transform(extension.begin(), extension.end(), extension.begin(),
                            [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
-            if (extension != ".c" && extension != ".cc" && extension != ".cpp" &&
-                extension != ".cxx") {
+            const bool is_translation_unit =
+                extension == ".c" || extension == ".cc" ||
+                extension == ".cpp" || extension == ".cxx";
+            const bool is_header =
+                extension == ".h" || extension == ".hh" ||
+                extension == ".hpp" || extension == ".hxx";
+            if (!is_translation_unit && !is_header) {
                 throw std::runtime_error("unsupported native patch source extension: '" +
                                          source.string + "'");
             }
@@ -716,7 +769,8 @@ bool load_native_patch_manifest(const std::filesystem::path& manifest_path,
                 throw std::runtime_error("native patch source resolves outside its package: '" +
                                          source.string + "'");
             }
-            package.sources.push_back({normalized, read_text_file(canonical_source)});
+            package.sources.push_back(
+                {normalized, read_text_file(canonical_source), is_translation_unit});
         }
 
         const JsonValue& bindings = required_member(root, "bindings", JsonValue::Type::Array);

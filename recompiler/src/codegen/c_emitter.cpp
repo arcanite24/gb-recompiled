@@ -3029,7 +3029,7 @@ GeneratedOutput generate_output(const ir::Program& program,
             output.extra_files.push_back({
                 "native_patch/" + source.relative_path,
                 source.content,
-                true,
+                source.is_translation_unit,
             });
         }
 
@@ -4168,7 +4168,11 @@ GeneratedOutput generate_output(const ir::Program& program,
     main_ss << "    const char* log_file = NULL;\n";
     main_ss << "    const char* state_dump_file = NULL;\n";
     main_ss << "    const char* save_state_file = NULL;\n";
+    main_ss << "    const char* load_state_file = NULL;\n";
     main_ss << "    const char* data_mod_file = NULL;\n";
+    if (options.native_patch.host_configuration_enabled) {
+        main_ss << "    const char* host_configuration_file = NULL;\n";
+    }
     main_ss << "    const char* differential_state_file = NULL;\n";
     main_ss << "    unsigned long long frame_limit = 0;\n";
     main_ss << "    bool rtc_unix_time_override_enabled = false;\n";
@@ -4229,8 +4233,14 @@ GeneratedOutput generate_output(const ir::Program& program,
     main_ss << "            state_dump_file = argv[++i];\n";
     main_ss << "        } else if (strcmp(argv[i], \"--save-state-file\") == 0 && i + 1 < argc) {\n";
     main_ss << "            save_state_file = argv[++i];\n";
+    main_ss << "        } else if (strcmp(argv[i], \"--load-state-file\") == 0 && i + 1 < argc) {\n";
+    main_ss << "            load_state_file = argv[++i];\n";
     main_ss << "        } else if (strcmp(argv[i], \"--data-mod\") == 0 && i + 1 < argc) {\n";
     main_ss << "            data_mod_file = argv[++i];\n";
+    if (options.native_patch.host_configuration_enabled) {
+        main_ss << "        } else if (strcmp(argv[i], \"--host-configuration\") == 0 && i + 1 < argc) {\n";
+        main_ss << "            host_configuration_file = argv[++i];\n";
+    }
     main_ss << "        } else if (strcmp(argv[i], \"--input\") == 0 && i + 1 < argc) {\n";
     main_ss << "            input_script = argv[++i];\n";
     main_ss << "            if (!gb_platform_set_input_script(input_script)) {\n";
@@ -4405,11 +4415,47 @@ GeneratedOutput generate_output(const ir::Program& program,
     main_ss << "                slow_frame_ms,\n";
     main_ss << "                slow_vsync_ms);\n";
     main_ss << "    }\n\n";
+    if (options.native_patch.host_configuration_enabled) {
+        main_ss << "    const GBHostConfigurationContract host_configuration_contract = {\n";
+        main_ss << "        GB_HOST_CONFIGURATION_ABI_VERSION,\n";
+        main_ss << "        \"" << options.native_patch.host_configuration_schema << "\",\n";
+        main_ss << "        " << options.native_patch.host_configuration_version << "u,\n";
+        main_ss << "        \"" << options.native_patch.host_configuration_policy_id << "\",\n";
+        main_ss << "        -" << options.native_patch.host_configuration_offset_limit << ",\n";
+        main_ss << "        " << options.native_patch.host_configuration_offset_limit << ",\n";
+        main_ss << "        " << options.native_patch.host_configuration_value_minimum << "u,\n";
+        main_ss << "        " << options.native_patch.host_configuration_value_maximum << "u,\n";
+        main_ss << "    };\n";
+        main_ss << "    GBHostConfiguration host_configuration = {0};\n";
+        main_ss << "    GBHostConfigurationStatus host_configuration_status =\n";
+        main_ss << "        gbrt_host_configuration_load_file(\n";
+        main_ss << "            host_configuration_file,\n";
+        main_ss << "            &host_configuration_contract,\n";
+        main_ss << "            &host_configuration);\n";
+        main_ss << "    if (host_configuration_status != GB_HOST_CONFIGURATION_OK &&\n";
+        main_ss << "        host_configuration_status != GB_HOST_CONFIGURATION_MISSING) {\n";
+        main_ss << "        fprintf(stderr, \"[HOST-CONFIG] rejected status=%s policy="
+                << options.native_patch.host_configuration_policy_id
+                << "\\n\", gbrt_host_configuration_status_string(host_configuration_status));\n";
+        main_ss << "        return 1;\n";
+        main_ss << "    }\n";
+        main_ss << "    if (host_configuration_status == GB_HOST_CONFIGURATION_OK) {\n";
+        main_ss << "        fprintf(stderr, \"[HOST-CONFIG] status=applied policy=%s hash=%s enabled=%u\\n\",\n";
+        main_ss << "                host_configuration.policy_id, host_configuration.sha256,\n";
+        main_ss << "                (unsigned)(host_configuration.applied && host_configuration.enabled));\n";
+        main_ss << "    } else {\n";
+        main_ss << "        fprintf(stderr, \"[HOST-CONFIG] status=missing policy="
+                << options.native_patch.host_configuration_policy_id << " enabled=0\\n\");\n";
+        main_ss << "    }\n";
+    }
     main_ss << "    GBConfig runtime_config = *" << options.output_prefix << "_default_config();\n";
     main_ss << "    runtime_config.rtc_unix_time_override_enabled = rtc_unix_time_override_enabled;\n";
     main_ss << "    runtime_config.rtc_unix_time_override = rtc_unix_time_override;\n";
     main_ss << "    runtime_config.ignore_rtc_persistence = ignore_rtc_persistence;\n";
     main_ss << "    runtime_config.native_presentation_enabled = native_presentation_enabled;\n";
+    if (options.native_patch.host_configuration_enabled) {
+        main_ss << "    runtime_config.host_configuration = host_configuration;\n";
+    }
     main_ss << "    if (rtc_unix_time_override_enabled) {\n";
     main_ss << "        printf(\"[GBRT] RTC Unix time override: %llu\\n\", rtc_unix_time_override);\n";
     main_ss << "    }\n";
@@ -4437,6 +4483,10 @@ GeneratedOutput generate_output(const ir::Program& program,
     main_ss << "    }\n\n";
     main_ss << "    if (differential_mode && differential_frames > 0 && !differential_steps_explicit) {\n";
     main_ss << "        differential_steps = 0;\n";
+    main_ss << "    }\n\n";
+    main_ss << "    if (differential_mode && load_state_file) {\n";
+    main_ss << "        fprintf(stderr, \"--load-state-file is for normal execution; use --differential-state in differential mode\\n\");\n";
+    main_ss << "        return 1;\n";
     main_ss << "    }\n\n";
     main_ss << "    if (differential_mode) {\n";
     main_ss << "        GBContext* generated_ctx = gb_context_create(&runtime_config);\n";
@@ -4513,6 +4563,10 @@ GeneratedOutput generate_output(const ir::Program& program,
     main_ss << "    }\n";
     main_ss << "\n";
     main_ss << "    GBContext* ctx = gb_context_create(&runtime_config);\n";
+    if (options.native_patch.host_configuration_enabled) {
+        main_ss << "    gb_context_set_host_configuration_service(\n";
+        main_ss << "        ctx, &host_configuration_contract, host_configuration_file);\n";
+    }
     main_ss << "    if (!ctx) {\n";
     main_ss << "        fprintf(stderr, \"Failed to create context\\n\");\n";
     main_ss << "        return 1;\n";
@@ -4556,6 +4610,17 @@ GeneratedOutput generate_output(const ir::Program& program,
     main_ss << "        }\n";
     main_ss << "        fprintf(stderr, \"[DATA-MOD] Active entries=%zu\\n\",\n";
     main_ss << "                gbrt_data_mod_entry_count(ctx));\n";
+    main_ss << "    }\n";
+    main_ss << "    if (load_state_file) {\n";
+    main_ss << "        if (!gb_context_load_state_file(ctx, load_state_file)) {\n";
+    main_ss << "            fprintf(stderr, \"Failed to load execution state\\n\");\n";
+    main_ss << "#ifdef GB_HAS_SDL2\n";
+    main_ss << "            gb_platform_shutdown();\n";
+    main_ss << "#endif\n";
+    main_ss << "            gb_context_destroy(ctx);\n";
+    main_ss << "            return 1;\n";
+    main_ss << "        }\n";
+    main_ss << "        fprintf(stderr, \"[GBRT] Loaded execution state\\n\");\n";
     main_ss << "    }\n";
     main_ss << "#ifdef GBRT_ENABLE_PORT_MODULE\n";
     main_ss << "    const GBPortMetadata port_metadata = {\n";
@@ -4889,6 +4954,7 @@ GeneratedOutput generate_output(const ir::Program& program,
         cmake_ss << "    ${GBRT_DIR}/src/gbrt.c\n";
         cmake_ss << "    ${GBRT_DIR}/src/gbrt_data_mod.c\n";
         cmake_ss << "    ${GBRT_DIR}/src/gbrt_hash.c\n";
+        cmake_ss << "    ${GBRT_DIR}/src/gbrt_host_configuration.c\n";
         cmake_ss << "    ${GBRT_DIR}/src/gbrt_port.c\n";
         cmake_ss << "    ${GBRT_DIR}/src/gbrt_presentation.c\n";
         cmake_ss << "    ${GBRT_DIR}/src/gbrt_semantic.c\n";
@@ -4899,6 +4965,7 @@ GeneratedOutput generate_output(const ir::Program& program,
         cmake_ss << "    ${GBRT_DIR}/src/interpreter.c\n";
         cmake_ss << "    ${GBRT_DIR}/src/platform_sdl.cpp\n";
         if (options.native_patch.enabled) {
+            cmake_ss << "    ${GBRT_DIR}/src/gbrt_gameplay_mutation.c\n";
             cmake_ss << "    ${GBRT_DIR}/src/gbrt_native_patch.c\n";
         }
         cmake_ss << ")\n\n";

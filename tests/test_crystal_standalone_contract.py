@@ -32,6 +32,13 @@ def eject(script: Path, output: Path) -> None:
     run([sys.executable, str(script), "--output", str(output)])
     manifest = json.loads((output / "SOURCE-MANIFEST.json").read_text())
     paths = {entry["path"] for entry in manifest["files"]}
+    required_challenge_files = {
+        "ports/pokemon-crystal/CHALLENGE_MODE.md",
+        "ports/pokemon-crystal/config/challenge-route-v1.json",
+        "ports/pokemon-crystal/native-patches/challenge-mode/manifest.json",
+        "ports/pokemon-crystal/route/challenge-v1.json",
+        "ports/pokemon-crystal/route/inputs/challenge-adventure-tail.input",
+    }
     if (
         manifest.get("schema") != "crystal-recompiled.source-tree"
         or manifest.get("version") != 1
@@ -47,6 +54,7 @@ def eject(script: Path, output: Path) -> None:
             or "/references/generated/" in f"/{path}/"
             for path in paths
         )
+        or not required_challenge_files.issubset(paths)
     ):
         raise AssertionError("ejected source inventory is unsafe or malformed")
 
@@ -100,9 +108,10 @@ def main() -> int:
             or release.get("cli", {}).get("identity", {}).get("abis")
             != {
                 "data_mod": 1,
+                "gameplay_mutation": 1,
                 "native_patch": 1,
                 "port_extension": 1,
-                "port_module": 2,
+                "port_module": 3,
                 "presentation": 1,
                 "semantic": 1,
             }

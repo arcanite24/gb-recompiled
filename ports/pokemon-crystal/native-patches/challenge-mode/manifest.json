@@ -1,0 +1,33 @@
+{
+  "schema": "gbrecomp.native-patch",
+  "version": 1,
+  "patch_id": "org.gbrecompiled.crystal.challenge-mode",
+  "rom": {
+    "sha256": "fdcc3c8c43813cf8731fc037d2a6d191bac75439c34b24ba1c27526e6acdc8a2",
+    "size": 2097152
+  },
+  "host_configuration": {
+    "schema": "gbrecomp.host-configuration",
+    "version": 1,
+    "policy_id": "challenge-v1",
+    "offset_limit": 5,
+    "value_minimum": 1,
+    "value_maximum": 100
+  },
+  "sources": [
+    "challenge_mode_patch.c",
+    "challenge_rules.c",
+    "challenge_rules.h"
+  ],
+  "bindings": [
+    {
+      "function": "gbfn:v1:000f:68eb",
+      "pre": "crystal_challenge_wild_level"
+    },
+    {
+      "function": "gbfn:v1:0003:588c",
+      "entry_contract": "return-stack",
+      "pre": "crystal_challenge_trainer_level"
+    }
+  ]
+}

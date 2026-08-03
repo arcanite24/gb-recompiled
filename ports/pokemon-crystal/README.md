@@ -1,6 +1,7 @@
 # Pokémon Crystal native port
 
-Status: vanilla route and independent CGB checkpoints verified.
+Status: vanilla route, independent CGB checkpoints, and deterministic Challenge
+Mode package acceptance verified for the initial alpha scope.
 
 This is the pilot exact-game project for GB Recompiled. The goal is not merely
 to launch Pokémon Crystal in a native executable. The goal is to preserve the
@@ -321,7 +322,7 @@ to the fail-closed runtime. See [PACKAGING.md](PACKAGING.md).
 
 ## Native PC
 
-Port ABI v2 lets the Workbench submit one synchronous, runtime-owned semantic
+Port ABI v3 lets the Workbench submit one synchronous, runtime-owned semantic
 edit without receiving `GBContext` or retained guest-memory pointers. The
 native PC browses all 14 boxes, searches by species, sorts the selected box by
 species or level, and moves Pokémon between party and box through an explicit
@@ -479,6 +480,7 @@ before a clean-state reproduction.
 ## Read next
 
 - [Port plan](PLAN.md)
+- [Challenge Mode](CHALLENGE_MODE.md)
 - [Execution backlog](BACKLOG.md)
 - [Research inventory](REFERENCES.md)
 - [Initial semantic anchors](SEMANTIC_ANCHORS.md)

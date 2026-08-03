@@ -15,7 +15,7 @@ ROM = {
     "size": 2097152,
     "sha256": "fdcc3c8c43813cf8731fc037d2a6d191bac75439c34b24ba1c27526e6acdc8a2",
 }
-HOST = {"id": "crystal-workbench", "version": 8, "abi_version": 2}
+HOST = {"id": "crystal-workbench", "version": 9, "abi_version": 3}
 ID_RE = re.compile(r"[a-z][a-z0-9]*(?:[.-][a-z0-9]+)+")
 SEMVER_RE = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)")
 SHA_RE = re.compile(r"[0-9a-f]{64}")

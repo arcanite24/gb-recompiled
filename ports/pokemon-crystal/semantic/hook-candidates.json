@@ -28,6 +28,30 @@
       "reason": "exact-ROM native manifest binds the route-proven generated original through the explicit return-stack entry contract"
     },
     {
+      "symbol": "LoadEnemyMon",
+      "function_id": "gbfn:v1:000f:68eb",
+      "bank": 15,
+      "address": "0x68eb",
+      "source": "engine/battle/core.asm:5963",
+      "known_caller": "InitEnemyWildmon",
+      "caller_source": "engine/battle/core.asm:8183",
+      "replay_coverage": "CR-M8-001/final-wild-proof-20260801/result.json",
+      "binding_status": "bound",
+      "reason": "exact-ROM Challenge Mode pre hook mutates one reviewed wild level before the generated original derives enemy stats"
+    },
+    {
+      "symbol": "TryAddMonToParty",
+      "function_id": "gbfn:v1:0003:588c",
+      "bank": 3,
+      "address": "0x588c",
+      "source": "engine/pokemon/move_mon.asm:3",
+      "known_caller": "TrainerType1",
+      "caller_source": "engine/battle/read_trainer_party.asm:90",
+      "replay_coverage": "CR-M8-002/final-trainer-only-proof4-20260801/result.json",
+      "binding_status": "bound",
+      "reason": "exact-ROM Challenge Mode pre hook uses the reviewed return-stack predef contract to mutate only opposing trainer-party levels before the generated original derives complete party records"
+    },
+    {
       "symbol": "BillsPC",
       "function_id": "gbfn:v1:0005:5668",
       "bank": 5,
