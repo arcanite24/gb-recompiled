@@ -21,10 +21,10 @@ extern "C" {
 #define GB_SCREEN_HEIGHT   144
 #define GB_FRAMEBUFFER_SIZE (GB_SCREEN_WIDTH * GB_SCREEN_HEIGHT)
 
-/* Scanline timing (in cycles) */
+/* Scanline timing (in dots). Mode 3 and HBlank vary but sum to one line. */
 #define CYCLES_OAM_SCAN    80   /* Mode 2: OAM search */
-#define CYCLES_PIXEL_DRAW  172  /* Mode 3: Pixel transfer (variable) */
-#define CYCLES_HBLANK      204  /* Mode 0: H-Blank (variable) */
+#define CYCLES_PIXEL_DRAW  172  /* Minimum mode 3: 12 startup + 160 pixels */
+#define CYCLES_HBLANK      204  /* Maximum HBlank when mode 3 is minimal */
 #define CYCLES_SCANLINE    456  /* Total cycles per scanline */
 #define CYCLES_VBLANK      4560 /* 10 scanlines * 456 */
 
@@ -105,6 +105,7 @@ typedef struct GBPPU {
     uint8_t scy;        /* 0xFF42 - Scroll Y */
     uint8_t scx;        /* 0xFF43 - Scroll X */
     uint8_t ly;         /* 0xFF44 - Current scanline */
+    uint8_t scanline;   /* Physical line; remains 153 during LY's dot-4 wrap */
     uint8_t lyc;        /* 0xFF45 - LY Compare */
     uint8_t dma;        /* 0xFF46 - DMA Transfer */
     uint8_t bgp;        /* 0xFF47 - BG Palette */
@@ -129,9 +130,29 @@ typedef struct GBPPU {
     /* Internal state */
     bool stat_irq_state;
     PPUMode mode;
+    uint8_t visible_mode;    /* Mode reported to the CPU/resource arbiter */
+    uint8_t stat_irq_mode;   /* Mode seen by the STAT IRQ line (can lead STAT) */
+    bool vblank_oam_irq_source; /* Line-144 mode-2 source overlaps mode 1 */
+    uint8_t lcd_startup_phase; /* 0=normal, 1-4=LCD-on first-line phases */
     uint32_t mode_cycles;     /* Cycles in current mode */
+    uint16_t mode3_length;    /* Completed/current line's mode 3 length */
+    uint16_t hblank_length;   /* 456 - mode 2 - actual mode 3 */
+    uint16_t draw_x;          /* Next visible pixel to emit */
+    uint8_t draw_startup;     /* Initial FIFO fill and SCX discard dots */
+    uint8_t draw_stall;       /* Window/OBJ fetch dots remaining */
+    uint8_t visible_sprite_count;
+    uint8_t visible_sprite_indices[10];
+    uint8_t visible_sprite_x[10];
+    uint8_t visible_sprite_y[10];
+    uint8_t line_sprite_height;
+    uint16_t fetched_sprite_mask;
+    uint64_t considered_bg_tiles;
     uint8_t window_line;      /* Current window internal line counter */
     bool window_triggered;    /* Window was triggered this frame */
+    bool window_y_triggered;  /* WY matched LY this frame */
+    bool window_active_line;  /* Window fetcher owns the current line */
+    bool window_rendered_line;
+    uint8_t window_pixel_x;
     
     /* Framebuffer (2-bit color indices) */
     uint8_t framebuffer[GB_FRAMEBUFFER_SIZE];
@@ -169,6 +190,17 @@ void ppu_reset(GBPPU* ppu, const GBContext* ctx);
  * @brief Tick the PPU for a number of cycles
  */
 void ppu_tick(GBPPU* ppu, GBContext* ctx, uint32_t cycles);
+
+/**
+ * @brief Return system cycles until the next PPU state-machine boundary
+ *
+ * The result is conservative: pixel transfer reports one dot because its
+ * completion depends on FIFO state. UINT32_MAX means the LCD cannot produce a
+ * boundary while disabled; zero means a pending zero-time transition must be
+ * published before generated execution may batch more CPU work.
+ */
+uint32_t ppu_cycles_until_next_event(const GBPPU* ppu,
+                                     const GBContext* ctx);
 
 /**
  * @brief Read LCD register

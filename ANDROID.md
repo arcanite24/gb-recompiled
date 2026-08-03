@@ -1,22 +1,22 @@
-# Android
+# Android output
 
-This document walks through the current Android flow for `gb-recompiled`: taking a Game Boy ROM, generating an Android project, building a debug APK, and installing it on a device or emulator.
+`gbrecomp --android` emits a single-ROM Android project alongside the normal desktop project.
 
-Android support is currently:
+Current Android scope:
 
-- single-ROM only
-- landscape only
-- `arm64-v8a` only
-- controller-first, with no touch gameplay overlay yet
-- based on an external SDL2 source checkout
+- single ROM
+- landscape and fullscreen
+- `arm64-v8a`
+- minimum SDK 24 and target SDK 34
+- controller-first, with no touch gameplay overlay
+- external SDL2 source checkout rather than a vendored Android SDL build
+- persistent keyboard/controller remapping through the runtime settings menu
 
-## Prerequisites
+## Requirements
 
-You need:
-
-- a built `gbrecomp` binary
-- `gradle`
-- the Android SDK and NDK
+- a built `gbrecomp`
+- Gradle available on `PATH` (the generated project does not include a Gradle wrapper)
+- Android SDK and NDK
 - `adb`
 - an SDL2 source checkout
 
@@ -27,169 +27,120 @@ cmake -G Ninja -B build .
 ninja -C build
 ```
 
-## 1. Generate an Android Project
-
-Generate the usual desktop output plus an Android scaffold:
+## Generate a project
 
 ```bash
-./build/bin/gbrecomp path/to/game.gb -o output/game --android
+./build/bin/gbrecomp path/to/game.gb \
+  --output output/game \
+  --android
 ```
 
-Optional Android-specific flags:
-
-- `--android-package <java.package>`
-- `--android-app-name <label>`
-
-Example:
+Optional metadata overrides:
 
 ```bash
-./build/bin/gbrecomp roms/game.gb \
-  -o output/game \
+./build/bin/gbrecomp path/to/game.gbc \
+  --output output/game \
   --android \
   --android-package io.gbrecompiled.game \
   --android-app-name "My Game"
 ```
 
-This creates:
+Without overrides, the package is derived from `io.gbrecompiled.<game>` and the app label comes from the ROM title. The Android project is written under `output/game/android`; the desktop project remains at `output/game`.
 
-- the normal desktop project in `output/game`
-- the Android project in `output/game/android`
+Multi-ROM directory input cannot be combined with Android output.
 
-## 2. Provide SDL2
+## Provide SDL2
 
-Android builds use SDL2 from an external source checkout. Point the generated project at that checkout with `SDL2_SOURCE_DIR`.
-
-Example:
+Set `SDL2_SOURCE_DIR` to an SDL2 source tree containing its root `CMakeLists.txt`:
 
 ```bash
 export SDL2_SOURCE_DIR=/path/to/SDL
 ```
 
-If `SDL2_SOURCE_DIR` is missing, the generated Android project fails early with an explicit error.
+The generated Gradle and native CMake configuration stop with a focused error when this value is absent or invalid.
 
-## 3. Build the APK
+## Build the APK
 
-From the repo root:
+From the repository root:
 
 ```bash
 SDL2_SOURCE_DIR=/path/to/SDL \
 gradle -p output/game/android :app:assembleDebug
 ```
 
-The debug APK will be written to:
+The debug APK is written to:
 
-```bash
+```text
 output/game/android/app/build/outputs/apk/debug/app-debug.apk
 ```
 
-## 4. Install on a Device or Emulator
-
-Install to the default connected device:
-
-```bash
-adb install -r output/game/android/app/build/outputs/apk/debug/app-debug.apk
-```
-
-If you have more than one device connected, target one explicitly:
+## Install and launch
 
 ```bash
 adb devices -l
-adb -s <device_id> install -r output/game/android/app/build/outputs/apk/debug/app-debug.apk
+adb -s <device_id> install -r \
+  output/game/android/app/build/outputs/apk/debug/app-debug.apk
+adb -s <device_id> shell am start -W \
+  io.gbrecompiled.game/.GameActivity
 ```
 
-## 5. Launch the App
+Replace the package in the launch command if generation used a custom value. If only one Android target is connected, `-s <device_id>` can be omitted.
 
-Launch the generated Android app with:
+## Controls and writable files
 
-```bash
-adb -s <device_id> shell am start -W io.gbrecompiled.game/.GameActivity
-```
-
-If you used a custom package name, replace `io.gbrecompiled.game` with that package.
-
-You can also launch it from the Android launcher like a normal app after installation.
-
-## Controller Mapping
-
-The default Android mapping is based on physical button position so it feels natural on handhelds and Xbox-style controllers:
+The default controller mapping is based on physical position:
 
 - D-pad or left stick: move
-- Bottom face button (`Xbox A` / `Switch B` / `Cross`): Game Boy `B`
-- Right face button (`Xbox B` / `Switch A` / `Circle`): Game Boy `A`
-- Left shoulder: Game Boy `B`
-- Right shoulder: Game Boy `A`
-- Start / Menu: `Start`
-- Back / View / Share: `Select`
-- Guide / Home or Android Back: open the runtime settings menu
+- south face button: Game Boy B
+- east face button: Game Boy A
+- left/right shoulder: Game Boy B/A
+- Start/Menu: Start
+- Back/View/Share: Select
+- Guide/Home, L3, R3, or Android Back: settings menu
 
-When SDL can identify the connected controller, the runtime settings menu shows labels that match that controller profile.
+The settings menu can remap gameplay actions and runtime shortcuts. SDL controller detection changes displayed button labels for Xbox, Nintendo, and PlayStation-style layouts where possible.
 
-## Generated Android Defaults
-
-The generated Android project currently uses:
-
-- minimum SDK `24`
-- target SDK `34`
-- `arm64-v8a`
-- landscape orientation
-- fullscreen by default
-- app-private storage for saves and generated runtime artifacts
-
-## Notes
-
-- Multi-ROM Android output is not supported yet.
-- The desktop project is still generated alongside the Android project.
-- The generated app is meant for play, not for a touch-first mobile UX yet.
-- Relative runtime files such as saves, screenshots, and logs are redirected into app-private writable storage on Android.
+Saves, RTC data, savestates, screenshots, logs, and runtime preferences use app-private writable storage rather than the packaged asset directory.
 
 ## Troubleshooting
 
-### `device unauthorized`
+### Device is unauthorized
 
-If `adb devices` shows:
-
-```text
-<device_id> unauthorized
-```
-
-unlock the device, accept the USB debugging prompt, and run:
+Unlock the device, accept its USB debugging prompt, then rerun:
 
 ```bash
 adb devices -l
 ```
 
-again until it shows `device`.
+### SDL2 source is rejected
 
-### `SDL2_SOURCE_DIR is required`
-
-Set the SDL source checkout path explicitly:
+Confirm the path points to the root of an SDL2 source checkout:
 
 ```bash
-export SDL2_SOURCE_DIR=/path/to/SDL
+test -f "$SDL2_SOURCE_DIR/CMakeLists.txt"
 ```
 
-or inline:
+Then pass it inline if your shell environment is not reaching Gradle:
 
 ```bash
-SDL2_SOURCE_DIR=/path/to/SDL gradle -p output/game/android :app:assembleDebug
+SDL2_SOURCE_DIR=/path/to/SDL \
+gradle -p output/game/android :app:assembleDebug
 ```
 
-### More than one Android target connected
+### More than one target is connected
 
-Use `adb -s <device_id> ...` for install and launch:
+Use the identifier printed by `adb devices -l` with every install, launch, and log command:
 
 ```bash
-adb devices -l
 adb -s <device_id> install -r output/game/android/app/build/outputs/apk/debug/app-debug.apk
-adb -s <device_id> shell am start -W io.gbrecompiled.game/.GameActivity
 ```
 
-### Check logs
-
-Use logcat while launching:
+### Capture startup logs
 
 ```bash
 adb -s <device_id> logcat -c
 adb -s <device_id> shell am start -W io.gbrecompiled.game/.GameActivity
 adb -s <device_id> logcat -d
 ```
+
+Android output has not yet been promoted into the repository's regular cross-platform CI matrix, so validate the APK on a real device or emulator after generator/runtime changes.

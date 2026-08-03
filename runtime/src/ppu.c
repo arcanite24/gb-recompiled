@@ -119,6 +119,22 @@ static bool ppu_is_cgb_compat_mode(const GBContext* ctx) {
     return ctx && ctx->config.model == GB_MODEL_CGB && ctx->config.cgb_compatibility_mode;
 }
 
+static bool ppu_is_cgb_hardware(const GBContext* ctx) {
+    return ctx && ctx->config.model == GB_MODEL_CGB;
+}
+
+enum {
+    LCD_STARTUP_NONE = 0,
+    LCD_STARTUP_MODE0 = 1,
+    LCD_STARTUP_DRAW = 2,
+    LCD_STARTUP_HBLANK = 3,
+};
+
+/* DMG LCD-on first line: mode 0 until dot 79, mode 3 for the normal
+ * 172-dot transfer, then a shortened line that exposes LY=1 at dot 452. */
+#define LCD_STARTUP_DRAW_DOT 79u
+#define LCD_STARTUP_LINE1_DOT 452u
+
 static uint32_t rgb555_to_rgba(uint16_t color) {
     uint8_t r = (uint8_t)(((color >> 0) & 0x1F) * 255 / 31);
     uint8_t g = (uint8_t)(((color >> 5) & 0x1F) * 255 / 31);
@@ -257,7 +273,7 @@ static void latch_scanline_registers(GBPPU* ppu) {
 void ppu_init(GBPPU* ppu) {
     memset(ppu, 0, sizeof(*ppu));
     ppu_reset(ppu, NULL);
-    DBG_PPU("PPU initialized");
+    DBG_PPU("%s", "PPU initialized");
 }
 
 void ppu_reset(GBPPU* ppu, const GBContext* ctx) {
@@ -276,6 +292,7 @@ void ppu_reset(GBPPU* ppu, const GBContext* ctx) {
     ppu->scy = 0x00;
     ppu->scx = 0x00;
     ppu->ly = 145;
+    ppu->scanline = 145;
     ppu->lyc = 0x00;
     ppu->dma = (ctx && ctx->config.model == GB_MODEL_CGB) ? 0x00 : 0xFF;
     ppu->bgp = 0xFC;
@@ -291,9 +308,26 @@ void ppu_reset(GBPPU* ppu, const GBContext* ctx) {
 
     ppu->stat_irq_state = false;
     ppu->mode = PPU_MODE_VBLANK;
+    ppu->visible_mode = PPU_MODE_VBLANK;
+    ppu->stat_irq_mode = PPU_MODE_VBLANK;
+    ppu->vblank_oam_irq_source = false;
+    ppu->lcd_startup_phase = LCD_STARTUP_NONE;
     ppu->mode_cycles = 4;
+    ppu->mode3_length = CYCLES_PIXEL_DRAW;
+    ppu->hblank_length = CYCLES_HBLANK;
+    ppu->draw_x = 0;
+    ppu->draw_startup = 0;
+    ppu->draw_stall = 0;
+    ppu->visible_sprite_count = 0;
+    ppu->line_sprite_height = 8;
+    ppu->fetched_sprite_mask = 0;
+    ppu->considered_bg_tiles = 0;
     ppu->window_line = 0;
     ppu->window_triggered = false;
+    ppu->window_y_triggered = false;
+    ppu->window_active_line = false;
+    ppu->window_rendered_line = false;
+    ppu->window_pixel_x = 0;
     ppu->frame_ready = false;
 
     if (cgb_mode) {
@@ -393,6 +427,105 @@ static void render_bg_scanline(GBPPU* ppu,
 
     if (window_enable && !ppu->window_triggered) {
         ppu->window_triggered = true;
+    }
+
+    if (!cgb_mode && !cgb_compat_mode) {
+        const uint8_t* vram = ctx->vram;
+        const size_t row_base = (size_t)scanline * GB_SCREEN_WIDTH;
+        const uint16_t bg_tilemap_offset = (uint16_t)(get_bg_tilemap_addr(lcdc) - 0x8000);
+        const uint16_t win_tilemap_offset = (uint16_t)(get_window_tilemap_addr(lcdc) - 0x8000);
+        const bool unsigned_tile_data = (lcdc & LCDC_TILE_DATA) != 0;
+        const uint8_t palette = ppu->latched_bgp;
+        uint8_t shade_lut[4] = {
+            (uint8_t)(palette & 0x03),
+            (uint8_t)((palette >> 2) & 0x03),
+            (uint8_t)((palette >> 4) & 0x03),
+            (uint8_t)((palette >> 6) & 0x03),
+        };
+        uint16_t color_lut[4] = {
+            dmg_palette_rgb555[shade_lut[0]],
+            dmg_palette_rgb555[shade_lut[1]],
+            dmg_palette_rgb555[shade_lut[2]],
+            dmg_palette_rgb555[shade_lut[3]],
+        };
+
+        if (!bg_visible) {
+            memset(&ppu->framebuffer[row_base], 0, GB_SCREEN_WIDTH);
+            memset(bg_raw, 0, GB_SCREEN_WIDTH);
+            memset(bg_priority, 0, GB_SCREEN_WIDTH);
+            for (size_t x = 0; x < GB_SCREEN_WIDTH; x++) {
+                ppu->color_framebuffer[row_base + x] = dmg_palette_rgb555[0];
+            }
+            return;
+        }
+
+        memset(bg_priority, 0, GB_SCREEN_WIDTH);
+        for (int x = 0; x < GB_SCREEN_WIDTH;) {
+            bool in_window = window_enable && (x >= (int)ppu->latched_wx - 7);
+            int source_x;
+            int source_y;
+            int pixel_x;
+            int pixel_y;
+            int run;
+            uint16_t tilemap_offset;
+            uint8_t tile_x;
+            uint8_t tile_y;
+            uint8_t tile_idx;
+            uint16_t tile_offset;
+            uint8_t lo;
+            uint8_t hi;
+
+            if (in_window) {
+                int win_x = x - ((int)ppu->latched_wx - 7);
+                source_x = win_x;
+                source_y = ppu->window_line;
+                tilemap_offset = win_tilemap_offset;
+            } else {
+                source_x = (x + ppu->latched_scx) & 0xFF;
+                source_y = (scanline + ppu->latched_scy) & 0xFF;
+                tilemap_offset = bg_tilemap_offset;
+            }
+
+            tile_x = (uint8_t)(source_x >> 3);
+            tile_y = (uint8_t)(source_y >> 3);
+            pixel_x = source_x & 7;
+            pixel_y = source_y & 7;
+            run = 8 - pixel_x;
+            if (!in_window && window_enable) {
+                int window_x = (int)ppu->latched_wx - 7;
+                if (x < window_x && x + run > window_x) {
+                    run = window_x - x;
+                }
+            }
+            if (x + run > GB_SCREEN_WIDTH) {
+                run = GB_SCREEN_WIDTH - x;
+            }
+
+            tile_idx = vram[tilemap_offset + tile_y * 32u + tile_x];
+            tile_offset = unsigned_tile_data
+                ? (uint16_t)(tile_idx * 16u + pixel_y * 2)
+                : (uint16_t)(0x1000 + ((int8_t)tile_idx * 16) + pixel_y * 2);
+            lo = vram[tile_offset];
+            hi = vram[tile_offset + 1u];
+
+            for (int i = 0; i < run; i++) {
+                int bit = 7 - (pixel_x + i);
+                uint8_t raw_color = (uint8_t)(((lo >> bit) & 1) | (((hi >> bit) & 1) << 1));
+                uint8_t shade = shade_lut[raw_color];
+                int screen_x = x + i;
+
+                ppu->framebuffer[row_base + screen_x] = shade;
+                ppu->color_framebuffer[row_base + screen_x] = color_lut[raw_color];
+                bg_raw[screen_x] = raw_color;
+            }
+
+            x += run;
+        }
+
+        if (ppu->window_triggered && window_enable) {
+            ppu->window_line++;
+        }
+        return;
     }
 
     for (int x = 0; x < GB_SCREEN_WIDTH; x++) {
@@ -502,11 +635,64 @@ static void sort_scanline_sprites(ScanlineSprite* sprites, int sprite_count) {
     }
 }
 
+static void render_dmg_sprites_scanline_fast(GBPPU* ppu,
+                                             const uint8_t* bg_raw,
+                                             const ScanlineSprite* sprites,
+                                             int sprite_count) {
+    uint8_t drawn[GB_SCREEN_WIDTH];
+    uint8_t obp0_lut[4];
+    uint8_t obp1_lut[4];
+    uint16_t obp0_color_lut[4];
+    uint16_t obp1_color_lut[4];
+    const size_t row_base = (size_t)ppu->ly * GB_SCREEN_WIDTH;
+
+    memset(drawn, 0, sizeof(drawn));
+    for (int i = 0; i < 4; i++) {
+        obp0_lut[i] = (uint8_t)((ppu->latched_obp0 >> (i * 2)) & 0x03);
+        obp1_lut[i] = (uint8_t)((ppu->latched_obp1 >> (i * 2)) & 0x03);
+        obp0_color_lut[i] = dmg_palette_rgb555[obp0_lut[i]];
+        obp1_color_lut[i] = dmg_palette_rgb555[obp1_lut[i]];
+    }
+
+    for (int i = 0; i < sprite_count; i++) {
+        const ScanlineSprite* sprite = &sprites[i];
+        const uint8_t* shade_lut = sprite->palette ? obp1_lut : obp0_lut;
+        const uint16_t* color_lut = sprite->palette ? obp1_color_lut : obp0_color_lut;
+
+        for (int sprite_px = 0; sprite_px < 8; sprite_px++) {
+            int screen_x = sprite->screen_x + sprite_px;
+            int bit_pos;
+            uint8_t color;
+            uint8_t shade;
+
+            if (screen_x < 0 || screen_x >= GB_SCREEN_WIDTH || drawn[screen_x]) {
+                continue;
+            }
+
+            bit_pos = (sprite->flags & OAM_FLIP_X) ? sprite_px : (7 - sprite_px);
+            color = (uint8_t)(((sprite->lo >> bit_pos) & 1) | (((sprite->hi >> bit_pos) & 1) << 1));
+            if (color == 0) {
+                continue;
+            }
+
+            drawn[screen_x] = 1;
+            if (sprite->behind_bg && bg_raw && bg_raw[screen_x] != 0) {
+                continue;
+            }
+
+            shade = shade_lut[color];
+            ppu->framebuffer[row_base + screen_x] = shade;
+            ppu->color_framebuffer[row_base + screen_x] = color_lut[color];
+        }
+    }
+}
+
 static void render_sprites_scanline(GBPPU* ppu,
                                     GBContext* ctx,
                                     const uint8_t* bg_raw,
                                     const uint8_t* bg_priority) {
     bool cgb_mode = ppu_is_cgb_mode(ctx);
+    bool cgb_compat_mode = ppu_is_cgb_compat_mode(ctx);
     bool dmg_priority_mode = !cgb_mode || ppu->opri != 0;
     uint8_t scanline = ppu->ly;
     uint8_t sprite_height;
@@ -560,6 +746,11 @@ static void render_sprites_scanline(GBPPU* ppu,
 
     if (dmg_priority_mode) {
         sort_scanline_sprites(sprites, sprite_count);
+    }
+
+    if (!cgb_mode && !cgb_compat_mode) {
+        render_dmg_sprites_scanline_fast(ppu, bg_raw, sprites, sprite_count);
+        return;
     }
 
     for (int screen_x = 0; screen_x < GB_SCREEN_WIDTH; screen_x++) {
@@ -623,28 +814,507 @@ static void render_sprites_scanline(GBPPU* ppu,
     }
 }
 
+/* ============================================================================
+ * Dot-aware pixel-transfer reference path
+ *
+ * This is deliberately kept separate from the scanline renderer above. The
+ * reference path samples live registers and VRAM as pixels are emitted, and
+ * accounts for the FIFO startup, SCX discard, window restart, and OBJ fetch
+ * stalls that make mode 3 variable. A future batched renderer may use the
+ * scanline helpers only after proving that none of these observable events can
+ * occur for the span being batched.
+ * ========================================================================== */
+
+typedef struct {
+    uint8_t raw_color;
+    uint8_t palette;
+    bool priority;
+} DotBackgroundPixel;
+
+typedef struct {
+    bool present;
+    uint8_t raw_color;
+    uint8_t palette;
+    bool behind_bg;
+} DotObjectPixel;
+
+static DotBackgroundPixel ppu_fetch_background_dot(const GBPPU* ppu,
+                                                    const GBContext* ctx) {
+    DotBackgroundPixel pixel = {0, 0, false};
+    const bool cgb_mode = ppu_is_cgb_mode(ctx);
+    const bool bg_enabled = cgb_mode || (ppu->lcdc & LCDC_BG_ENABLE) != 0;
+    const bool in_window = ppu->window_active_line;
+    uint16_t tilemap_addr;
+    int source_x;
+    int source_y;
+
+    if (!bg_enabled) {
+        return pixel;
+    }
+
+    if (in_window) {
+        source_x = ppu->window_pixel_x;
+        source_y = ppu->window_line;
+        tilemap_addr = get_window_tilemap_addr(ppu->lcdc);
+    } else {
+        source_x = (ppu->draw_x + ppu->scx) & 0xFF;
+        source_y = (ppu->ly + ppu->scy) & 0xFF;
+        tilemap_addr = get_bg_tilemap_addr(ppu->lcdc);
+    }
+
+    uint8_t pixel_x = (uint8_t)(source_x & 7);
+    uint8_t pixel_y = (uint8_t)(source_y & 7);
+    const uint8_t tile_x = (uint8_t)((source_x >> 3) & 31);
+    const uint8_t tile_y = (uint8_t)((source_y >> 3) & 31);
+    const uint16_t map_entry = (uint16_t)(tilemap_addr + tile_y * 32u + tile_x);
+    const uint8_t tile_idx = vram_read_bank(ctx, 0, map_entry);
+    uint8_t tile_bank = 0;
+    uint8_t attr = 0;
+
+    if (cgb_mode) {
+        attr = vram_read_bank(ctx, 1, map_entry);
+        pixel.palette = attr & OAM_CGB_PALETTE;
+        tile_bank = (attr & OAM_CGB_BANK) ? 1 : 0;
+        pixel.priority = (attr & OAM_PRIORITY) != 0;
+        if (attr & OAM_FLIP_X) pixel_x = (uint8_t)(7 - pixel_x);
+        if (attr & OAM_FLIP_Y) pixel_y = (uint8_t)(7 - pixel_y);
+    }
+
+    const uint16_t tile_addr = get_tile_data_addr(ppu->lcdc, tile_idx, false);
+    const uint8_t lo = vram_read_bank(ctx, tile_bank,
+                                      (uint16_t)(tile_addr + pixel_y * 2u));
+    const uint8_t hi = vram_read_bank(ctx, tile_bank,
+                                      (uint16_t)(tile_addr + pixel_y * 2u + 1u));
+    const int bit = 7 - pixel_x;
+    pixel.raw_color = (uint8_t)(((lo >> bit) & 1u) |
+                                (((hi >> bit) & 1u) << 1u));
+    return pixel;
+}
+
+static DotObjectPixel ppu_fetch_object_dot(const GBPPU* ppu,
+                                            const GBContext* ctx) {
+    DotObjectPixel chosen = {false, 0, 0, false};
+    const bool cgb_mode = ppu_is_cgb_mode(ctx);
+    const bool dmg_priority = !cgb_mode || ppu->opri != 0;
+    int chosen_x = 256;
+    int chosen_index = 256;
+
+    if (!(ppu->lcdc & LCDC_OBJ_ENABLE)) {
+        return chosen;
+    }
+
+    for (uint8_t slot = 0; slot < ppu->visible_sprite_count; ++slot) {
+        const int oam_index = ppu->visible_sprite_indices[slot];
+        const int screen_x = (int)ppu->visible_sprite_x[slot] - 8;
+        const int sprite_pixel = (int)ppu->draw_x - screen_x;
+        if (sprite_pixel < 0 || sprite_pixel >= 8) {
+            continue;
+        }
+
+        const size_t oam_offset = (size_t)oam_index * 4u;
+        const uint8_t tile_byte = ctx->oam[oam_offset + 2u];
+        const uint8_t flags = ctx->oam[oam_offset + 3u];
+        int line = (int)ppu->ly - ((int)ppu->visible_sprite_y[slot] - 16);
+        uint8_t tile = tile_byte;
+        uint8_t bank = 0;
+        if (ppu->line_sprite_height == 16) {
+            tile &= 0xFE;
+        }
+        if (flags & OAM_FLIP_Y) {
+            line = ppu->line_sprite_height - 1 - line;
+        }
+        if (line < 0 || line >= ppu->line_sprite_height) {
+            continue;
+        }
+        if (cgb_mode && (flags & OAM_CGB_BANK)) {
+            bank = 1;
+        }
+
+        const uint16_t tile_addr = (uint16_t)(0x8000u + tile * 16u + line * 2u);
+        const uint8_t lo = vram_read_bank(ctx, bank, tile_addr);
+        const uint8_t hi = vram_read_bank(ctx, bank, (uint16_t)(tile_addr + 1u));
+        const int bit = (flags & OAM_FLIP_X) ? sprite_pixel : (7 - sprite_pixel);
+        const uint8_t raw = (uint8_t)(((lo >> bit) & 1u) |
+                                      (((hi >> bit) & 1u) << 1u));
+        if (raw == 0) {
+            continue;
+        }
+
+        bool wins = !chosen.present;
+        if (!wins && dmg_priority) {
+            wins = screen_x < chosen_x ||
+                   (screen_x == chosen_x && oam_index < chosen_index);
+        } else if (!wins) {
+            wins = oam_index < chosen_index;
+        }
+        if (!wins) {
+            continue;
+        }
+
+        chosen.present = true;
+        chosen.raw_color = raw;
+        chosen.palette = cgb_mode
+            ? (flags & OAM_CGB_PALETTE)
+            : ((flags & OAM_PALETTE) ? 1 : 0);
+        chosen.behind_bg = (flags & OAM_PRIORITY) != 0;
+        chosen_x = screen_x;
+        chosen_index = oam_index;
+    }
+    return chosen;
+}
+
+static void ppu_render_dot(GBPPU* ppu, GBContext* ctx) {
+    const size_t framebuffer_index =
+        (size_t)ppu->ly * GB_SCREEN_WIDTH + ppu->draw_x;
+    const bool cgb_mode = ppu_is_cgb_mode(ctx);
+    const DotBackgroundPixel bg = ppu_fetch_background_dot(ppu, ctx);
+    const DotObjectPixel obj = ppu_fetch_object_dot(ppu, ctx);
+    bool use_object = obj.present;
+
+    if (use_object && bg.raw_color != 0) {
+        if (cgb_mode) {
+            if ((ppu->lcdc & LCDC_BG_ENABLE) &&
+                (bg.priority || obj.behind_bg)) {
+                use_object = false;
+            }
+        } else if (obj.behind_bg) {
+            use_object = false;
+        }
+    }
+
+    if (use_object) {
+        const uint8_t palette_reg = obj.palette ? ppu->obp1 : ppu->obp0;
+        ppu->framebuffer[framebuffer_index] = cgb_mode
+            ? obj.raw_color
+            : apply_palette(obj.raw_color, palette_reg);
+        ppu->color_framebuffer[framebuffer_index] =
+            resolve_obj_color(ppu, ctx, obj.palette, obj.raw_color, palette_reg);
+    } else {
+        ppu->framebuffer[framebuffer_index] = cgb_mode
+            ? bg.raw_color
+            : apply_palette(bg.raw_color, ppu->bgp);
+        ppu->color_framebuffer[framebuffer_index] =
+            resolve_bg_color(ppu, ctx, bg.palette, bg.raw_color, ppu->bgp);
+    }
+}
+
+/* Render a sprite-free run that stays within one fetched background/window
+ * tile row. The caller proves that no window, object-fetch, STAT, or mode
+ * boundary can occur inside the run. Palette resolution remains per pixel so
+ * this produces the same framebuffer values as ppu_render_dot(). */
+static void ppu_render_background_span(GBPPU* ppu,
+                                       GBContext* ctx,
+                                       uint32_t span) {
+    const bool cgb_mode = ppu_is_cgb_mode(ctx);
+    const bool bg_enabled = cgb_mode || (ppu->lcdc & LCDC_BG_ENABLE) != 0;
+    const bool in_window = ppu->window_active_line;
+    uint16_t tilemap_addr = 0;
+    int source_x = 0;
+    int source_y = 0;
+    uint8_t tile_bank = 0;
+    uint8_t palette = 0;
+    uint8_t lo = 0;
+    uint8_t hi = 0;
+    bool flip_x = false;
+
+    if (in_window) {
+        source_x = ppu->window_pixel_x;
+        source_y = ppu->window_line;
+        tilemap_addr = get_window_tilemap_addr(ppu->lcdc);
+    } else {
+        source_x = (ppu->draw_x + ppu->scx) & 0xFF;
+        source_y = (ppu->ly + ppu->scy) & 0xFF;
+        tilemap_addr = get_bg_tilemap_addr(ppu->lcdc);
+    }
+
+    if (bg_enabled) {
+        const uint8_t tile_x = (uint8_t)((source_x >> 3) & 31);
+        const uint8_t tile_y = (uint8_t)((source_y >> 3) & 31);
+        const uint16_t map_entry =
+            (uint16_t)(tilemap_addr + tile_y * 32u + tile_x);
+        const uint8_t tile_idx = vram_read_bank(ctx, 0, map_entry);
+        uint8_t pixel_y = (uint8_t)(source_y & 7);
+        uint8_t attr = 0;
+
+        if (cgb_mode) {
+            attr = vram_read_bank(ctx, 1, map_entry);
+            palette = attr & OAM_CGB_PALETTE;
+            tile_bank = (attr & OAM_CGB_BANK) ? 1u : 0u;
+            flip_x = (attr & OAM_FLIP_X) != 0;
+            if (attr & OAM_FLIP_Y) {
+                pixel_y = (uint8_t)(7u - pixel_y);
+            }
+        }
+
+        const uint16_t tile_addr =
+            get_tile_data_addr(ppu->lcdc, tile_idx, false);
+        lo = vram_read_bank(
+            ctx, tile_bank, (uint16_t)(tile_addr + pixel_y * 2u));
+        hi = vram_read_bank(
+            ctx, tile_bank, (uint16_t)(tile_addr + pixel_y * 2u + 1u));
+    }
+
+    for (uint32_t offset = 0; offset < span; ++offset) {
+        uint8_t raw_color = 0;
+        if (bg_enabled) {
+            uint8_t pixel_x = (uint8_t)((source_x + (int)offset) & 7);
+            if (flip_x) {
+                pixel_x = (uint8_t)(7u - pixel_x);
+            }
+            const uint8_t bit = (uint8_t)(7u - pixel_x);
+            raw_color = (uint8_t)(((lo >> bit) & 1u) |
+                                  (((hi >> bit) & 1u) << 1u));
+        }
+
+        const size_t framebuffer_index =
+            (size_t)ppu->ly * GB_SCREEN_WIDTH + ppu->draw_x + offset;
+        ppu->framebuffer[framebuffer_index] = cgb_mode
+            ? raw_color
+            : apply_palette(raw_color, ppu->bgp);
+        ppu->color_framebuffer[framebuffer_index] =
+            resolve_bg_color(ppu, ctx, palette, raw_color, ppu->bgp);
+    }
+}
+
+static void ppu_select_line_sprites(GBPPU* ppu, const GBContext* ctx) {
+    ppu->visible_sprite_count = 0;
+    ppu->line_sprite_height = (ppu->lcdc & LCDC_OBJ_SIZE) ? 16 : 8;
+    for (uint8_t index = 0;
+         index < 40 && ppu->visible_sprite_count < 10;
+         ++index) {
+        const size_t offset = (size_t)index * 4u;
+        const uint8_t y = ctx->oam[offset];
+        const int screen_y = (int)y - 16;
+        if ((int)ppu->ly < screen_y ||
+            (int)ppu->ly >= screen_y + ppu->line_sprite_height) {
+            continue;
+        }
+        const uint8_t slot = ppu->visible_sprite_count++;
+        ppu->visible_sprite_indices[slot] = index;
+        ppu->visible_sprite_x[slot] = ctx->oam[offset + 1u];
+        ppu->visible_sprite_y[slot] = y;
+    }
+}
+
+static void ppu_begin_dot_transfer(GBPPU* ppu, const GBContext* ctx) {
+    latch_scanline_registers(ppu);
+    ppu_select_line_sprites(ppu, ctx);
+    ppu->mode_cycles = 0;
+    ppu->mode3_length = 0;
+    ppu->draw_x = 0;
+    ppu->draw_startup = (uint8_t)(12u + (ppu->scx & 7u));
+    ppu->draw_stall = 0;
+    ppu->fetched_sprite_mask = 0;
+    ppu->considered_bg_tiles = 0;
+    ppu->window_active_line = false;
+    ppu->window_rendered_line = false;
+    ppu->window_pixel_x = 0;
+    if (ppu->ly == ppu->wy) {
+        ppu->window_y_triggered = true;
+    }
+}
+
+static bool ppu_try_start_window(GBPPU* ppu, const GBContext* ctx) {
+    const bool cgb_mode = ppu_is_cgb_mode(ctx);
+    const bool bg_visible = cgb_mode || (ppu->lcdc & LCDC_BG_ENABLE) != 0;
+    if (ppu->window_active_line ||
+        !ppu->window_y_triggered ||
+        !(ppu->lcdc & LCDC_WINDOW_ENABLE) ||
+        !bg_visible ||
+        ppu->wx > 166) {
+        return false;
+    }
+
+    int trigger_x = (int)ppu->wx - 7;
+    if (trigger_x < 0) trigger_x = 0;
+    if ((int)ppu->draw_x != trigger_x) {
+        return false;
+    }
+
+    ppu->window_active_line = true;
+    ppu->window_rendered_line = true;
+    ppu->window_triggered = true;
+    ppu->window_pixel_x = ppu->wx < 7 ? (uint8_t)(7 - ppu->wx) : 0;
+    /* WX=0 with fractional SCX skips one of the normal six restart dots. */
+    ppu->draw_stall = (uint8_t)((ppu->wx == 0 && (ppu->scx & 7)) ? 4 : 5);
+    return true;
+}
+
+static unsigned ppu_begin_object_fetches(GBPPU* ppu, const GBContext* ctx) {
+    unsigned penalty = 0;
+    const bool cgb_mode = ppu_is_cgb_mode(ctx);
+
+    for (uint8_t slot = 0; slot < ppu->visible_sprite_count; ++slot) {
+        const uint16_t bit = (uint16_t)(1u << slot);
+        if (ppu->fetched_sprite_mask & bit) {
+            continue;
+        }
+        const uint8_t oam_x = ppu->visible_sprite_x[slot];
+        const int screen_x = (int)oam_x - 8;
+        const int trigger_x = screen_x < 0 ? 0 : screen_x;
+        if (trigger_x >= GB_SCREEN_WIDTH || trigger_x != (int)ppu->draw_x) {
+            continue;
+        }
+
+        ppu->fetched_sprite_mask |= bit;
+        if (!cgb_mode && !(ppu->lcdc & LCDC_OBJ_ENABLE)) {
+            continue;
+        }
+        int source_x = ppu->window_active_line
+            ? ppu->window_pixel_x
+            : (screen_x + ppu->scx) & 0xFF;
+        const unsigned tile = (unsigned)((source_x >> 3) & 31) |
+                              (ppu->window_active_line ? 32u : 0u);
+        const uint64_t tile_bit = UINT64_C(1) << tile;
+        if (!(ppu->considered_bg_tiles & tile_bit)) {
+            const int pixels_right = 7 - (source_x & 7);
+            if (pixels_right > 2) {
+                penalty += (unsigned)(pixels_right - 2);
+            }
+            ppu->considered_bg_tiles |= tile_bit;
+        }
+        penalty += 6;
+    }
+    return penalty;
+}
+
+static uint32_t ppu_draw_stable_span(GBPPU* ppu,
+                                     GBContext* ctx,
+                                     uint32_t available_dots) {
+    if (available_dots < 2u ||
+        ppu->draw_startup != 0u ||
+        ppu->draw_stall != 0u ||
+        ppu->visible_mode != PPU_MODE_DRAW ||
+        ppu->visible_sprite_count != 0u ||
+        ctx->ppu_trace_file != NULL ||
+        ppu->draw_x + 1u >= GB_SCREEN_WIDTH) {
+        return 0;
+    }
+
+    uint32_t span = available_dots;
+    const uint32_t before_final_pixel =
+        (uint32_t)GB_SCREEN_WIDTH - 1u - ppu->draw_x;
+    if (span > before_final_pixel) {
+        span = before_final_pixel;
+    }
+
+    if (!ppu->window_active_line) {
+        const bool cgb_mode = ppu_is_cgb_mode(ctx);
+        const bool bg_visible =
+            cgb_mode || (ppu->lcdc & LCDC_BG_ENABLE) != 0;
+        const bool window_can_start =
+            ppu->window_y_triggered &&
+            (ppu->lcdc & LCDC_WINDOW_ENABLE) != 0 &&
+            bg_visible &&
+            ppu->wx <= 166;
+        if (window_can_start) {
+            int trigger_x = (int)ppu->wx - 7;
+            if (trigger_x < 0) {
+                trigger_x = 0;
+            }
+            if ((int)ppu->draw_x == trigger_x) {
+                return 0;
+            }
+            if ((int)ppu->draw_x < trigger_x) {
+                const uint32_t until_window =
+                    (uint32_t)(trigger_x - (int)ppu->draw_x);
+                if (span > until_window) {
+                    span = until_window;
+                }
+            }
+        }
+    }
+
+    const int source_x = ppu->window_active_line
+        ? ppu->window_pixel_x
+        : (ppu->draw_x + ppu->scx) & 0xFF;
+    const uint32_t until_tile_boundary =
+        8u - (uint32_t)(source_x & 7);
+    if (span > until_tile_boundary) {
+        span = until_tile_boundary;
+    }
+    if (span < 2u) {
+        return 0;
+    }
+
+    ppu_render_background_span(ppu, ctx, span);
+    ppu->draw_x = (uint16_t)(ppu->draw_x + span);
+    if (ppu->window_active_line) {
+        ppu->window_pixel_x = (uint16_t)(ppu->window_pixel_x + span);
+    }
+    return span;
+}
+
+static bool ppu_draw_one_dot(GBPPU* ppu, GBContext* ctx) {
+    if (ppu->draw_startup > 0) {
+        ppu->draw_startup--;
+        return false;
+    }
+    if (ppu->draw_stall > 0) {
+        ppu->draw_stall--;
+        return false;
+    }
+    if (ppu_try_start_window(ppu, ctx)) {
+        return false;
+    }
+
+    const unsigned object_penalty = ppu_begin_object_fetches(ppu, ctx);
+    if (object_penalty > 0) {
+        ppu->draw_stall = (uint8_t)(object_penalty - 1u);
+        return false;
+    }
+
+    ppu_render_dot(ppu, ctx);
+    ppu->draw_x++;
+    if (ppu->window_active_line) {
+        ppu->window_pixel_x++;
+    }
+    return ppu->draw_x >= GB_SCREEN_WIDTH;
+}
+
 void ppu_render_scanline(GBPPU* ppu, GBContext* ctx) {
     uint8_t bg_raw[GB_SCREEN_WIDTH];
     uint8_t bg_priority[GB_SCREEN_WIDTH];
 
-    if (ppu->ly == 0) {
+    if (!gbrt_rgb_framebuffer_enabled && !ctx->ppu_trace_file) {
+        uint8_t scanline = ppu->ly;
+        uint8_t lcdc = ppu->latched_lcdc;
+        bool cgb_mode = ppu_is_cgb_mode(ctx);
+        bool bg_visible = cgb_mode ? true : ((lcdc & LCDC_BG_ENABLE) != 0);
+        bool window_enable = (lcdc & LCDC_WINDOW_ENABLE) &&
+                             (ppu->latched_wx <= 166) &&
+                             (ppu->latched_wy <= scanline) &&
+                             (cgb_mode || bg_visible);
+
+        if (window_enable && !ppu->window_triggered) {
+            ppu->window_triggered = true;
+        }
+        if (ppu->window_triggered && window_enable) {
+            ppu->window_line++;
+        }
+        return;
+    }
+
+    if (ctx->ppu_trace_file && ppu->ly == 0) {
         gbrt_log_oam_snapshot(ctx, "scanline-0");
     }
 
-    gbrt_log_ppu_scanline(ctx,
-                          ppu->ly,
-                          ppu->mode,
-                          ppu->lcdc,
-                          ppu->stat,
-                          ppu->scx,
-                          ppu->scy,
-                          ppu->wx,
-                          ppu->wy,
-                          ppu->bgp,
-                          ppu->obp0,
-                          ppu->obp1,
-                          ppu->window_line,
-                          ppu->window_triggered);
+    if (ctx->ppu_trace_file) {
+        gbrt_log_ppu_scanline(ctx,
+                              ppu->ly,
+                              ppu->mode,
+                              ppu->lcdc,
+                              ppu->stat,
+                              ppu->scx,
+                              ppu->scy,
+                              ppu->wx,
+                              ppu->wy,
+                              ppu->bgp,
+                              ppu->obp0,
+                              ppu->obp1,
+                              ppu->window_line,
+                              ppu->window_triggered);
+    }
 
     memset(bg_raw, 0, sizeof(bg_raw));
     memset(bg_priority, 0, sizeof(bg_priority));
@@ -655,7 +1325,10 @@ void ppu_render_scanline(GBPPU* ppu, GBContext* ctx) {
 
 static void convert_to_rgb(GBPPU* ppu) {
     static int convert_count = 0;
-    bool has_content = dbg_has_nonzero_pixels(ppu->framebuffer, GB_FRAMEBUFFER_SIZE);
+
+    if (!gbrt_rgb_framebuffer_enabled) {
+        return;
+    }
 
     for (int i = 0; i < GB_FRAMEBUFFER_SIZE; i++) {
         ppu->rgb_framebuffer[i] = rgb555_to_rgba(ppu->color_framebuffer[i]);
@@ -663,6 +1336,8 @@ static void convert_to_rgb(GBPPU* ppu) {
 
     convert_count++;
     if (convert_count <= 5 || (convert_count % 60 == 0)) {
+        bool has_content = dbg_has_nonzero_pixels(ppu->framebuffer, GB_FRAMEBUFFER_SIZE);
+        (void)has_content;
         DBG_FRAME("Frame %d converted to RGB - has_content=%d", convert_count, has_content);
         dbg_dump_framebuffer(ppu->framebuffer, GB_SCREEN_WIDTH);
     }
@@ -673,7 +1348,8 @@ static void convert_to_rgb(GBPPU* ppu) {
  * ========================================================================== */
 
 static void update_stat(GBPPU* ppu, GBContext* ctx) {
-    ppu->stat = (uint8_t)((ppu->stat & ~STAT_MODE_MASK) | ppu->mode);
+    ppu->stat = (uint8_t)((ppu->stat & ~STAT_MODE_MASK) |
+                          (ppu->visible_mode & STAT_MODE_MASK));
 
     if (ppu->ly == ppu->lyc) {
         ppu->stat |= STAT_LYC_MATCH;
@@ -685,6 +1361,17 @@ static void update_stat(GBPPU* ppu, GBContext* ctx) {
     ctx->io[0x44] = ppu->ly;
 }
 
+static void update_stat_deferring_lyc_rise(GBPPU* ppu, GBContext* ctx) {
+    const uint8_t previous_match = ppu->stat & STAT_LYC_MATCH;
+    update_stat(ppu, ctx);
+    /* The line clock clears a stale equality immediately, but a new equality
+     * is not exposed until visible mode 2 begins four dots later. */
+    if (!previous_match && (ppu->stat & STAT_LYC_MATCH)) {
+        ppu->stat &= (uint8_t)~STAT_LYC_MATCH;
+        ctx->io[0x41] = ppu->stat;
+    }
+}
+
 static void check_stat_interrupt(GBPPU* ppu, GBContext* ctx, const char* reason) {
     uint8_t source_state_mask = 0;
     uint8_t source_enable_mask = 0;
@@ -692,9 +1379,10 @@ static void check_stat_interrupt(GBPPU* ppu, GBContext* ctx, const char* reason)
     bool previous_state = ppu->stat_irq_state;
     bool current_state = false;
 
-    if (ppu->mode == PPU_MODE_HBLANK) source_state_mask |= 0x1;
-    if (ppu->mode == PPU_MODE_VBLANK) source_state_mask |= 0x2;
-    if (ppu->mode == PPU_MODE_OAM) source_state_mask |= 0x4;
+    if (ppu->stat_irq_mode == PPU_MODE_HBLANK) source_state_mask |= 0x1;
+    if (ppu->stat_irq_mode == PPU_MODE_VBLANK) source_state_mask |= 0x2;
+    if (ppu->stat_irq_mode == PPU_MODE_OAM) source_state_mask |= 0x4;
+    if (ppu->vblank_oam_irq_source) source_state_mask |= 0x4;
     if (ppu->stat & STAT_LYC_MATCH) source_state_mask |= 0x8;
 
     if (ppu->stat & STAT_HBLANK_INT) source_enable_mask |= 0x1;
@@ -705,74 +1393,274 @@ static void check_stat_interrupt(GBPPU* ppu, GBContext* ctx, const char* reason)
     active_source_mask = source_state_mask & source_enable_mask;
     current_state = active_source_mask != 0;
 
-    gbrt_log_stat_irq_check(ctx,
-                            reason,
-                            ppu->ly,
-                            ppu->mode,
-                            ppu->stat,
-                            source_state_mask,
-                            source_enable_mask,
-                            active_source_mask,
-                            previous_state,
-                            current_state);
+    if (ctx->ppu_trace_file) {
+        gbrt_log_stat_irq_check(ctx,
+                                reason,
+                                ppu->ly,
+                                ppu->mode,
+                                ppu->stat,
+                                source_state_mask,
+                                source_enable_mask,
+                                active_source_mask,
+                                previous_state,
+                                current_state);
+    }
 
     if (current_state && !previous_state) {
         uint8_t if_before = ctx->io[0x0F];
         ctx->io[0x0F] |= 0x02;
-        gbrt_log_stat_irq_request(ctx,
-                                  reason,
-                                  ppu->ly,
-                                  ppu->mode,
-                                  ppu->stat,
-                                  active_source_mask,
-                                  if_before,
-                                  ctx->io[0x0F]);
+        if (ctx->ppu_trace_file) {
+            gbrt_log_stat_irq_request(ctx,
+                                      reason,
+                                      ppu->ly,
+                                      ppu->mode,
+                                      ppu->stat,
+                                      active_source_mask,
+                                      if_before,
+                                      ctx->io[0x0F]);
+        }
     }
 
     ppu->stat_irq_state = current_state;
 }
 
 void ppu_tick(GBPPU* ppu, GBContext* ctx, uint32_t cycles) {
+    gbrt_note_ppu_tick(ctx,
+                       (ppu->lcdc & LCDC_LCD_ENABLE) != 0 ? cycles : 0u);
     if (!(ppu->lcdc & LCDC_LCD_ENABLE)) {
         return;
     }
 
-    ppu->mode_cycles += cycles;
-
-    for (;;) {
+    while (cycles > 0) {
         switch (ppu->mode) {
-            case PPU_MODE_OAM:
-                if (ppu->mode_cycles < CYCLES_OAM_SCAN) {
-                    return;
+            case PPU_MODE_OAM: {
+                /* LY/internal OAM advance four dots before STAT exposes
+                 * visible mode 2. The mode-2 interrupt source rises on the
+                 * third hidden OAM dot, one dot before the mode bits. */
+                if (ppu->visible_mode == PPU_MODE_HBLANK &&
+                    ppu->mode_cycles < 4u) {
+                    const uint32_t next_event =
+                        ppu->stat_irq_mode != PPU_MODE_OAM ? 3u : 4u;
+                    const uint32_t remaining = next_event - ppu->mode_cycles;
+                    const uint32_t step = cycles < remaining ? cycles : remaining;
+                    ppu->mode_cycles += step;
+                    cycles -= step;
+                    if (ppu->mode_cycles < next_event) {
+                        break;
+                    }
+                    if (ppu->mode_cycles == 3u &&
+                        ppu->stat_irq_mode != PPU_MODE_OAM) {
+                        ppu->stat_irq_mode = PPU_MODE_OAM;
+                        check_stat_interrupt(ppu, ctx, "oam-irq-early");
+                        break;
+                    }
+                    if (ppu->mode_cycles == 4u) {
+                        ppu->visible_mode = PPU_MODE_OAM;
+                        update_stat(ppu, ctx);
+                        break;
+                    }
                 }
-                ppu->mode_cycles -= CYCLES_OAM_SCAN;
+
+                const uint32_t remaining = CYCLES_OAM_SCAN - ppu->mode_cycles;
+                const uint32_t step = cycles < remaining ? cycles : remaining;
+                ppu->mode_cycles += step;
+                cycles -= step;
+                if (ppu->mode_cycles < CYCLES_OAM_SCAN) {
+                    break;
+                }
                 ppu->mode = PPU_MODE_DRAW;
-                latch_scanline_registers(ppu);
+                ppu->stat_irq_mode = PPU_MODE_DRAW;
+                ppu_begin_dot_transfer(ppu, ctx);
                 update_stat(ppu, ctx);
                 check_stat_interrupt(ppu, ctx, "oam->draw");
                 break;
+            }
 
-            case PPU_MODE_DRAW:
-                if (ppu->mode_cycles < CYCLES_PIXEL_DRAW) {
-                    return;
+            case PPU_MODE_DRAW: {
+#ifndef GBRT_DISABLE_PPU_STABLE_SPANS
+                const uint32_t stable_span =
+                    ppu_draw_stable_span(ppu, ctx, cycles);
+                if (stable_span > 0u) {
+                    ppu->mode_cycles =
+                        (uint16_t)(ppu->mode_cycles + stable_span);
+                    cycles -= stable_span;
+                    gbrt_note_ppu_draw_span(ctx, stable_span);
+                    gbrt_note_ppu_stable_span(ctx, stable_span);
+                    break;
                 }
-                ppu->mode_cycles -= CYCLES_PIXEL_DRAW;
-                ppu_render_scanline(ppu, ctx);
+#endif
+
+                const uint16_t previous_draw_x = ppu->draw_x;
+                ppu->mode_cycles++;
+                cycles--;
+                if (ppu->visible_mode != PPU_MODE_DRAW &&
+                    ppu->mode_cycles >= 3) {
+                    ppu->visible_mode = PPU_MODE_DRAW;
+                    update_stat(ppu, ctx);
+                }
+                const bool transfer_complete = ppu_draw_one_dot(ppu, ctx);
+                gbrt_note_ppu_draw_dot(ctx, ppu->draw_x != previous_draw_x);
+                if (!transfer_complete) {
+                    break;
+                }
+
+                ppu->mode3_length = (uint16_t)ppu->mode_cycles;
+                if (ppu->lcd_startup_phase == LCD_STARTUP_DRAW) {
+                    const uint32_t used =
+                        LCD_STARTUP_DRAW_DOT + ppu->mode3_length;
+                    ppu->hblank_length = used < LCD_STARTUP_LINE1_DOT
+                        ? (uint16_t)(LCD_STARTUP_LINE1_DOT - used)
+                        : 0;
+                    ppu->lcd_startup_phase = LCD_STARTUP_HBLANK;
+                } else {
+                    ppu->hblank_length = ppu->mode3_length <
+                                                 (CYCLES_SCANLINE - CYCLES_OAM_SCAN)
+                        ? (uint16_t)(CYCLES_SCANLINE - CYCLES_OAM_SCAN -
+                                     ppu->mode3_length)
+                        : 0;
+                }
+                if (ppu->window_rendered_line) {
+                    ppu->window_line++;
+                }
+                if (ctx->ppu_trace_file && ppu->ly == 0) {
+                    gbrt_log_oam_snapshot(ctx, "scanline-0");
+                }
+                if (ctx->ppu_trace_file) {
+                    gbrt_log_ppu_scanline(ctx,
+                                          ppu->ly,
+                                          ppu->mode,
+                                          ppu->lcdc,
+                                          ppu->stat,
+                                          ppu->scx,
+                                          ppu->scy,
+                                          ppu->wx,
+                                          ppu->wy,
+                                          ppu->bgp,
+                                          ppu->obp0,
+                                          ppu->obp1,
+                                          ppu->window_line,
+                                          ppu->window_triggered);
+                }
                 ppu->mode = PPU_MODE_HBLANK;
+                /* The internal transfer is complete, but CPU-visible STAT
+                 * and bus gating retain mode 3 through this boundary dot on
+                 * sprite-free DMG lines. Sprite fetch completion exposes
+                 * HBlank immediately, matching the mode-0 timing table. */
+                const bool sprite_line = ppu->visible_sprite_count > 0u;
+                if (sprite_line) {
+                    ppu->visible_mode = PPU_MODE_HBLANK;
+                }
+                ppu->stat_irq_mode = PPU_MODE_HBLANK;
+                ppu->mode_cycles = 0;
                 update_stat(ppu, ctx);
                 check_stat_interrupt(ppu, ctx, "draw->hblank");
                 gbrt_hdma_hblank(ctx);
                 break;
+            }
 
-            case PPU_MODE_HBLANK:
-                if (ppu->mode_cycles < CYCLES_HBLANK) {
-                    return;
+            case PPU_MODE_HBLANK: {
+                if (ppu->visible_mode == PPU_MODE_DRAW &&
+                    ppu->mode_cycles < 1u) {
+                    const uint32_t step = cycles > 0u ? 1u : 0u;
+                    ppu->mode_cycles += step;
+                    cycles -= step;
+                    if (ppu->mode_cycles < 1u) {
+                        break;
+                    }
+                    ppu->visible_mode = PPU_MODE_HBLANK;
+                    update_stat(ppu, ctx);
+                    break;
                 }
-                ppu->mode_cycles -= CYCLES_HBLANK;
-                ppu->ly++;
+
+                if (ppu->lcd_startup_phase == LCD_STARTUP_MODE0) {
+                    const uint32_t remaining =
+                        LCD_STARTUP_DRAW_DOT - ppu->mode_cycles;
+                    const uint32_t step = cycles < remaining ? cycles : remaining;
+                    ppu->mode_cycles += step;
+                    cycles -= step;
+                    if (ppu->mode_cycles < LCD_STARTUP_DRAW_DOT) {
+                        break;
+                    }
+                    ppu->mode = PPU_MODE_DRAW;
+                    ppu->visible_mode = PPU_MODE_DRAW;
+                    ppu->stat_irq_mode = PPU_MODE_DRAW;
+                    ppu->mode_cycles = 0;
+                    ppu->lcd_startup_phase = LCD_STARTUP_DRAW;
+                    ppu_begin_dot_transfer(ppu, ctx);
+                    update_stat(ppu, ctx);
+                    check_stat_interrupt(ppu, ctx, "lcd-startup-draw");
+                    break;
+                }
+
+                const bool entering_vblank =
+                    ppu->scanline + 1u == VISIBLE_SCANLINES;
+                const bool early_oam_edge =
+                    ppu->lcd_startup_phase == LCD_STARTUP_NONE &&
+                    !entering_vblank &&
+                    ppu->hblank_length > 0u &&
+                    ppu->mode_cycles < ppu->hblank_length - 1u;
+                const bool cgb_vblank_oam_edge =
+                    entering_vblank &&
+                    ppu_is_cgb_hardware(ctx) &&
+                    ppu->hblank_length >= 4u &&
+                    ppu->mode_cycles < ppu->hblank_length - 4u;
+                uint32_t next_event = ppu->hblank_length;
+                if (early_oam_edge &&
+                    ppu->hblank_length - 1u < next_event) {
+                    next_event = ppu->hblank_length - 1u;
+                }
+                if (cgb_vblank_oam_edge &&
+                    ppu->hblank_length - 4u < next_event) {
+                    next_event = ppu->hblank_length - 4u;
+                }
+                if (ppu->mode_cycles < next_event) {
+                    const uint32_t remaining = next_event - ppu->mode_cycles;
+                    const uint32_t step = cycles < remaining ? cycles : remaining;
+                    ppu->mode_cycles += step;
+                    cycles -= step;
+                    if (ppu->mode_cycles < next_event) {
+                        break;
+                    }
+                }
+
+                if (early_oam_edge &&
+                    ppu->mode_cycles == ppu->hblank_length - 1u) {
+                    ppu->ly = (uint8_t)(ppu->scanline + 1u);
+                    update_stat_deferring_lyc_rise(ppu, ctx);
+                    ppu->stat_irq_mode = PPU_MODE_OAM;
+                    check_stat_interrupt(ppu, ctx, "oam-irq-early");
+                    break;
+                }
+
+                /* CGB-family hardware exposes the line-144 mode-2 STAT
+                 * source one M-cycle before the VBlank interrupt. */
+                if (cgb_vblank_oam_edge &&
+                    ppu->mode_cycles == ppu->hblank_length - 4u) {
+                    ppu->stat_irq_mode = PPU_MODE_OAM;
+                    check_stat_interrupt(ppu, ctx, "vblank-oam-cgb-early");
+                    break;
+                }
+
+                ppu->mode_cycles = 0;
+                ppu->scanline++;
+                ppu->ly = ppu->scanline;
+
+                if (ppu->lcd_startup_phase == LCD_STARTUP_HBLANK) {
+                    ppu->mode = PPU_MODE_OAM;
+                    ppu->visible_mode = PPU_MODE_HBLANK;
+                    ppu->stat_irq_mode = PPU_MODE_HBLANK;
+                    ppu->lcd_startup_phase = LCD_STARTUP_NONE;
+                    update_stat_deferring_lyc_rise(ppu, ctx);
+                    check_stat_interrupt(ppu, ctx, "lcd-startup-line1");
+                    break;
+                }
 
                 if (ppu->ly >= VISIBLE_SCANLINES) {
                     ppu->mode = PPU_MODE_VBLANK;
+                    ppu->visible_mode = PPU_MODE_VBLANK;
+                    ppu->stat_irq_mode = PPU_MODE_VBLANK;
+                    ppu->vblank_oam_irq_source =
+                        !ppu_is_cgb_hardware(ctx);
                     if (!ppu->frame_ready) {
                         convert_to_rgb(ppu);
                         ppu->frame_ready = true;
@@ -781,30 +1669,146 @@ void ppu_tick(GBPPU* ppu, GBContext* ctx, uint32_t cycles) {
                     ctx->io[0x0F] |= 0x01;
                 } else {
                     ppu->mode = PPU_MODE_OAM;
+                    ppu->visible_mode = PPU_MODE_HBLANK;
+                    if (ppu->stat_irq_mode != PPU_MODE_OAM) {
+                        ppu->stat_irq_mode = PPU_MODE_HBLANK;
+                    }
                 }
 
-                update_stat(ppu, ctx);
+                if (ppu->mode == PPU_MODE_OAM &&
+                    ppu->visible_mode == PPU_MODE_HBLANK) {
+                    update_stat_deferring_lyc_rise(ppu, ctx);
+                } else {
+                    update_stat(ppu, ctx);
+                }
                 check_stat_interrupt(ppu, ctx, "hblank->next");
-                break;
-
-            case PPU_MODE_VBLANK:
-                if (ppu->mode_cycles < CYCLES_SCANLINE) {
-                    return;
+                if (ppu->vblank_oam_irq_source) {
+                    ppu->vblank_oam_irq_source = false;
+                    check_stat_interrupt(ppu, ctx, "vblank-oam-dmg-end");
                 }
-                ppu->mode_cycles -= CYCLES_SCANLINE;
-                ppu->ly++;
+                break;
+            }
 
-                if (ppu->ly >= TOTAL_SCANLINES) {
+            case PPU_MODE_VBLANK: {
+                uint32_t next_event = CYCLES_SCANLINE;
+                if (ppu->scanline == 153 && ppu->mode_cycles < 4) {
+                    next_event = 4;
+                }
+                const uint32_t remaining = next_event - ppu->mode_cycles;
+                const uint32_t step = cycles < remaining ? cycles : remaining;
+                ppu->mode_cycles += step;
+                cycles -= step;
+                if (ppu->mode_cycles < next_event) {
+                    break;
+                }
+
+                /* LY reads as 0 from dot 4 of line 153, while mode 1 remains. */
+                if (ppu->scanline == 153 && ppu->mode_cycles == 4) {
+                    ppu->ly = 0;
+                    update_stat(ppu, ctx);
+                    check_stat_interrupt(ppu, ctx, "ly153-dot4");
+                    break;
+                }
+
+                ppu->mode_cycles = 0;
+                if (ppu->scanline == 153) {
+                    ppu->scanline = 0;
                     ppu->ly = 0;
                     ppu->window_line = 0;
                     ppu->window_triggered = false;
+                    ppu->window_y_triggered = false;
+                    ppu->window_active_line = false;
+                    ppu->window_rendered_line = false;
                     ppu->mode = PPU_MODE_OAM;
+                    ppu->visible_mode = PPU_MODE_OAM;
+                    ppu->stat_irq_mode = PPU_MODE_OAM;
+                } else {
+                    ppu->scanline++;
+                    ppu->ly = ppu->scanline;
+                    ppu->visible_mode = PPU_MODE_VBLANK;
+                    ppu->stat_irq_mode = PPU_MODE_VBLANK;
                 }
 
                 update_stat(ppu, ctx);
                 check_stat_interrupt(ppu, ctx, "vblank->next");
                 break;
+            }
         }
+    }
+}
+
+uint32_t ppu_cycles_until_next_event(const GBPPU* ppu,
+                                     const GBContext* ctx) {
+    if (!ppu || !(ppu->lcdc & LCDC_LCD_ENABLE)) {
+        return UINT32_MAX;
+    }
+
+    switch (ppu->mode) {
+        case PPU_MODE_OAM: {
+            if (ppu->visible_mode == PPU_MODE_HBLANK &&
+                ppu->mode_cycles < 4u) {
+                const uint32_t target =
+                    ppu->stat_irq_mode != PPU_MODE_OAM ? 3u : 4u;
+                return target - ppu->mode_cycles;
+            }
+            return ppu->mode_cycles < CYCLES_OAM_SCAN
+                ? CYCLES_OAM_SCAN - ppu->mode_cycles
+                : 0u;
+        }
+
+        case PPU_MODE_DRAW:
+            /* Mode 3 completion and early visible-mode publication are driven
+             * by the FIFO one dot at a time. */
+            return 1u;
+
+        case PPU_MODE_HBLANK: {
+            if (ppu->visible_mode == PPU_MODE_DRAW &&
+                ppu->mode_cycles < 1u) {
+                return 1u - ppu->mode_cycles;
+            }
+
+            if (ppu->lcd_startup_phase == LCD_STARTUP_MODE0) {
+                return ppu->mode_cycles < LCD_STARTUP_DRAW_DOT
+                    ? LCD_STARTUP_DRAW_DOT - ppu->mode_cycles
+                    : 0u;
+            }
+
+            const bool entering_vblank =
+                ppu->scanline + 1u == VISIBLE_SCANLINES;
+            const bool early_oam_edge =
+                ppu->lcd_startup_phase == LCD_STARTUP_NONE &&
+                !entering_vblank &&
+                ppu->hblank_length > 0u &&
+                ppu->mode_cycles < ppu->hblank_length - 1u;
+            const bool cgb_vblank_oam_edge =
+                entering_vblank &&
+                ppu_is_cgb_hardware(ctx) &&
+                ppu->hblank_length >= 4u &&
+                ppu->mode_cycles < ppu->hblank_length - 4u;
+            uint32_t target = ppu->hblank_length;
+            if (early_oam_edge && ppu->hblank_length - 1u < target) {
+                target = ppu->hblank_length - 1u;
+            }
+            if (cgb_vblank_oam_edge && ppu->hblank_length - 4u < target) {
+                target = ppu->hblank_length - 4u;
+            }
+            return ppu->mode_cycles < target
+                ? target - ppu->mode_cycles
+                : 0u;
+        }
+
+        case PPU_MODE_VBLANK: {
+            uint32_t target = CYCLES_SCANLINE;
+            if (ppu->scanline == 153u && ppu->mode_cycles < 4u) {
+                target = 4u;
+            }
+            return ppu->mode_cycles < target
+                ? target - ppu->mode_cycles
+                : 0u;
+        }
+
+        default:
+            return 0u;
     }
 }
 
@@ -828,11 +1832,11 @@ uint8_t ppu_read_register(GBPPU* ppu, uint16_t addr) {
         case 0xFF4B: return ppu->wx;
         case 0xFF68: return (uint8_t)(ppu->bgpi | 0x40);
         case 0xFF69:
-            if (ppu->mode == PPU_MODE_DRAW) return 0xFF;
+            if (ppu->visible_mode == PPU_MODE_DRAW) return 0xFF;
             return ppu->bg_palette_ram[ppu->bgpi & 0x3F];
         case 0xFF6A: return (uint8_t)(ppu->obpi | 0x40);
         case 0xFF6B:
-            if (ppu->mode == PPU_MODE_DRAW) return 0xFF;
+            if (ppu->visible_mode == PPU_MODE_DRAW) return 0xFF;
             return ppu->obj_palette_ram[ppu->obpi & 0x3F];
         default: return 0xFF;
     }
@@ -857,21 +1861,44 @@ void ppu_write_register(GBPPU* ppu, GBContext* ctx, uint16_t addr, uint8_t value
             ppu->lcdc = value;
             if ((old_lcdc & LCDC_LCD_ENABLE) && !(value & LCDC_LCD_ENABLE)) {
                 ppu->ly = 0;
+                ppu->scanline = 0;
                 ppu->window_line = 0;
                 ppu->window_triggered = false;
+                ppu->window_y_triggered = false;
+                ppu->window_active_line = false;
+                ppu->window_rendered_line = false;
                 ppu->mode = PPU_MODE_HBLANK;
+                ppu->visible_mode = PPU_MODE_HBLANK;
+                ppu->stat_irq_mode = PPU_MODE_HBLANK;
+                ppu->lcd_startup_phase = LCD_STARTUP_NONE;
                 ppu->mode_cycles = 0;
+                ppu->mode3_length = CYCLES_PIXEL_DRAW;
+                ppu->hblank_length = CYCLES_HBLANK;
                 ppu->frame_ready = false;
-                update_stat(ppu, ctx);
+                /* LY resets immediately, but the comparison clock stops: the
+                 * existing LYC-match bit and STAT line state are retained. */
+                ppu->stat = (uint8_t)(ppu->stat & ~STAT_MODE_MASK);
+                ctx->io[0x41] = ppu->stat;
+                ctx->io[0x44] = 0;
                 gbrt_note_lcd_transition(ctx, false, old_lcdc, value, ppu->ly, ppu->mode);
             } else if (!(old_lcdc & LCDC_LCD_ENABLE) && (value & LCDC_LCD_ENABLE)) {
                 ppu->ly = 0;
+                ppu->scanline = 0;
                 ppu->window_line = 0;
                 ppu->window_triggered = false;
-                ppu->mode = PPU_MODE_OAM;
+                ppu->window_y_triggered = false;
+                ppu->window_active_line = false;
+                ppu->window_rendered_line = false;
+                ppu->mode = PPU_MODE_HBLANK;
+                ppu->visible_mode = PPU_MODE_HBLANK;
+                ppu->stat_irq_mode = PPU_MODE_HBLANK;
+                ppu->lcd_startup_phase = LCD_STARTUP_MODE0;
                 ppu->mode_cycles = 0;
+                ppu->mode3_length = CYCLES_PIXEL_DRAW;
+                ppu->hblank_length = CYCLES_HBLANK;
                 ppu->frame_ready = false;
                 update_stat(ppu, ctx);
+                check_stat_interrupt(ppu, ctx, "lcd-enable-lyc");
                 gbrt_note_lcd_transition(ctx, true, old_lcdc, value, ppu->ly, ppu->mode);
             }
             break;

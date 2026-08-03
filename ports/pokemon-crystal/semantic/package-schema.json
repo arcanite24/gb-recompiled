@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gbrecompiled.example/schemas/semantic-package-v1.json",
+  "title": "GB Recompiled exact-ROM semantic package",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "schema_version", "package", "runtime_abi", "rom", "views"],
+  "properties": {
+    "schema": {"const": "gbrecompiled.semantic-package"},
+    "schema_version": {"const": 1},
+    "package": {
+      "type": "object",
+      "required": ["id", "version"],
+      "properties": {
+        "id": {"type": "string"},
+        "version": {"type": "integer", "minimum": 1}
+      }
+    },
+    "runtime_abi": {
+      "type": "object",
+      "required": ["name", "version"],
+      "properties": {
+        "name": {"const": "gbrecomp.semantic"},
+        "version": {"const": 1}
+      }
+    },
+    "rom": {
+      "type": "object",
+      "required": ["size", "sha256"],
+      "properties": {
+        "size": {"const": 2097152},
+        "sha256": {"const": "fdcc3c8c43813cf8731fc037d2a6d191bac75439c34b24ba1c27526e6acdc8a2"}
+      }
+    },
+    "views": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/view"}
+    }
+  },
+  "$defs": {
+    "provenance": {
+      "type": "object",
+      "required": ["kind", "source"],
+      "properties": {
+        "kind": {"enum": ["pinned-disassembly", "hardware-reference"]},
+        "source": {"type": "string", "minLength": 1}
+      }
+    },
+    "field": {
+      "type": "object",
+      "required": ["name", "offset", "type"],
+      "properties": {
+        "name": {"type": "string"},
+        "offset": {"type": "integer", "minimum": 0},
+        "type": {"enum": ["u8", "u16le", "bytes", "bitset", "record", "table"]}
+      }
+    },
+    "view": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "access", "memory", "provenance"],
+      "properties": {
+        "id": {"type": "string"},
+        "type": {"enum": ["u8", "u16le", "bytes", "bitset", "record", "table", "rtc"]},
+        "access": {"enum": ["read_only", "transactional_write"]},
+        "memory": {
+          "$ref": "#/$defs/memory"
+        },
+        "save_memory": {"$ref": "#/$defs/memory"},
+        "backup_memory": {"$ref": "#/$defs/memory"},
+        "canonical_memory": {"$ref": "#/$defs/indexed_memory"},
+        "fields": {"type": "array", "items": {"$ref": "#/$defs/field"}},
+        "provenance": {"$ref": "#/$defs/provenance"}
+      }
+    },
+    "indexed_memory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "space",
+        "first_bank",
+        "bank_count",
+        "address",
+        "stride",
+        "items_per_bank",
+        "width",
+        "selector_memory",
+        "selector_max"
+      ],
+      "properties": {
+        "space": {"const": "external_ram"},
+        "first_bank": {"type": "integer", "minimum": 0},
+        "bank_count": {"type": "integer", "minimum": 1},
+        "address": {"type": "string", "pattern": "^0x[0-9a-f]{4}$"},
+        "stride": {"type": "integer", "minimum": 1},
+        "items_per_bank": {"type": "integer", "minimum": 1},
+        "width": {"type": "integer", "minimum": 1},
+        "selector_memory": {"$ref": "#/$defs/memory"},
+        "selector_max": {"type": "integer", "minimum": 0}
+      }
+    },
+    "memory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["space", "width"],
+      "properties": {
+        "space": {"enum": ["physical_rom", "external_ram", "wram", "banked_wram", "rtc"]},
+        "bank": {"type": "integer", "minimum": 0},
+        "address": {"type": "string", "pattern": "^0x[0-9a-f]{4}$"},
+        "width": {"type": "integer", "minimum": 1},
+        "selectors": {"type": "array", "items": {"type": "integer"}}
+      }
+    }
+  }
+}

@@ -1,0 +1,106 @@
+{
+  "schema": "gbrecompiled.pokemon-crystal.route",
+  "version": 2,
+  "profile": "challenge-wild-trainer-v1",
+  "rom_sha256": "fdcc3c8c43813cf8731fc037d2a6d191bac75439c34b24ba1c27526e6acdc8a2",
+  "rtc_unix_time": 1700000000,
+  "ignore_rtc_persistence": true,
+  "build": {
+    "executable_sha256": "1520068654ad6a3163e6a321a81777d47352ae3f7421c529bb368834b93c0ff2",
+    "generation_receipt_sha256": "399403bc35735ca7ed79e58f8dadfe9dff4b4dbb934f7bb94f94ffa8a5bc27b0",
+    "source_inventory_sha256": "2e162d630c4909e02024fb3447a98ea82027e7d7e84b5f6a3b8d0c3638836261"
+  },
+  "native_patch": {
+    "kind": "file",
+    "patch_id": "org.gbrecompiled.crystal.challenge-mode",
+    "manifest_sha256": "1f2911c5bb64106c9188a6e2679e7f43f36316327c280efd61af55397044c428"
+  },
+  "host_configuration": {
+    "schema": "gbrecomp.host-configuration",
+    "version": 1,
+    "policy_id": "challenge-v1",
+    "sha256": "f23d070844435188aa1fa826c615dcf011233872b56e44989dfcb6c21cce64ce"
+  },
+  "mods": {
+    "kind": "none"
+  },
+  "segments": [
+    {
+      "id": "new-game",
+      "input": "inputs/new-game.json",
+      "input_sha256": "15938b3ef0cb718a0cd0660d8a9e764a3afa92f5a93f0bc9555b9ac1d49b0a24",
+      "frame_limit": 12050,
+      "checkpoints": [
+        {
+          "id": "title",
+          "frame": 750,
+          "frame_sha256": "aaa47b9bf5e9e4f1b787fad8a143a3d4ce32a0f888445509680770b08b1c2b24"
+        },
+        {
+          "id": "new_game",
+          "frame": 2500,
+          "frame_sha256": "4482d6a384e6baa7a5a14d41bfa33b0d31d681d907eb1b69e30fb23fb57e0e7f"
+        },
+        {
+          "id": "overworld",
+          "frame": 8250,
+          "frame_sha256": "4fe548730b50523e70f4d7d71b54c94a9747896e368774d715165539570a9b7a"
+        },
+        {
+          "id": "map_transition",
+          "frame": 8500,
+          "frame_sha256": "23a315127bf0c41bbc56b9b168cd086621b633eb2b6c3ff5545159f4f93686dc"
+        }
+      ],
+      "final_state": {
+        "completed_frames": 12049,
+        "total_cycles": 850491400,
+        "wram_bank_1_d000_dfff.557": 0,
+        "wram_bank_1_d000_dfff.2124": 16,
+        "wram_bank_1_d000_dfff.3253": 24,
+        "wram_bank_1_d000_dfff.3254": 4,
+        "wram_bank_1_d000_dfff.3255": 8,
+        "wram_bank_1_d000_dfff.3256": 5
+      }
+    },
+    {
+      "id": "adventure",
+      "input": "inputs/adventure.json",
+      "input_sha256": "59ea985322b25c49de6b44f6848e319c7a15c7957ccaac9892a417d12907e8c2",
+      "input_cycle_shift": {
+        "start_index": 27,
+        "delta": 150000000
+      },
+      "input_prefix_actions": 44,
+      "input_overlay": "inputs/challenge-adventure-tail.input",
+      "input_overlay_sha256": "36b3434cf6e4cdf76fbecce879655f694c120ecf8ff468a0387e54596c109c02",
+      "frame_limit": 248500,
+      "checkpoints": [
+        {
+          "id": "wild_battle",
+          "frame": 18000,
+          "frame_sha256": "ec4727ae817de3857dfecab0323d2a12d80468bbbbf19bc960657098a8fe6300"
+        },
+        {
+          "id": "trainer_battle",
+          "frame": 248499,
+          "frame_sha256": "1914324d96b4825a9ab3e6252c62b607a28afc12429f87bd194554a98ce1cb2a"
+        }
+      ],
+      "final_state": {
+        "completed_frames": 248499,
+        "total_cycles": 17463911160,
+        "wram_bank_1_d000_dfff.323": 6,
+        "wram_bank_1_d000_dfff.557": 2,
+        "wram_bank_1_d000_dfff.560": 1,
+        "wram_bank_1_d000_dfff.640": 1,
+        "wram_bank_1_d000_dfff.648": 158,
+        "wram_bank_1_d000_dfff.679": 6,
+        "semantic_transaction.outcome": "committed",
+        "semantic_transaction.dirty_ranges.0.address": 53571,
+        "host_configuration.sha256": "f23d070844435188aa1fa826c615dcf011233872b56e44989dfcb6c21cce64ce"
+      }
+    }
+  ],
+  "portable_seed_sha256": "d51819bc570bf0e1cc155e3e1cb2770a8f45f2c229d89184c0ce913ad275f7bf"
+}

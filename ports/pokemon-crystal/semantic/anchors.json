@@ -1,0 +1,218 @@
+{
+  "schema": "crystal-recompiled.semantic-anchors",
+  "version": 1,
+  "rom_sha256": "fdcc3c8c43813cf8731fc037d2a6d191bac75439c34b24ba1c27526e6acdc8a2",
+  "anchors": [
+    {
+      "id": "player.map_group",
+      "symbol": "wMapGroup",
+      "memory_space": "banked_wram",
+      "bank": 1,
+      "address": "0xdcb5",
+      "width": 1,
+      "provenance": {
+        "kind": "pinned-disassembly",
+        "source": "ram/wram.asm"
+      }
+    },
+    {
+      "id": "player.map_number",
+      "symbol": "wMapNumber",
+      "memory_space": "banked_wram",
+      "bank": 1,
+      "address": "0xdcb6",
+      "width": 1,
+      "provenance": {
+        "kind": "pinned-disassembly",
+        "source": "ram/wram.asm"
+      }
+    },
+    {
+      "id": "player.y",
+      "symbol": "wYCoord",
+      "memory_space": "banked_wram",
+      "bank": 1,
+      "address": "0xdcb7",
+      "width": 1,
+      "provenance": {
+        "kind": "pinned-disassembly",
+        "source": "ram/wram.asm"
+      }
+    },
+    {
+      "id": "player.x",
+      "symbol": "wXCoord",
+      "memory_space": "banked_wram",
+      "bank": 1,
+      "address": "0xdcb8",
+      "width": 1,
+      "provenance": {
+        "kind": "pinned-disassembly",
+        "source": "ram/wram.asm"
+      }
+    },
+    {
+      "id": "party.count",
+      "symbol": "wPartyCount",
+      "memory_space": "banked_wram",
+      "bank": 1,
+      "address": "0xdcd7",
+      "width": 1,
+      "provenance": {
+        "kind": "pinned-disassembly",
+        "source": "ram/wram.asm"
+      }
+    },
+    {
+      "id": "party.species",
+      "symbol": "wPartySpecies",
+      "memory_space": "banked_wram",
+      "bank": 1,
+      "address": "0xdcd8",
+      "width": 6,
+      "provenance": {
+        "kind": "pinned-disassembly",
+        "source": "ram/wram.asm"
+      }
+    },
+    {
+      "id": "party.mons",
+      "symbol": "wPartyMons",
+      "memory_space": "banked_wram",
+      "bank": 1,
+      "address": "0xdcdf",
+      "width": 288,
+      "provenance": {
+        "kind": "pinned-disassembly",
+        "source": "ram/wram.asm"
+      }
+    },
+    {
+      "id": "pokedex.caught",
+      "symbol": "wPokedexCaught",
+      "memory_space": "banked_wram",
+      "bank": 1,
+      "address": "0xde99",
+      "width": 32,
+      "provenance": {
+        "kind": "pinned-disassembly",
+        "source": "ram/wram.asm"
+      }
+    },
+    {
+      "id": "pokedex.seen",
+      "symbol": "wPokedexSeen",
+      "memory_space": "banked_wram",
+      "bank": 1,
+      "address": "0xdeb9",
+      "width": 32,
+      "provenance": {
+        "kind": "pinned-disassembly",
+        "source": "ram/wram.asm"
+      }
+    },
+    {
+      "id": "save.backup_checksum",
+      "symbol": "sBackupChecksum",
+      "memory_space": "external_ram",
+      "bank": 0,
+      "address": "0xbf0d",
+      "width": 2,
+      "provenance": {
+        "kind": "pinned-disassembly",
+        "source": "ram/sram.asm"
+      }
+    },
+    {
+      "id": "save.primary_checksum",
+      "symbol": "sChecksum",
+      "memory_space": "external_ram",
+      "bank": 1,
+      "address": "0xad0d",
+      "width": 2,
+      "provenance": {
+        "kind": "pinned-disassembly",
+        "source": "ram/sram.asm"
+      }
+    },
+    {
+      "id": "box.active_count",
+      "symbol": "sBoxCount",
+      "memory_space": "external_ram",
+      "bank": 1,
+      "address": "0xad10",
+      "width": 1,
+      "provenance": {
+        "kind": "pinned-disassembly",
+        "source": "ram/sram.asm"
+      }
+    },
+    {
+      "id": "box.active_species",
+      "symbol": "sBoxSpecies",
+      "memory_space": "external_ram",
+      "bank": 1,
+      "address": "0xad11",
+      "width": 21,
+      "provenance": {
+        "kind": "pinned-disassembly",
+        "source": "ram/sram.asm"
+      }
+    },
+    {
+      "id": "rtc.seconds",
+      "register": "seconds",
+      "memory_space": "rtc",
+      "selector": 8,
+      "width": 1,
+      "provenance": {
+        "kind": "hardware-reference",
+        "source": "tech_docs/pan_docs.md MBC3 timer"
+      }
+    },
+    {
+      "id": "rtc.minutes",
+      "register": "minutes",
+      "memory_space": "rtc",
+      "selector": 9,
+      "width": 1,
+      "provenance": {
+        "kind": "hardware-reference",
+        "source": "tech_docs/pan_docs.md MBC3 timer"
+      }
+    },
+    {
+      "id": "rtc.hours",
+      "register": "hours",
+      "memory_space": "rtc",
+      "selector": 10,
+      "width": 1,
+      "provenance": {
+        "kind": "hardware-reference",
+        "source": "tech_docs/pan_docs.md MBC3 timer"
+      }
+    },
+    {
+      "id": "rtc.day_low",
+      "register": "day_low",
+      "memory_space": "rtc",
+      "selector": 11,
+      "width": 1,
+      "provenance": {
+        "kind": "hardware-reference",
+        "source": "tech_docs/pan_docs.md MBC3 timer"
+      }
+    },
+    {
+      "id": "rtc.day_high",
+      "register": "day_high",
+      "memory_space": "rtc",
+      "selector": 12,
+      "width": 1,
+      "provenance": {
+        "kind": "hardware-reference",
+        "source": "tech_docs/pan_docs.md MBC3 timer"
+      }
+    }
+  ]
+}

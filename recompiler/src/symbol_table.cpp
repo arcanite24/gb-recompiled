@@ -4,6 +4,7 @@
 #include <cctype>
 #include <fstream>
 #include <iomanip>
+#include <limits>
 #include <map>
 #include <set>
 #include <sstream>
@@ -12,6 +13,63 @@
 
 namespace gbrecomp {
 
+SymbolMemorySpace classify_symbol_memory_space(uint16_t address) {
+    if (address < 0x8000) {
+        return SymbolMemorySpace::PHYSICAL_ROM;
+    }
+    if (address < 0xA000) {
+        return SymbolMemorySpace::VRAM;
+    }
+    if (address < 0xC000) {
+        return SymbolMemorySpace::EXTERNAL_RAM;
+    }
+    if (address < 0xD000) {
+        return SymbolMemorySpace::WRAM;
+    }
+    if (address < 0xE000) {
+        return SymbolMemorySpace::BANKED_WRAM;
+    }
+    if (address < 0xFE00) {
+        return SymbolMemorySpace::ECHO_RAM;
+    }
+    if (address < 0xFEA0) {
+        return SymbolMemorySpace::OAM;
+    }
+    if (address < 0xFF00) {
+        return SymbolMemorySpace::UNUSABLE;
+    }
+    if (address < 0xFF80 || address == 0xFFFF) {
+        return SymbolMemorySpace::MMIO;
+    }
+    return SymbolMemorySpace::HRAM;
+}
+
+const char* symbol_memory_space_name(SymbolMemorySpace space) {
+    switch (space) {
+        case SymbolMemorySpace::PHYSICAL_ROM:
+            return "physical_rom";
+        case SymbolMemorySpace::VRAM:
+            return "vram";
+        case SymbolMemorySpace::EXTERNAL_RAM:
+            return "external_ram";
+        case SymbolMemorySpace::WRAM:
+            return "wram";
+        case SymbolMemorySpace::BANKED_WRAM:
+            return "banked_wram";
+        case SymbolMemorySpace::ECHO_RAM:
+            return "echo_ram";
+        case SymbolMemorySpace::OAM:
+            return "oam";
+        case SymbolMemorySpace::UNUSABLE:
+            return "unusable";
+        case SymbolMemorySpace::MMIO:
+            return "mmio";
+        case SymbolMemorySpace::HRAM:
+            return "hram";
+    }
+    return "unusable";
+}
+
 namespace {
 
 struct PendingSymbol {
@@ -19,6 +77,8 @@ struct PendingSymbol {
     std::string source_name;
     std::string comment;
     SymbolType type;
+    std::string provenance = "imported";
+    uint32_t width = 1;
     bool has_explicit_annotation = false;
     AnalysisAnnotation explicit_annotation;
 };
@@ -126,7 +186,8 @@ bool parse_u32_token(const std::string& token, unsigned fallback_base, uint32_t&
     try {
         size_t consumed = 0;
         unsigned long parsed = std::stoul(token, &consumed, detect_parse_base(token, fallback_base));
-        if (consumed != token.size()) {
+        if (consumed != token.size() ||
+            parsed > std::numeric_limits<uint32_t>::max()) {
             return false;
         }
         value = static_cast<uint32_t>(parsed);
@@ -146,19 +207,19 @@ bool parse_banked_address(const std::string& token, uint32_t& addr) {
     uint32_t offset = 0;
     if (!parse_u32_token(token.substr(0, colon), 16, bank) ||
         !parse_u32_token(token.substr(colon + 1), 16, offset) ||
-        bank > 0xFF || offset > 0xFFFF) {
+        bank > 0x1FF || offset > 0xFFFF) {
         return false;
     }
 
-    addr = AnalysisResult::make_addr(static_cast<uint8_t>(bank), static_cast<uint16_t>(offset));
+    addr = AnalysisResult::make_addr(static_cast<BankId>(bank), static_cast<uint16_t>(offset));
     return true;
 }
 
-uint8_t infer_reference_target_bank(uint8_t source_bank, uint16_t target) {
+BankId infer_reference_target_bank(BankId source_bank, uint16_t target) {
     if (target < 0x4000) {
         return 0;
     }
-    return (source_bank > 0) ? source_bank : static_cast<uint8_t>(1);
+    return (source_bank > 0) ? source_bank : static_cast<BankId>(1);
 }
 
 void seed_builtin_function_targets(SymbolReferenceContext& context) {
@@ -174,7 +235,7 @@ SymbolReferenceContext build_symbol_reference_context(const ROM& rom) {
     seed_builtin_function_targets(context);
 
     for (uint16_t bank_index = 0; bank_index < rom.bank_count(); ++bank_index) {
-        const uint8_t bank = static_cast<uint8_t>(bank_index);
+        const BankId bank = static_cast<BankId>(bank_index);
         for (const Instruction& instr : decode_bank(rom, bank)) {
             if (instr.is_call) {
                 if (instr.type == InstructionType::RST) {
@@ -184,7 +245,7 @@ SymbolReferenceContext build_symbol_reference_context(const ROM& rom) {
 
                 if (instr.type == InstructionType::CALL_NN ||
                     instr.type == InstructionType::CALL_CC_NN) {
-                    const uint8_t target_bank = infer_reference_target_bank(bank, instr.imm16);
+                    const BankId target_bank = infer_reference_target_bank(bank, instr.imm16);
                     context.direct_call_targets.insert(
                         AnalysisResult::make_addr(target_bank, instr.imm16));
                 }
@@ -197,7 +258,7 @@ SymbolReferenceContext build_symbol_reference_context(const ROM& rom) {
 
             if (instr.type == InstructionType::JP_NN ||
                 instr.type == InstructionType::JP_CC_NN) {
-                const uint8_t target_bank = infer_reference_target_bank(bank, instr.imm16);
+                const BankId target_bank = infer_reference_target_bank(bank, instr.imm16);
                 context.direct_jump_targets.insert(
                     AnalysisResult::make_addr(target_bank, instr.imm16));
             } else if (instr.type == InstructionType::JR_N ||
@@ -312,10 +373,25 @@ SymbolType infer_symbol_type(uint32_t addr,
 void upsert_symbol(std::unordered_map<uint32_t, Symbol>& symbols,
                    const PendingSymbol& pending_symbol,
                    std::unordered_map<std::string, uint32_t>& used_names) {
+    std::vector<std::string> source_names;
+    const auto existing = symbols.find(pending_symbol.addr);
+    if (existing != symbols.end()) {
+        source_names = existing->second.source_names;
+    }
+    if (std::find(source_names.begin(),
+                  source_names.end(),
+                  pending_symbol.source_name) == source_names.end()) {
+        source_names.push_back(pending_symbol.source_name);
+        std::sort(source_names.begin(), source_names.end());
+    }
+
     Symbol symbol;
     symbol.source_name = pending_symbol.source_name;
+    symbol.source_names = std::move(source_names);
     symbol.addr = pending_symbol.addr;
     symbol.type = pending_symbol.type;
+    symbol.provenance = pending_symbol.provenance;
+    symbol.width = pending_symbol.width;
     symbol.comment = pending_symbol.comment;
 
     const std::string sanitized = sanitize_symbol_name(pending_symbol.source_name);
@@ -363,8 +439,54 @@ bool SymbolTable::load_sym_file(const std::string& path,
         std::istringstream iss(body);
         std::string addr_token;
         std::string name;
-        iss >> addr_token >> name;
-        if (addr_token.empty() || name.empty()) {
+        std::string extra;
+        iss >> addr_token >> name >> extra;
+        if (addr_token.empty() || name.empty() || !extra.empty()) {
+            if (error) {
+                std::ostringstream ss;
+                ss << "Malformed symbol record on line " << line_number
+                   << " in " << path;
+                *error = ss.str();
+            }
+            clear();
+            return false;
+        }
+
+        if (addr_token.find(':') == std::string::npos) {
+            uint32_t value = 0;
+            if (!parse_u32_token(addr_token, 16, value)) {
+                if (error) {
+                    std::ostringstream ss;
+                    ss << "Malformed constant value on line " << line_number
+                       << " in " << path;
+                    *error = ss.str();
+                }
+                clear();
+                return false;
+            }
+
+            load_stats_.constant_records++;
+            const auto existing = constants_.find(name);
+            if (existing != constants_.end()) {
+                if (existing->second.value != value) {
+                    if (error) {
+                        std::ostringstream ss;
+                        ss << "Conflicting constant '" << name << "' on line "
+                           << line_number << " in " << path;
+                        *error = ss.str();
+                    }
+                    clear();
+                    return false;
+                }
+                load_stats_.duplicate_constant_records++;
+                continue;
+            }
+
+            RGBDSConstant constant;
+            constant.name = name;
+            constant.value = value;
+            constant.comment = raw_comment;
+            constants_.emplace(name, std::move(constant));
             continue;
         }
 
@@ -372,12 +494,14 @@ bool SymbolTable::load_sym_file(const std::string& path,
         if (!parse_banked_address(addr_token, addr)) {
             if (error) {
                 std::ostringstream ss;
-                ss << "Malformed symbol file line " << line_number << " in " << path;
+                ss << "Malformed banked address on line " << line_number
+                   << " in " << path;
                 *error = ss.str();
             }
             clear();
             return false;
         }
+        load_stats_.address_records++;
 
         PendingSymbol pending_symbol;
         pending_symbol.addr = addr;
@@ -416,6 +540,10 @@ bool SymbolTable::load_sym_file(const std::string& path,
             annotations_.push_back(pending_symbol.explicit_annotation);
         }
     }
+    load_stats_.unique_addresses = symbols_.size();
+    load_stats_.duplicate_address_records =
+        load_stats_.address_records - load_stats_.unique_addresses;
+    load_stats_.unique_constants = constants_.size();
 
     return true;
 }
@@ -484,6 +612,7 @@ bool SymbolTable::load_annotation_file(const std::string& path, std::string* err
         PendingSymbol pending_symbol;
         pending_symbol.addr = addr;
         pending_symbol.comment = comment;
+        pending_symbol.provenance = "annotation";
 
         if (kind_token == "function") {
             annotation.kind = AnalysisAnnotationKind::FUNCTION;
@@ -506,6 +635,7 @@ bool SymbolTable::load_annotation_file(const std::string& path, std::string* err
             }
             annotation.kind = AnalysisAnnotationKind::DATA;
             annotation.size = size;
+            pending_symbol.width = size;
             pending_symbol.type = SymbolType::DATA;
             pending_symbol.source_name = fourth_token;
         } else {
@@ -516,6 +646,40 @@ bool SymbolTable::load_annotation_file(const std::string& path, std::string* err
                 *error = ss.str();
             }
             return false;
+        }
+
+        const uint16_t offset = static_cast<uint16_t>(addr & 0xFFFF);
+        const uint32_t end = static_cast<uint32_t>(offset) + annotation.size;
+        if (end > 0x10000u ||
+            (annotation.kind == AnalysisAnnotationKind::DATA &&
+             end > offset &&
+             classify_symbol_memory_space(offset) !=
+                 classify_symbol_memory_space(
+                     static_cast<uint16_t>(end - 1)))) {
+            if (error) {
+                std::ostringstream ss;
+                ss << "Annotation range crosses a memory-space boundary on line "
+                   << line_number << " in " << path;
+                *error = ss.str();
+            }
+            return false;
+        }
+        for (const AnalysisAnnotation& existing : annotations_) {
+            if (static_cast<BankId>(existing.addr >> 16) !=
+                static_cast<BankId>(annotation.addr >> 16)) {
+                continue;
+            }
+            const uint32_t existing_start = existing.addr & 0xFFFF;
+            const uint32_t existing_end = existing_start + existing.size;
+            if (offset < existing_end && existing_start < end) {
+                if (error) {
+                    std::ostringstream ss;
+                    ss << "Overlapping annotation on line " << line_number
+                       << " in " << path;
+                    *error = ss.str();
+                }
+                return false;
+            }
         }
 
         annotations_.push_back(annotation);
@@ -530,7 +694,9 @@ bool SymbolTable::load_annotation_file(const std::string& path, std::string* err
 
 void SymbolTable::clear() {
     symbols_.clear();
+    constants_.clear();
     annotations_.clear();
+    load_stats_ = {};
 }
 
 const Symbol* SymbolTable::get_symbol(uint32_t addr) const {
@@ -538,16 +704,29 @@ const Symbol* SymbolTable::get_symbol(uint32_t addr) const {
     return (it == symbols_.end()) ? nullptr : &it->second;
 }
 
-const Symbol* SymbolTable::get_symbol(uint8_t bank, uint16_t addr) const {
+const Symbol* SymbolTable::get_symbol(BankId bank, uint16_t addr) const {
     return get_symbol(AnalysisResult::make_addr(bank, addr));
+}
+
+const RGBDSConstant* SymbolTable::get_constant(const std::string& name) const {
+    const auto it = constants_.find(name);
+    return (it == constants_.end()) ? nullptr : &it->second;
 }
 
 const std::unordered_map<uint32_t, Symbol>& SymbolTable::symbols() const {
     return symbols_;
 }
 
+const std::unordered_map<std::string, RGBDSConstant>& SymbolTable::constants() const {
+    return constants_;
+}
+
 const std::vector<AnalysisAnnotation>& SymbolTable::annotations() const {
     return annotations_;
+}
+
+const SymbolLoadStats& SymbolTable::load_stats() const {
+    return load_stats_;
 }
 
 bool SymbolTable::has_symbol(uint32_t addr) const {
@@ -558,37 +737,46 @@ size_t SymbolTable::size() const {
     return symbols_.size();
 }
 
+size_t SymbolTable::constant_count() const {
+    return constants_.size();
+}
+
 size_t SymbolTable::annotation_count() const {
     return annotations_.size();
 }
 
-std::vector<AnalysisAnnotation> build_analysis_annotations(const SymbolTable& symbols) {
+std::vector<AnalysisAnnotation> build_analysis_annotations(
+    const SymbolTable& symbols,
+    SymbolAnalysisPolicy policy) {
     std::map<std::pair<uint32_t, int>, AnalysisAnnotation> merged;
 
     for (const AnalysisAnnotation& annotation : symbols.annotations()) {
         merged[{annotation.addr, static_cast<int>(annotation.kind)}] = annotation;
     }
 
-    for (const auto& [addr, symbol] : symbols.symbols()) {
-        AnalysisAnnotation annotation;
-        annotation.addr = addr;
-        annotation.size = 1;
-        switch (symbol.type) {
-            case SymbolType::FUNCTION:
-                annotation.kind = AnalysisAnnotationKind::FUNCTION;
-                break;
-            case SymbolType::DATA:
-                annotation.kind = AnalysisAnnotationKind::DATA;
-                break;
-            case SymbolType::LABEL:
-            case SymbolType::UNKNOWN:
-            default:
-                annotation.kind = AnalysisAnnotationKind::LABEL;
-                break;
-        }
-        const auto key = std::make_pair(annotation.addr, static_cast<int>(annotation.kind));
-        if (merged.find(key) == merged.end()) {
-            merged[key] = annotation;
+    if (policy == SymbolAnalysisPolicy::INFER_BOUNDARIES) {
+        for (const auto& [addr, symbol] : symbols.symbols()) {
+            AnalysisAnnotation annotation;
+            annotation.addr = addr;
+            annotation.size = 1;
+            switch (symbol.type) {
+                case SymbolType::FUNCTION:
+                    annotation.kind = AnalysisAnnotationKind::FUNCTION;
+                    break;
+                case SymbolType::DATA:
+                    annotation.kind = AnalysisAnnotationKind::DATA;
+                    break;
+                case SymbolType::LABEL:
+                case SymbolType::UNKNOWN:
+                default:
+                    annotation.kind = AnalysisAnnotationKind::LABEL;
+                    break;
+            }
+            const auto key =
+                std::make_pair(annotation.addr, static_cast<int>(annotation.kind));
+            if (merged.find(key) == merged.end()) {
+                merged[key] = annotation;
+            }
         }
     }
 
@@ -606,8 +794,9 @@ void apply_symbols_to_analysis(const SymbolTable& symbols, AnalysisResult& analy
     for (const auto& [addr, symbol] : symbols.symbols()) {
         AddressSymbolMetadata metadata;
         metadata.source_name = symbol.source_name;
+        metadata.source_names = symbol.source_names;
         metadata.emitted_name = symbol.c_name;
-        metadata.provenance = "imported";
+        metadata.provenance = symbol.provenance;
         metadata.comment = symbol.comment;
 
         if (analysis.functions.find(addr) != analysis.functions.end()) {
@@ -616,10 +805,21 @@ void apply_symbols_to_analysis(const SymbolTable& symbols, AnalysisResult& analy
                    analysis.label_addresses.find(addr) != analysis.label_addresses.end()) {
             metadata.kind = "label";
         } else {
-            metadata.kind = "data";
+        metadata.kind = "data";
         }
+        metadata.memory_space = symbol_memory_space_name(
+            classify_symbol_memory_space(static_cast<uint16_t>(addr & 0xFFFF)));
+        metadata.width = symbol.width;
 
         analysis.symbol_metadata[addr] = metadata;
+    }
+
+    for (const auto& [name, constant] : symbols.constants()) {
+        ConstantSymbolMetadata metadata;
+        metadata.value = constant.value;
+        metadata.provenance = "imported";
+        metadata.comment = constant.comment;
+        analysis.constant_metadata[name] = std::move(metadata);
     }
 
     std::set<uint32_t> ordered_addresses;

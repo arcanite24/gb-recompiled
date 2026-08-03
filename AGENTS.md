@@ -1,88 +1,134 @@
-## Project Overview
-This project is a static Game Boy recompiler. It turns ROMs into generated C plus a shared runtime.
+# Working on GB Recompiled
 
-Important directories:
+## Project and documentation map
 
-- `recompiler/`: source for `gbrecomp`
-- `runtime/`: shared runtime library (`gbrt`) used by generated projects
-- `roms/`: source ROMs used for testing and local experiments
-- `output/`: generated ROM projects and multi-ROM launcher outputs
-- `logs/`: runtime logs, interpreter logs, benchmark results, and repro captures
-- `tools/`: helper scripts for testing, benchmarking, trace capture, and log analysis
+GB Recompiled turns Game Boy ROMs into generated C and links that code with a shared runtime.
 
-Use `README.md` for current user-facing workflows, `TODO.md` for the live project backlog, and `GBC.md` for the current Game Boy Color support status / remaining work.
+The main areas are:
 
-## Hardware References
-- When implementing or debugging hardware behavior, consult `tech_docs/pan_docs.md` first.
-- Use the local `SameBoy/` codebase as the second reference when Pan Docs is ambiguous or you need a proven implementation to compare against.
-- This is especially important for CGB registers, timing, palette handling, HDMA, speed switching, and DMG-on-CGB compatibility behavior.
+- `recompiler/`: ROM loading, decoding, analysis, IR, code generation, and the `gbrecomp` CLI
+- `runtime/`: CPU fallback, mappers, PPU, DMA, timers, audio, persistence, SDL, and ImGui
+- `tests/`: repository-owned synthetic and unit regression tests
+- `tools/`: accuracy, trace, differential-log, frame, audio, and benchmark helpers
+- `roms/`: local test ROMs; do not commit copyrighted commercial ROMs
+- `output/`: ad hoc generated projects and launcher builds
+- `logs/`: durable repro captures, state dumps, frame captures, and benchmark results
 
-## Build Standards
-- Always use CMake + Ninja.
-- Run shell commands from the repo root when possible.
-- Prefer absolute paths in tool output and references when useful, but keep shell commands readable.
+Documentation roles:
 
-Main project:
+- `README.md`: short public introduction and successful first build
+- `RUNTIME.md`: generated-executable controls and diagnostics
+- `ACCURACY.md`: current external-ROM test snapshot
+- `GBC.md`: CGB implementation and validation status
+- `ANDROID.md`: Android generation and APK workflow
+- `GROUND_TRUTH_WORKFLOW.md`: trace-assisted coverage, including its limits
+- `NATIVE_PATCHES.md`: exact-ROM native replacement manifest and callback ABI
+- `PORT_MODULES.md`: exact-ROM read-only port/frontend module ABI
+- `TODO.md`: prioritized live backlog
+- `docs/CODE_IMPROVEMENT_AUDIT_2026-07-12.md`: audit evidence and completed P0 remediation
+- `docs/RECOMPILER_CORRECTNESS_AUDIT_PLAN.md`: current correctness roadmap
+- `docs/NL0_POST_WIN_PERFORMANCE_TRUTH_2026-07-14.md`: three-game attribution, estimator, build footprint, and NL-0 decision
+- `docs/NL1_ARITHMETIC_TIMER_RESULT_2026-07-14.md`: retained timer optimization and scalar-oracle evidence
+- `docs/NL2_LAZY_PPU_RESULT_2026-07-14.md`: rejected lazy-PPU experiment and measured limits
+- `docs/APU_EVENT_BATCHING_RESULT_2026-07-14.md`: retained lazy APU scheduling and deterministic PCM evidence
+- `docs/NL4_GENERATED_BUILD_RESULT_2026-07-14.md`: retained generated chunking and compiler-memory evidence
+- `docs/NL3_POST_SCHEDULER_REPROFILE_2026-07-14.md`: post-scheduler compiled-region eligibility decision
+- `docs/NL5_NATIVE_PATCH_SDK_RESULT_2026-07-14.md`: native replacement tracer-bullet design and gates
+- `docs/NATIVE_RECOMPILATION_STRATEGY_2026-07-14.md`: active performance and AOT execution strategy
+
+## Hardware references
+
+For hardware behavior, consult `tech_docs/pan_docs.md` first. Use the local `SameBoy/` source as the second reference when Pan Docs is ambiguous or a proven implementation is needed.
+
+This is mandatory for timing-sensitive work, especially:
+
+- CGB registers and DMG-on-CGB behavior
+- mapper address resolution
+- PPU modes, STAT, palettes, and bus visibility
+- OAM DMA and HDMA
+- timers, interrupts, HALT/STOP, and speed switching
+
+## Build and test standards
+
+Always use CMake with Ninja. The root project requires CMake 3.20 or newer.
 
 ```bash
-cmake -G Ninja -B build .
+cmake -G Ninja -B build . -DBUILD_TESTS=ON
 ninja -C build
+ctest --test-dir build --output-on-failure
 ```
 
-## Required Sync Workflow
-If you change recompiler logic, generated CLI/codegen behavior, runtime behavior, or runtime headers, keep the generated test project in sync.
+Do not trust a relocated CMake cache. If a build directory points to a different checkout, configure a fresh build directory instead of treating its failure as a source regression.
 
-Canonical sync flow:
+The repository-owned CTest suite is the default fast gate. It covers analyzer state, mapper resolution, 9-bit MBC5 banks, bus phases, HALT/OAM-bug CPU transitions, PPU/DMA timing primitives, state/test-runner protocols, multi-ROM isolation, and release relocation.
+
+Native replacement changes must additionally run `native_patch_sdk_end_to_end`.
+Keep `gb_native_call_original()` as a scheduling disposition: generated bodies
+can return at safepoints before the guest function returns, so post hooks must
+remain tied to the captured guest call frame rather than the native C stack.
+
+## Required validation for generated behavior
+
+Changes to analyzer logic, code generation, generated CMake, runtime behavior, or runtime headers must validate both the root build and a freshly generated project.
 
 ```bash
 ninja -C build
-./build/bin/gbrecomp <checked-in test ROM> -o <checked-in generated test project>
-cmake -G Ninja -S <checked-in generated test project> -B <checked-in generated test project>/build
-ninja -C <checked-in generated test project>/build
+
+./build/bin/gbrecomp <test-rom> -o output/<test-project>
+cmake -G Ninja -S output/<test-project> -B output/<test-project>/build
+ninja -C output/<test-project>/build
+./output/<test-project>/build/<test-project> --headless --limit-frames 120
 ```
 
-Notes:
+Use a legal local ROM for the smoke run. The synthetic CTest fixtures remain the portable CI gate. When a generated build appears to ignore a runtime change, regenerate and explicitly rebuild it; stale generated trees are a recurring source of false conclusions.
 
-- Use the checked-in generated test project as the default smoke test.
-- Put ad hoc generated projects under `output/`, not the repo root.
-- Put logs under `logs/`, not next to binaries.
-- If a generated project looks like it is ignoring a runtime change, rebuild that generated project explicitly. Stale generated builds can produce misleading results.
+Apply focused external tests according to the subsystem:
 
-## Current State Worth Remembering
-- Multi-ROM generation exists and emits a shared launcher project.
-- The multi-ROM launcher is graphical by default and uses SDL + ImGui.
-- Battery-backed save loading/saving is wired through the runtime and SDL platform layer.
-- Interpreter fallback instrumentation exists and should be used before guessing about coverage/performance problems.
-- Benchmarking support exists and should use the benchmark helper script, not ad hoc wall-clock timing of normal windowed builds.
+```bash
+python3 tools/run_tests.py --filter ppu
+python3 tools/run_tests.py --filter oam_dma
+python3 tools/run_tests.py --filter timer
+python3 tools/run_tests.py --filter misc
+```
 
-## Accuracy Workflow
-When working on correctness, use the runtime and tooling that already exist before inventing new debug paths.
+The accuracy runner is fail-closed: an empty selection, timeout, build error, missing state dump, or incomplete result is a failure. Use `--rebuild` when verifying changes that could invalidate generated output.
 
-Preferred tools:
+Blargg `oam_bug` uses its documented external-RAM protocol rather than serial output: `$A001-$A003` must contain `DE B0 61`, `$A000=00` passes, `$A000=80` is incomplete, and any other signed status fails. A missing or malformed signature never passes.
 
-- Differential mode for generated vs interpreter comparisons:
-  ```bash
-  ./output/game/build/game --differential 500000 --differential-log 100000
-  ```
-- Record and replay input for stable repro:
-  ```bash
-  ./output/game/build/game --log-file logs/session.log --record-input logs/session.input
-  ./output/game/build/game --input "$(cat logs/session.input)"
-  ```
-- Use cycle-anchored recorded inputs when possible. `--record-input` already writes those by default.
-- If you need screenshots or frame comparisons, use `--dump-frames`, `--dump-present-frames`, and the existing tools under `tools/`.
+## Accuracy workflow
 
-If debugging a game-specific issue, prefer keeping:
+Use three distinct evidence layers and label them correctly:
 
-- the ROM in `roms/`
-- the generated project in `output/<name>/`
-- the log in `logs/<name>.log`
-- the recorded input in `logs/<name>.input`
+1. Repository-owned unit and synthetic tests validate isolated invariants.
+2. Differential mode validates generated execution against this project's interpreter.
+3. Mooneye, Blargg, SameBoy comparisons, and frame/audio hashes provide independent or higher-level evidence.
 
-## Interpreter Fallback Workflow
-Interpreter fallback is already instrumented. Use that signal.
+Differential mode is not an independent hardware oracle because both paths share runtime devices.
 
-Start here:
+```bash
+./output/game/build/game \
+  --differential 500000 \
+  --differential-log 100000 \
+  --differential-fail-on-fallback
+```
+
+For stable game-specific repros, record cycle-anchored input and keep the artifacts:
+
+```bash
+./output/game/build/game \
+  --log-file logs/session.log \
+  --record-input logs/session.input
+
+./output/game/build/game \
+  --log-file logs/session-replay.log \
+  --input "$(cat logs/session.input)"
+```
+
+Use `--dump-frames`, `--dump-present-frames`, and `--dump-state` when visual or machine-state evidence matters.
+
+## Interpreter fallback workflow
+
+Measure fallback before optimizing around it:
 
 ```bash
 ./output/game/build/game \
@@ -91,48 +137,36 @@ Start here:
   --log-frame-fallbacks \
   --report-interpreter-hotspots \
   --interpreter-hotspot-limit 12
-```
 
-Then summarize with:
-
-```bash
 python3 tools/summarize_interpreter_log.py logs/interpreter.log
 ```
 
-Use this workflow when:
+If the summary reports `No interpreter fallback recorded`, the remaining slowdown is in compiled execution or runtime/device work.
 
-- generated execution falls back unexpectedly
-- performance is poor and you suspect interpreter use
-- you need hotspot data to guide recompiler improvements
+Prefer generated `*_metadata.json` sidecars over scraping generated C for names and address mappings.
 
-Important interpretation rule:
+## Recompiler debugging
 
-- if the summary says `No interpreter fallback recorded`, the remaining slowdown is not an interpreter-coverage problem
+When analysis hangs, misses code, or emits implausible output:
 
-## Recompiler Debugging
-If analysis hangs, misses code, or produces obviously bad output:
+```bash
+./build/bin/gbrecomp roms/game.gb --trace
+./build/bin/gbrecomp roms/game.gb --limit 10000
+```
 
-- trace analysis:
-  ```bash
-  ./build/bin/gbrecomp roms/game.gb --trace
-  ```
-- stop early to find where analysis goes off the rails:
-  ```bash
-  ./build/bin/gbrecomp roms/game.gb --limit 10000
-  ```
-- watch for `[ERROR] Undefined instruction` lines
-- use `--add-entry-point` for known missed code entrypoints
-- use `--no-scan` if aggressive scanning is misclassifying data as code
-- use `--annotations <file>` when you have trusted function starts or ROM data ranges from a disassembly/project map
+Then:
 
-If you are working with imported symbols or generated names, remember that generated projects can emit `*_metadata.json` sidecars. Prefer using those instead of scraping generated C when a sidecar already answers the question.
+- inspect `[ERROR] Undefined instruction` diagnostics
+- use `--add-entry-point bank:address` for a known missed target
+- use `--no-scan` to isolate aggressive data-as-code discovery
+- use `--symbols` for naming, not as blanket proof that every ROM label is callable
+- use `.sym` directives or `--annotations` for trusted function, label, and data boundaries
 
-`--symbols` is no longer just a post-analysis naming feature, but its analyzer seeding is intentionally conservative for ROM-space labels. Use `.sym` comment directives like `@function`, `@label`, `@data @size=...`, or a separate `--annotations` file when you need trusted code/data boundaries from a project like `pret/pokecrystal`. The analyzer also treats the Nintendo logo/header region as built-in ROM data.
+The Nintendo logo and cartridge-header ranges are built-in ROM data. Keep analyzer state conservative at joins and calls; an unknown target that dispatches safely is preferable to a confidently wrong bank.
 
-## Performance Workflow
-Do not benchmark normal interactive/windowed runs. Use benchmark mode.
+## Performance workflow
 
-Preferred workflow:
+Do not benchmark a normal interactive window with wall-clock timing. Use:
 
 ```bash
 python3 tools/benchmark_emulators.py roms/game.gb \
@@ -140,59 +174,41 @@ python3 tools/benchmark_emulators.py roms/game.gb \
   --frames 1800 \
   --repeat 5 \
   --warmup 1 \
-  --json-out logs/game_benchmark.json
+  --json-out logs/game-benchmark.json
 ```
 
-Important benchmark rules:
+The helper builds a dedicated optimized generated binary by default. `--benchmark` is a reduced-workload core profile: it disables pacing, host presentation, audio emulation, final RGB conversion, and pixel rasterization while retaining CPU/device timing work. Never present it as full interactive-runtime performance, and compare only matching profiles.
 
-- The benchmark script auto-builds a dedicated optimized recompiled binary in `build_bench_o3` by default.
-- Generated projects now default to a smaller iteration profile: `MinSizeRel`, `GBRECOMP_GENERATED_OPT_LEVEL=1`, and IPO/LTO off unless explicitly enabled.
-- The dedicated benchmark build still matters because it gives you a clean output directory and an easy place to override optimization knobs without disturbing your day-to-day build tree.
-- Use `--no-recompiled-autobuild` only if you intentionally want to benchmark the exact binary already on disk.
-- The benchmark script already forces headless benchmark mode through environment variables and runtime flags.
+When a change is intended to reduce generated/runtime transitions, configure the generated project with `-DGBRECOMP_ENABLE_PERFORMANCE_COUNTERS=ON` and run it with `--report-performance-counters`. Add `--estimate-visibility-regions` only for the separate conservative region-estimator capture; it is intentionally more expensive than basic attribution. These counters are diagnostic-only and do not replace state, frame, PCM, or independent hardware evidence. Keep normal release measurements instrumentation-off.
 
-If a benchmark result looks suspiciously close to 60 FPS or "real-time locked", suspect a stale generated binary first.
+For a reproducible full-headless attribution/build-footprint artifact, use `tools/run_nl0_profile.py` with a cycle-anchored file under `tools/profiles/`. It creates fresh counters-off and counters-on Release builds, checks repeated state hashes, records ROM/input/executable hashes and feature flags, measures build/runtime wall and process-tree RSS, and samples symbol coverage where supported. Summarize raw logs with `tools/summarize_nl0_profile.py`; use `tools/compare_nl0_controls.py` for the profiling-off regression gate. The symbolized diagnostic profile leaves IPO off by default and must not be compared to the ordinary reduced-workload benchmark profile.
 
-## Slowdown Investigation
-If the problem is runtime speed rather than strict correctness:
+Use `--no-recompiled-autobuild` only when measuring the exact binary already on disk. A result near 60 FPS usually indicates a stale or incorrectly configured run.
 
-- use `--debug-performance`
-- use `--log-slow-frames`
-- use `--log-slow-vsync`
-- use `--log-lcd-transitions`
-- combine with `--record-input` so you can rerun the exact same scene
+For NL-1 timer regression checks, compare the default arithmetic timer against `--scalar-timer` in the same generated executable. `tools/compare_nl0_controls.py` accepts repeatable `--before-arg` and `--after-arg` options and rejects divergent final-state hashes. The retained result and exact gate are in `docs/NL1_ARITHMETIC_TIMER_RESULT_2026-07-14.md`.
 
-This is especially useful for LCD timing, rendering artifacts, and other game-specific scene timing issues.
+For APU scheduling regression checks, compare the default batched path against `--eager-audio` in the same generated executable. A retained result requires identical deterministic PCM and APU state across fine/coarse, HALT-heavy, CGB double-speed, MMIO-observer, and DIV-reset boundaries before applying the three-game performance gate.
 
-## Multi-ROM Workflow
-The recompiler supports generating a shared multi-ROM launcher from a folder of ROMs.
+For generated-build footprint work, use `tools/profile_generated_build.py` rather than a shell `time` around Ninja. Generated Ninja projects limit executable-target compilation to eight jobs by default; override with `-DGBRECOMP_GENERATED_COMPILE_JOBS=<n>`, or use `0` to disable the pool. Compare source bytes/files, cold wall time, compiler process-tree RSS, executable/loadable size, and runtime separately.
 
-General pattern:
+For scene-specific slowdown investigation, combine `--debug-performance`, `--log-slow-frames`, `--log-slow-vsync`, and `--log-lcd-transitions` with recorded input.
 
-```bash
-./build/bin/gbrecomp /path/to/rom_folder -o output/my_multi_rom
-cmake -G Ninja -S output/my_multi_rom -B output/my_multi_rom/build
-ninja -C output/my_multi_rom/build
-./output/my_multi_rom/build/my_multi_rom
-```
+## Multi-ROM, Android, and releases
 
-Use `output/` for these generated projects. Do not scatter generated launcher projects around the repo.
+Directory input generates a shared SDL + ImGui launcher. Validate both graphical default behavior and `--list-games` / `--game <id>` scripting when launcher code changes.
 
-## When Updating Docs
-If you add or materially change:
+Android output is single-ROM, landscape, controller-first, and `arm64-v8a`. It requires an external SDL2 source checkout through `SDL2_SOURCE_DIR`; follow `ANDROID.md` rather than inventing a separate build path.
 
-- runtime CLI flags
-- generated project layout
-- benchmarking workflow
-- interpreter analysis workflow
-- launcher behavior
+Release archives must contain `gbrecomp`, the embedded runtime source snapshot, the root license, and runtime provenance. A release change is incomplete until the extracted archive can generate, configure, build, and run a synthetic project from a relocated directory.
 
-then update `README.md` as part of the same task.
+## Documentation and artifact hygiene
 
-Update `AGENTS.md` too if the change affects how future agents should work in this repo.
+- Put ad hoc generated projects in `output/`.
+- Put logs, JSON, traces, state dumps, and captures in `logs/`.
+- Keep the public README short; put specialized workflows in the focused documents linked from it.
+- Update `RUNTIME.md` when runtime flags, controls, settings, or persistence behavior changes.
+- Regenerate `ACCURACY.md` only from a complete, provenance-aware run.
+- Update `GBC.md` after CGB behavior or its curated test subset changes.
+- Update this file when the required build or verification workflow changes.
 
-## Practical Defaults
-- Prefer the checked-in generated test project for quick smoke validation.
-- Prefer a representative larger generated project under `output/` for heavier validation and benchmark checks.
-- Prefer `logs/` for anything you may want to inspect later.
-- Prefer existing tools in `tools/` over one-off scripts when the repo already has the needed workflow.
+Preserve unrelated working-tree changes. Prefer small, independently verified commits, and do not claim compatibility, accuracy, or performance beyond the evidence actually collected.

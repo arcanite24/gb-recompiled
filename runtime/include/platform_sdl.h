@@ -18,6 +18,7 @@ extern uint8_t g_joypad_buttons;
 extern uint8_t g_joypad_dpad;
 
 typedef struct GBContext GBContext;
+typedef struct GBPortFrame GBPortFrame;
 
 typedef struct GBPlatformTimingInfo {
     double upload_ms;
@@ -48,6 +49,11 @@ bool gb_platform_init(int scale);
  * @brief Register context with platform (sets up callbacks)
  */
 void gb_platform_register_context(GBContext* ctx);
+
+/**
+ * @brief Submit renderer-independent native port commands for the next present.
+ */
+void gb_platform_submit_port_frame(void* user, const GBPortFrame* frame);
 
 /**
  * @brief Enable a headless benchmark mode with no host pacing or UI work.
@@ -96,7 +102,40 @@ void gb_platform_render_lcd_off_frame(void);
  * Legacy entries use "frame:buttons:duration". Cycle-anchored entries use
  * "c<cycle>:buttons:<duration_cycles>".
  */
-void gb_platform_set_input_script(const char* script);
+/**
+ * @return true when the complete script is valid and installed. A malformed
+ * script is rejected atomically and leaves no scripted input installed.
+ */
+bool gb_platform_set_input_script(const char* script);
+
+/**
+ * @brief Override the directory used for battery, RTC, and save-state files.
+ * @return true when path is an existing directory. NULL or empty clears it.
+ */
+bool gb_platform_set_persistence_dir(const char* path);
+
+/**
+ * @brief Deterministic persistence failure modes for repository tests.
+ *
+ * Production callers should leave this disabled. The selected fault is
+ * consumed by the next matching battery/RTC transaction.
+ */
+typedef enum GBPersistenceTestFault {
+    GB_PERSISTENCE_TEST_FAULT_NONE = 0,
+    GB_PERSISTENCE_TEST_FAULT_SHORT_WRITE = 1,
+    GB_PERSISTENCE_TEST_FAULT_FULL_DISK = 2,
+    GB_PERSISTENCE_TEST_FAULT_INTERRUPTION = 3,
+    GB_PERSISTENCE_TEST_FAULT_TRUNCATION = 4,
+} GBPersistenceTestFault;
+
+typedef enum GBPersistenceTestTarget {
+    GB_PERSISTENCE_TEST_TARGET_BATTERY = 0,
+    GB_PERSISTENCE_TEST_TARGET_RTC = 1,
+} GBPersistenceTestTarget;
+
+void gb_platform_test_inject_persistence_fault(
+    GBPersistenceTestTarget target,
+    GBPersistenceTestFault fault);
 
 /**
  * @brief Record live keyboard/controller input to a replayable script file
@@ -149,6 +188,20 @@ void gb_platform_set_smooth_lcd_transitions(bool enabled);
  * @brief Set window title
  */
 void gb_platform_set_title(const char* title);
+
+#ifdef GBRT_ENABLE_TEST_HOOKS
+typedef struct GBAudioStressResult {
+    uint64_t frames_enqueued;
+    uint64_t write_publications;
+    uint64_t underruns;
+} GBAudioStressResult;
+
+/**
+ * @brief Exercise the SDL audio producer/callback boundary without a device.
+ */
+bool gb_platform_test_audio_concurrency(uint32_t frames,
+                                        GBAudioStressResult* out_result);
+#endif
 
 #ifdef __cplusplus
 }

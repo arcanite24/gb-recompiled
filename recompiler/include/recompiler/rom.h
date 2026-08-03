@@ -18,6 +18,10 @@
 
 namespace gbrecomp {
 
+/** Physical ROM bank identifier. MBC5 exposes 9 bits (0x000-0x1FF). */
+using BankId = uint16_t;
+constexpr BankId UNKNOWN_BANK = UINT16_MAX;
+
 /* ============================================================================
  * MBC Types
  * ========================================================================== */
@@ -177,7 +181,7 @@ public:
     
     // Read at address (with optional bank for banked addresses)
     uint8_t read(uint16_t addr) const;
-    uint8_t read_banked(uint8_t bank, uint16_t addr) const;
+    uint8_t read_banked(BankId bank, uint16_t addr) const;
     
     // Access header
     const ROMHeader& header() const { return header_; }

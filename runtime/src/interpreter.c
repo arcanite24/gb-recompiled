@@ -59,6 +59,41 @@ static const uint8_t CB_OPCODE_CYCLES[256] = {
 #define READ8(ctx) gb_read8(ctx, ctx->pc++)
 #define READ16(ctx) (ctx->pc += 2, gb_read16(ctx, ctx->pc - 2))
 
+/* Read a 16-bit immediate on the operand-fetch M-cycles. The opcode has
+ * already been sampled at M0; this retires M0, samples/retire M1 and M2, and
+ * leaves control-flow helpers to execute only their remaining internal and
+ * stack phases. */
+static uint16_t interpreter_read_imm16_timed(GBContext* ctx) {
+    gb_tick(ctx, 7);
+    const uint8_t low = gb_read8(ctx, ctx->pc++);
+    gb_tick(ctx, 1);
+    gb_tick(ctx, 3);
+    const uint8_t high = gb_read8(ctx, ctx->pc++);
+    gb_tick(ctx, 1);
+    return (uint16_t)(low | ((uint16_t)high << 8));
+}
+
+static uint8_t interpreter_final_read8(GBContext* ctx,
+                                       uint16_t addr,
+                                       uint8_t* cycles) {
+    const uint8_t value = gbrt_timed_bus_read8(ctx,
+                                                addr,
+                                                (uint8_t)(*cycles - 1u));
+    *cycles = 0;
+    return value;
+}
+
+static void interpreter_final_write8(GBContext* ctx,
+                                     uint16_t addr,
+                                     uint8_t value,
+                                     uint8_t* cycles) {
+    gbrt_timed_bus_write8(ctx,
+                          addr,
+                          value,
+                          (uint8_t)(*cycles - 1u));
+    *cycles = 0;
+}
+
 static uint8_t get_reg8(GBContext* ctx, uint8_t idx) {
     switch (idx) {
         case 0: return ctx->b;
@@ -87,7 +122,7 @@ static void set_reg8(GBContext* ctx, uint8_t idx, uint8_t val) {
 }
 
 static void gbrt_finish_interpreter_session(GBContext* ctx,
-                                            uint8_t entry_bank,
+                                            uint16_t entry_bank,
                                             uint16_t entry_addr,
                                             uint32_t instructions_executed,
                                             uint32_t entry_cycles) {
@@ -105,7 +140,7 @@ static void gbrt_finish_interpreter_session(GBContext* ctx,
 void gb_interpret(GBContext* ctx, uint16_t addr) {
     /* Set PC to the address we want to execute */
     ctx->pc = addr;
-    uint8_t entry_bank = (addr < 0x4000) ? 0 : (uint8_t)ctx->rom_bank;
+    uint16_t entry_bank = gb_resolve_rom_bank(ctx, addr);
     uint32_t entry_cycles = ctx->cycles;
     
     /* Interpreter entry logging */
@@ -116,9 +151,15 @@ void gb_interpret(GBContext* ctx, uint16_t addr) {
         fprintf(stderr, "[INTERP] Enter interpreter at 0x%04X (entry #%d)\n", addr, entry_count);
     }
 #endif
-    gbrt_log_trace(ctx, (addr < 0x4000) ? 0 : ctx->rom_bank, addr);
+    gbrt_log_trace(ctx, gb_resolve_rom_bank(ctx, addr), addr);
 
     uint32_t instructions_executed = 0;
+#define GBRT_INTERPRETER_RETURN()                                                \
+    do {                                                                         \
+        gbrt_finish_interpreter_session(                                          \
+            ctx, entry_bank, addr, instructions_executed, entry_cycles);          \
+        return;                                                                  \
+    } while (0)
 
     while (!ctx->stopped) {
         instructions_executed++;
@@ -168,9 +209,10 @@ void gb_interpret(GBContext* ctx, uint16_t addr) {
          * The interpreter is now a universal fallback for ANY uncompiled code.
          */
 
-        if ((ctx->pc >= 0xFF00 && ctx->pc < 0xFF80 && gbrt_try_execute_highmem_stub(ctx, ctx->pc)) ||
-            (ctx->pc >= 0xFF80 && ctx->pc <= 0xFFFE && gbrt_try_execute_hram_stub(ctx, ctx->pc)) ||
-            (ctx->pc >= 0xC000 && ctx->pc < 0xFFFF && gbrt_try_execute_ram_stub(ctx, ctx->pc))) {
+        if (!ctx->halt_bug &&
+            ((ctx->pc >= 0xFF00 && ctx->pc < 0xFF80 && gbrt_try_execute_highmem_stub(ctx, ctx->pc)) ||
+             (ctx->pc >= 0xFF80 && ctx->pc <= 0xFFFE && gbrt_try_execute_hram_stub(ctx, ctx->pc)) ||
+             (ctx->pc >= 0xC000 && ctx->pc < 0xFFFF && gbrt_try_execute_ram_stub(ctx, ctx->pc)))) {
             if (ctx->single_step_mode) {
                 gbrt_finish_interpreter_session(ctx, entry_bank, addr, instructions_executed, entry_cycles);
                 return;
@@ -216,13 +258,16 @@ void gb_interpret(GBContext* ctx, uint16_t addr) {
             
             /* Complete LD r, r' instructions (0x40-0x7F) */
             /* LD B, r */
-            case 0x40: ctx->b = ctx->b; break; /* LD B,B */
+            case 0x40: /* LD B,B; also Mooneye's opt-in magic breakpoint */
+                ctx->b = ctx->b;
+                if (gbrt_test_breakpoint_enabled) ctx->stopped = 1;
+                break;
             case 0x41: ctx->b = ctx->c; break; /* LD B,C */
             case 0x42: ctx->b = ctx->d; break; /* LD B,D */
             case 0x43: ctx->b = ctx->e; break; /* LD B,E */
             case 0x44: ctx->b = ctx->h; break; /* LD B,H */
             case 0x45: ctx->b = ctx->l; break; /* LD B,L */
-            case 0x46: ctx->b = gb_read8(ctx, ctx->hl); break; /* LD B,(HL) */
+            case 0x46: ctx->b = interpreter_final_read8(ctx, ctx->hl, &cycles); break; /* LD B,(HL) */
             case 0x47: ctx->b = ctx->a; break; /* LD B,A */
             
             /* LD C, r */
@@ -232,7 +277,7 @@ void gb_interpret(GBContext* ctx, uint16_t addr) {
             case 0x4B: ctx->c = ctx->e; break; /* LD C,E */
             case 0x4C: ctx->c = ctx->h; break; /* LD C,H */
             case 0x4D: ctx->c = ctx->l; break; /* LD C,L */
-            case 0x4E: ctx->c = gb_read8(ctx, ctx->hl); break; /* LD C,(HL) */
+            case 0x4E: ctx->c = interpreter_final_read8(ctx, ctx->hl, &cycles); break; /* LD C,(HL) */
             case 0x4F: ctx->c = ctx->a; break; /* LD C,A */
             
             /* LD D, r */
@@ -242,7 +287,7 @@ void gb_interpret(GBContext* ctx, uint16_t addr) {
             case 0x53: ctx->d = ctx->e; break; /* LD D,E */
             case 0x54: ctx->d = ctx->h; break; /* LD D,H */
             case 0x55: ctx->d = ctx->l; break; /* LD D,L */
-            case 0x56: ctx->d = gb_read8(ctx, ctx->hl); break; /* LD D,(HL) */
+            case 0x56: ctx->d = interpreter_final_read8(ctx, ctx->hl, &cycles); break; /* LD D,(HL) */
             case 0x57: ctx->d = ctx->a; break; /* LD D,A */
             
             /* LD E, r */
@@ -252,7 +297,7 @@ void gb_interpret(GBContext* ctx, uint16_t addr) {
             case 0x5B: ctx->e = ctx->e; break; /* LD E,E */
             case 0x5C: ctx->e = ctx->h; break; /* LD E,H */
             case 0x5D: ctx->e = ctx->l; break; /* LD E,L */
-            case 0x5E: ctx->e = gb_read8(ctx, ctx->hl); break; /* LD E,(HL) */
+            case 0x5E: ctx->e = interpreter_final_read8(ctx, ctx->hl, &cycles); break; /* LD E,(HL) */
             case 0x5F: ctx->e = ctx->a; break; /* LD E,A */
             
             /* LD H, r */
@@ -262,7 +307,7 @@ void gb_interpret(GBContext* ctx, uint16_t addr) {
             case 0x63: ctx->h = ctx->e; break; /* LD H,E */
             case 0x64: ctx->h = ctx->h; break; /* LD H,H */
             case 0x65: ctx->h = ctx->l; break; /* LD H,L */
-            case 0x66: ctx->h = gb_read8(ctx, ctx->hl); break; /* LD H,(HL) */
+            case 0x66: ctx->h = interpreter_final_read8(ctx, ctx->hl, &cycles); break; /* LD H,(HL) */
             case 0x67: ctx->h = ctx->a; break; /* LD H,A */
             
             /* LD L, r */
@@ -272,26 +317,20 @@ void gb_interpret(GBContext* ctx, uint16_t addr) {
             case 0x6B: ctx->l = ctx->e; break; /* LD L,E */
             case 0x6C: ctx->l = ctx->h; break; /* LD L,H */
             case 0x6D: ctx->l = ctx->l; break; /* LD L,L */
-            case 0x6E: ctx->l = gb_read8(ctx, ctx->hl); break; /* LD L,(HL) */
+            case 0x6E: ctx->l = interpreter_final_read8(ctx, ctx->hl, &cycles); break; /* LD L,(HL) */
             case 0x6F: ctx->l = ctx->a; break; /* LD L,A */
             
             /* LD (HL), r */
-            case 0x70: gb_write8(ctx, ctx->hl, ctx->b); break; /* LD (HL), B */
-            case 0x71: gb_write8(ctx, ctx->hl, ctx->c); break; /* LD (HL), C */
-            case 0x72: gb_write8(ctx, ctx->hl, ctx->d); break; /* LD (HL), D */
-            case 0x73: gb_write8(ctx, ctx->hl, ctx->e); break; /* LD (HL), E */
-            case 0x74: gb_write8(ctx, ctx->hl, ctx->h); break; /* LD (HL), H */
-            case 0x75: gb_write8(ctx, ctx->hl, ctx->l); break; /* LD (HL), L */
+            case 0x70: interpreter_final_write8(ctx, ctx->hl, ctx->b, &cycles); break; /* LD (HL), B */
+            case 0x71: interpreter_final_write8(ctx, ctx->hl, ctx->c, &cycles); break; /* LD (HL), C */
+            case 0x72: interpreter_final_write8(ctx, ctx->hl, ctx->d, &cycles); break; /* LD (HL), D */
+            case 0x73: interpreter_final_write8(ctx, ctx->hl, ctx->e, &cycles); break; /* LD (HL), E */
+            case 0x74: interpreter_final_write8(ctx, ctx->hl, ctx->h, &cycles); break; /* LD (HL), H */
+            case 0x75: interpreter_final_write8(ctx, ctx->hl, ctx->l, &cycles); break; /* LD (HL), L */
             case 0x76: /* HALT */
-                /* HALT bug: If IME=0 and there's a pending interrupt, PC fails to increment */
-                if (!ctx->ime && (gb_read8(ctx, 0xFFFF) & gb_read8(ctx, 0xFF0F) & 0x1F)) {
-                    ctx->halt_bug = 1;  /* Next instruction byte read twice */
-                } else {
-                    gb_halt(ctx);
-                }
-                gb_tick(ctx, cycles);
-                return;
-            case 0x77: gb_write8(ctx, ctx->hl, ctx->a); break; /* LD (HL), A */
+                gbrt_execute_halt(ctx, ctx->pc, cycles);
+                GBRT_INTERPRETER_RETURN();
+            case 0x77: interpreter_final_write8(ctx, ctx->hl, ctx->a, &cycles); break; /* LD (HL), A */
             
             /* LD A, r */
             case 0x78: ctx->a = ctx->b; break; /* LD A,B */
@@ -300,27 +339,27 @@ void gb_interpret(GBContext* ctx, uint16_t addr) {
             case 0x7B: ctx->a = ctx->e; break; /* LD A,E */
             case 0x7C: ctx->a = ctx->h; break; /* LD A,H */
             case 0x7D: ctx->a = ctx->l; break; /* LD A,L */
-            case 0x7E: ctx->a = gb_read8(ctx, ctx->hl); break; /* LD A,(HL) */
+            case 0x7E: ctx->a = interpreter_final_read8(ctx, ctx->hl, &cycles); break; /* LD A,(HL) */
             case 0x7F: ctx->a = ctx->a; break; /* LD A,A */
             
-            case 0xEA: gb_write8(ctx, READ16(ctx), ctx->a); break; /* LD (nn), A */
-            case 0xFA: ctx->a = gb_read8(ctx, READ16(ctx)); break; /* LD A, (nn) */
+            case 0xEA: { uint16_t target = READ16(ctx); interpreter_final_write8(ctx, target, ctx->a, &cycles); break; } /* LD (nn), A */
+            case 0xFA: { uint16_t target = READ16(ctx); ctx->a = interpreter_final_read8(ctx, target, &cycles); break; } /* LD A, (nn) */
             
-            case 0xE0: gb_write8(ctx, 0xFF00 + READ8(ctx), ctx->a); break; /* LDH (n), A */
-            case 0xF0: ctx->a = gb_read8(ctx, 0xFF00 + READ8(ctx)); break; /* LDH A, (n) */
+            case 0xE0: { uint16_t target = (uint16_t)(0xFF00u + READ8(ctx)); interpreter_final_write8(ctx, target, ctx->a, &cycles); break; } /* LDH (n), A */
+            case 0xF0: { uint16_t target = (uint16_t)(0xFF00u + READ8(ctx)); ctx->a = interpreter_final_read8(ctx, target, &cycles); break; } /* LDH A, (n) */
             
-            case 0xE2: gb_write8(ctx, 0xFF00 + ctx->c, ctx->a); break; /* LD (C), A */
-            case 0xF2: ctx->a = gb_read8(ctx, 0xFF00 + ctx->c); break; /* LD A, (C) */
+            case 0xE2: interpreter_final_write8(ctx, (uint16_t)(0xFF00u + ctx->c), ctx->a, &cycles); break; /* LD (C), A */
+            case 0xF2: ctx->a = interpreter_final_read8(ctx, (uint16_t)(0xFF00u + ctx->c), &cycles); break; /* LD A, (C) */
             
-            case 0x0A: ctx->a = gb_read8(ctx, ctx->bc); break; /* LD A, (BC) */
-            case 0x1A: ctx->a = gb_read8(ctx, ctx->de); break; /* LD A, (DE) */
-            case 0x02: gb_write8(ctx, ctx->bc, ctx->a); break; /* LD (BC), A */
-            case 0x12: gb_write8(ctx, ctx->de, ctx->a); break; /* LD (DE), A */
+            case 0x0A: ctx->a = interpreter_final_read8(ctx, ctx->bc, &cycles); break; /* LD A, (BC) */
+            case 0x1A: ctx->a = interpreter_final_read8(ctx, ctx->de, &cycles); break; /* LD A, (DE) */
+            case 0x02: interpreter_final_write8(ctx, ctx->bc, ctx->a, &cycles); break; /* LD (BC), A */
+            case 0x12: interpreter_final_write8(ctx, ctx->de, ctx->a, &cycles); break; /* LD (DE), A */
 
-            case 0x22: gb_write8(ctx, ctx->hl++, ctx->a); break; /* LD (HL+), A */
-            case 0x2A: ctx->a = gb_read8(ctx, ctx->hl++); break; /* LD A, (HL+) */
-            case 0x32: gb_write8(ctx, ctx->hl--, ctx->a); break; /* LD (HL-), A */
-            case 0x3A: ctx->a = gb_read8(ctx, ctx->hl--); break; /* LD A, (HL-) */
+            case 0x22: gbrt_timed_hl_write_auto(ctx, ctx->a, 1); cycles = 0; break; /* LD (HL+), A */
+            case 0x2A: ctx->a = gbrt_timed_hl_read_auto(ctx, 1); cycles = 0; break; /* LD A, (HL+) */
+            case 0x32: gbrt_timed_hl_write_auto(ctx, ctx->a, -1); cycles = 0; break; /* LD (HL-), A */
+            case 0x3A: ctx->a = gbrt_timed_hl_read_auto(ctx, -1); cycles = 0; break; /* LD A, (HL-) */
             case 0x08: { /* LD (nn), SP */
                 uint16_t addr = READ16(ctx);
                 gb_write16(ctx, addr, ctx->sp);
@@ -334,18 +373,19 @@ void gb_interpret(GBContext* ctx, uint16_t addr) {
             case 0xF9: ctx->sp = ctx->hl; break; /* LD SP, HL */
             
             /* Stack */
-            case 0xC5: gb_push16(ctx, ctx->bc); break; /* PUSH BC */
-            case 0xD5: gb_push16(ctx, ctx->de); break; /* PUSH DE */
-            case 0xE5: gb_push16(ctx, ctx->hl); break; /* PUSH HL */
-            case 0xF5: gb_pack_flags(ctx); gb_push16(ctx, ctx->af & 0xFFF0); break; /* PUSH AF */
+            case 0xC5: gbrt_timed_push16(ctx, ctx->bc); cycles = 0; break; /* PUSH BC */
+            case 0xD5: gbrt_timed_push16(ctx, ctx->de); cycles = 0; break; /* PUSH DE */
+            case 0xE5: gbrt_timed_push16(ctx, ctx->hl); cycles = 0; break; /* PUSH HL */
+            case 0xF5: gb_pack_flags(ctx); gbrt_timed_push16(ctx, ctx->af & 0xFFF0); cycles = 0; break; /* PUSH AF */
             
-            case 0xC1: ctx->bc = gb_pop16(ctx); break; /* POP BC */
-            case 0xD1: ctx->de = gb_pop16(ctx); break; /* POP DE */
-            case 0xE1: ctx->hl = gb_pop16(ctx); break; /* POP HL */
+            case 0xC1: ctx->bc = gbrt_timed_pop16(ctx); cycles = 0; break; /* POP BC */
+            case 0xD1: ctx->de = gbrt_timed_pop16(ctx); cycles = 0; break; /* POP DE */
+            case 0xE1: ctx->hl = gbrt_timed_pop16(ctx); cycles = 0; break; /* POP HL */
             case 0xF1: {
-                uint16_t af = gb_pop16(ctx);
+                uint16_t af = gbrt_timed_pop16(ctx);
                 ctx->af = af & 0xFFF0; /* Lower 4 bits of F are always 0 */
                 gb_unpack_flags(ctx);
+                cycles = 0;
                 break; 
             }
             
@@ -364,9 +404,27 @@ void gb_interpret(GBContext* ctx, uint16_t addr) {
             case 0x2D: ctx->l = gb_dec8(ctx, ctx->l); break; /* DEC L */
             case 0x3C: ctx->a = gb_inc8(ctx, ctx->a); break; /* INC A */
             case 0x3D: ctx->a = gb_dec8(ctx, ctx->a); break; /* DEC A */
-            case 0x34: gb_write8(ctx, ctx->hl, gb_inc8(ctx, gb_read8(ctx, ctx->hl))); break; /* INC (HL) */
-            case 0x35: gb_write8(ctx, ctx->hl, gb_dec8(ctx, gb_read8(ctx, ctx->hl))); break; /* DEC (HL) */
-            case 0x36: gb_write8(ctx, ctx->hl, READ8(ctx)); break; /* LD (HL), n */
+            case 0x34: { /* INC (HL) */
+                const uint16_t target = ctx->hl;
+                uint8_t value = gbrt_timed_bus_read8(ctx,
+                                                     target,
+                                                     (uint8_t)(cycles - 5u));
+                value = gb_inc8(ctx, value);
+                gbrt_timed_bus_rmw_write8(ctx, target, value);
+                cycles = 0;
+                break;
+            }
+            case 0x35: { /* DEC (HL) */
+                const uint16_t target = ctx->hl;
+                uint8_t value = gbrt_timed_bus_read8(ctx,
+                                                     target,
+                                                     (uint8_t)(cycles - 5u));
+                value = gb_dec8(ctx, value);
+                gbrt_timed_bus_rmw_write8(ctx, target, value);
+                cycles = 0;
+                break;
+            }
+            case 0x36: { uint8_t value = READ8(ctx); interpreter_final_write8(ctx, ctx->hl, value, &cycles); break; } /* LD (HL), n */
 
             case 0x80: gb_add8(ctx, ctx->b); break; /* ADD A, B */
             case 0x81: gb_add8(ctx, ctx->c); break; /* ADD A, C */
@@ -374,7 +432,7 @@ void gb_interpret(GBContext* ctx, uint16_t addr) {
             case 0x83: gb_add8(ctx, ctx->e); break; /* ADD A, E */
             case 0x84: gb_add8(ctx, ctx->h); break; /* ADD A, H */
             case 0x85: gb_add8(ctx, ctx->l); break; /* ADD A, L */
-            case 0x86: gb_add8(ctx, gb_read8(ctx, ctx->hl)); break; /* ADD A, (HL) */
+            case 0x86: gb_add8(ctx, interpreter_final_read8(ctx, ctx->hl, &cycles)); break; /* ADD A, (HL) */
             case 0x87: gb_add8(ctx, ctx->a); break; /* ADD A, A */
             case 0xC6: gb_add8(ctx, READ8(ctx)); break; /* ADD A, n */
 
@@ -384,7 +442,7 @@ void gb_interpret(GBContext* ctx, uint16_t addr) {
             case 0x8B: gb_adc8(ctx, ctx->e); break; /* ADC A, E */
             case 0x8C: gb_adc8(ctx, ctx->h); break; /* ADC A, H */
             case 0x8D: gb_adc8(ctx, ctx->l); break; /* ADC A, L */
-            case 0x8E: gb_adc8(ctx, gb_read8(ctx, ctx->hl)); break; /* ADC A, (HL) */
+            case 0x8E: gb_adc8(ctx, interpreter_final_read8(ctx, ctx->hl, &cycles)); break; /* ADC A, (HL) */
             case 0x8F: gb_adc8(ctx, ctx->a); break; /* ADC A, A */
             case 0xCE: gb_adc8(ctx, READ8(ctx)); break; /* ADC A, n */
 
@@ -394,7 +452,7 @@ void gb_interpret(GBContext* ctx, uint16_t addr) {
             case 0x93: gb_sub8(ctx, ctx->e); break; /* SUB E */
             case 0x94: gb_sub8(ctx, ctx->h); break; /* SUB H */
             case 0x95: gb_sub8(ctx, ctx->l); break; /* SUB L */
-            case 0x96: gb_sub8(ctx, gb_read8(ctx, ctx->hl)); break; /* SUB (HL) */
+            case 0x96: gb_sub8(ctx, interpreter_final_read8(ctx, ctx->hl, &cycles)); break; /* SUB (HL) */
             case 0x97: gb_sub8(ctx, ctx->a); break; /* SUB A */
             case 0xD6: gb_sub8(ctx, READ8(ctx)); break; /* SUB n */
 
@@ -404,7 +462,7 @@ void gb_interpret(GBContext* ctx, uint16_t addr) {
             case 0x9B: gb_sbc8(ctx, ctx->e); break; /* SBC A, E */
             case 0x9C: gb_sbc8(ctx, ctx->h); break; /* SBC A, H */
             case 0x9D: gb_sbc8(ctx, ctx->l); break; /* SBC A, L */
-            case 0x9E: gb_sbc8(ctx, gb_read8(ctx, ctx->hl)); break; /* SBC A, (HL) */
+            case 0x9E: gb_sbc8(ctx, interpreter_final_read8(ctx, ctx->hl, &cycles)); break; /* SBC A, (HL) */
             case 0x9F: gb_sbc8(ctx, ctx->a); break; /* SBC A, A */
             case 0xDE: gb_sbc8(ctx, READ8(ctx)); break; /* SBC A, n */
 
@@ -414,7 +472,7 @@ void gb_interpret(GBContext* ctx, uint16_t addr) {
             case 0xA3: gb_and8(ctx, ctx->e); break; /* AND E */
             case 0xA4: gb_and8(ctx, ctx->h); break; /* AND H */
             case 0xA5: gb_and8(ctx, ctx->l); break; /* AND L */
-            case 0xA6: gb_and8(ctx, gb_read8(ctx, ctx->hl)); break; /* AND (HL) */
+            case 0xA6: gb_and8(ctx, interpreter_final_read8(ctx, ctx->hl, &cycles)); break; /* AND (HL) */
             case 0xA7: gb_and8(ctx, ctx->a); break; /* AND A */
             case 0xE6: gb_and8(ctx, READ8(ctx)); break; /* AND n */
 
@@ -424,7 +482,7 @@ void gb_interpret(GBContext* ctx, uint16_t addr) {
             case 0xAB: gb_xor8(ctx, ctx->e); break; /* XOR E */
             case 0xAC: gb_xor8(ctx, ctx->h); break; /* XOR H */
             case 0xAD: gb_xor8(ctx, ctx->l); break; /* XOR L */
-            case 0xAE: gb_xor8(ctx, gb_read8(ctx, ctx->hl)); break; /* XOR (HL) */
+            case 0xAE: gb_xor8(ctx, interpreter_final_read8(ctx, ctx->hl, &cycles)); break; /* XOR (HL) */
             case 0xAF: gb_xor8(ctx, ctx->a); break; /* XOR A */
             case 0xEE: gb_xor8(ctx, READ8(ctx)); break; /* XOR n */
             
@@ -434,7 +492,7 @@ void gb_interpret(GBContext* ctx, uint16_t addr) {
             case 0xB3: gb_or8(ctx, ctx->e); break; /* OR E */
             case 0xB4: gb_or8(ctx, ctx->h); break; /* OR H */
             case 0xB5: gb_or8(ctx, ctx->l); break; /* OR L */
-            case 0xB6: gb_or8(ctx, gb_read8(ctx, ctx->hl)); break; /* OR (HL) */
+            case 0xB6: gb_or8(ctx, interpreter_final_read8(ctx, ctx->hl, &cycles)); break; /* OR (HL) */
             case 0xB7: gb_or8(ctx, ctx->a); break; /* OR A */
             case 0xF6: gb_or8(ctx, READ8(ctx)); break; /* OR n */
 
@@ -444,93 +502,89 @@ void gb_interpret(GBContext* ctx, uint16_t addr) {
             case 0xBB: gb_cp8(ctx, ctx->e); break; /* CP E */
             case 0xBC: gb_cp8(ctx, ctx->h); break; /* CP H */
             case 0xBD: gb_cp8(ctx, ctx->l); break; /* CP L */
-            case 0xBE: gb_cp8(ctx, gb_read8(ctx, ctx->hl)); break; /* CP (HL) */
+            case 0xBE: gb_cp8(ctx, interpreter_final_read8(ctx, ctx->hl, &cycles)); break; /* CP (HL) */
             case 0xBF: gb_cp8(ctx, ctx->a); break; /* CP A */
             case 0xFE: gb_cp8(ctx, READ8(ctx)); break; /* CP n */
 
 
             
             /* ALU 16-bit */
-            case 0x03: ctx->bc++; break; /* INC BC */
-            case 0x13: ctx->de++; break; /* INC DE */
-            case 0x23: ctx->hl++; break; /* INC HL */
-            case 0x33: ctx->sp++; break; /* INC SP */
+            case 0x03: gbrt_timed_inc16(ctx, &ctx->bc); cycles = 0; break; /* INC BC */
+            case 0x13: gbrt_timed_inc16(ctx, &ctx->de); cycles = 0; break; /* INC DE */
+            case 0x23: gbrt_timed_inc16(ctx, &ctx->hl); cycles = 0; break; /* INC HL */
+            case 0x33: gbrt_timed_inc16(ctx, &ctx->sp); cycles = 0; break; /* INC SP */
             
-            case 0x0B: ctx->bc--; break; /* DEC BC */
-            case 0x1B: ctx->de--; break; /* DEC DE */
-            case 0x2B: ctx->hl--; break; /* DEC HL */
-            case 0x3B: ctx->sp--; break; /* DEC SP */
+            case 0x0B: gbrt_timed_dec16(ctx, &ctx->bc); cycles = 0; break; /* DEC BC */
+            case 0x1B: gbrt_timed_dec16(ctx, &ctx->de); cycles = 0; break; /* DEC DE */
+            case 0x2B: gbrt_timed_dec16(ctx, &ctx->hl); cycles = 0; break; /* DEC HL */
+            case 0x3B: gbrt_timed_dec16(ctx, &ctx->sp); cycles = 0; break; /* DEC SP */
 
             case 0x09: gb_add16(ctx, ctx->bc); break; /* ADD HL, BC */
             case 0x19: gb_add16(ctx, ctx->de); break; /* ADD HL, DE */
             case 0x29: gb_add16(ctx, ctx->hl); break; /* ADD HL, HL */
             case 0x39: gb_add16(ctx, ctx->sp); break; /* ADD HL, SP */
             
-            case 0xE8: gb_add_sp(ctx, (int8_t)READ8(ctx)); break; /* ADD SP, n */
+            case 0xE8: /* ADD SP, n */
+                gbrt_timed_add_sp(ctx, ctx->pc++);
+                cycles = 0;
+                break;
             case 0xF8: { /* LD HL, SP+n */
-                int8_t offset = (int8_t)READ8(ctx);
-                uint32_t result = ctx->sp + offset;
-                ctx->f_z = 0;
-                ctx->f_n = 0;
-                ctx->f_h = ((ctx->sp & 0x0F) + (offset & 0x0F)) > 0x0F;
-                ctx->f_c = ((ctx->sp & 0xFF) + (offset & 0xFF)) > 0xFF;
-                ctx->hl = (uint16_t)result;
+                gbrt_timed_ld_hl_sp_n(ctx, ctx->pc++);
+                cycles = 0;
                 break;
             }
 
             /* Control Flow */
             case 0xC3: { /* JP nn */
-                uint16_t dest = READ16(ctx);
+                uint16_t dest = interpreter_read_imm16_timed(ctx);
                 gbrt_log_trace(ctx, (dest < 0x4000) ? 0 : ctx->rom_bank, dest);
-                ctx->pc = dest; 
-                gb_tick(ctx, cycles); 
-                return; 
+                gbrt_timed_jump(ctx, dest, 4);
+                GBRT_INTERPRETER_RETURN();
             }
             case 0xE9: { /* JP HL */
                 gbrt_log_trace(ctx, (ctx->hl < 0x4000) ? 0 : ctx->rom_bank, ctx->hl);
-                ctx->pc = ctx->hl; 
-                gb_tick(ctx, cycles); 
-                return; 
+                gbrt_timed_jump(ctx, ctx->hl, cycles);
+                GBRT_INTERPRETER_RETURN();
             }
             
             case 0xC2: { /* JP NZ, nn */
-                uint16_t dest = READ16(ctx);
+                uint16_t dest = interpreter_read_imm16_timed(ctx);
                 if (!ctx->f_z) { 
                     gbrt_log_trace(ctx, (dest < 0x4000) ? 0 : ctx->rom_bank, dest);
-                    ctx->pc = dest; 
-                    gb_tick(ctx, cycles + BRANCH_TAKEN_EXTRA); 
-                    return; 
+                    gbrt_timed_jump(ctx, dest, 4);
+                    GBRT_INTERPRETER_RETURN();
                 }
+                cycles = 0;
                 break;
             }
             case 0xCA: { /* JP Z, nn */
-                uint16_t dest = READ16(ctx);
+                uint16_t dest = interpreter_read_imm16_timed(ctx);
                 if (ctx->f_z) { 
                     gbrt_log_trace(ctx, (dest < 0x4000) ? 0 : ctx->rom_bank, dest);
-                    ctx->pc = dest; 
-                    gb_tick(ctx, cycles + BRANCH_TAKEN_EXTRA); 
-                    return; 
+                    gbrt_timed_jump(ctx, dest, 4);
+                    GBRT_INTERPRETER_RETURN();
                 }
+                cycles = 0;
                 break;
             }
             case 0xD2: { /* JP NC, nn */
-                uint16_t dest = READ16(ctx);
+                uint16_t dest = interpreter_read_imm16_timed(ctx);
                 if (!ctx->f_c) { 
                     gbrt_log_trace(ctx, (dest < 0x4000) ? 0 : ctx->rom_bank, dest);
-                    ctx->pc = dest; 
-                    gb_tick(ctx, cycles + BRANCH_TAKEN_EXTRA); 
-                    return; 
+                    gbrt_timed_jump(ctx, dest, 4);
+                    GBRT_INTERPRETER_RETURN();
                 }
+                cycles = 0;
                 break;
             }
             case 0xDA: { /* JP C, nn */
-                uint16_t dest = READ16(ctx);
+                uint16_t dest = interpreter_read_imm16_timed(ctx);
                 if (ctx->f_c) { 
                     gbrt_log_trace(ctx, (dest < 0x4000) ? 0 : ctx->rom_bank, dest);
-                    ctx->pc = dest; 
-                    gb_tick(ctx, cycles + BRANCH_TAKEN_EXTRA); 
-                    return; 
+                    gbrt_timed_jump(ctx, dest, 4);
+                    GBRT_INTERPRETER_RETURN();
                 }
+                cycles = 0;
                 break;
             }
             
@@ -540,7 +594,7 @@ void gb_interpret(GBContext* ctx, uint16_t addr) {
                 gbrt_log_trace(ctx, (dest < 0x4000) ? 0 : ctx->rom_bank, dest);
                 ctx->pc = dest;
                 gb_tick(ctx, cycles);
-                return;
+                GBRT_INTERPRETER_RETURN();
             }
             case 0x20: { /* JR NZ, n */
                 int8_t off = (int8_t)READ8(ctx);
@@ -549,7 +603,7 @@ void gb_interpret(GBContext* ctx, uint16_t addr) {
                     gbrt_log_trace(ctx, (dest < 0x4000) ? 0 : ctx->rom_bank, dest);
                     ctx->pc = dest; 
                     gb_tick(ctx, cycles + BRANCH_TAKEN_EXTRA); 
-                    return; 
+                    GBRT_INTERPRETER_RETURN();
                 }
                 break;
             }
@@ -560,7 +614,7 @@ void gb_interpret(GBContext* ctx, uint16_t addr) {
                     gbrt_log_trace(ctx, (dest < 0x4000) ? 0 : ctx->rom_bank, dest);
                     ctx->pc = dest; 
                     gb_tick(ctx, cycles + BRANCH_TAKEN_EXTRA); 
-                    return; 
+                    GBRT_INTERPRETER_RETURN();
                 }
                 break;
             }
@@ -571,7 +625,7 @@ void gb_interpret(GBContext* ctx, uint16_t addr) {
                     gbrt_log_trace(ctx, (dest < 0x4000) ? 0 : ctx->rom_bank, dest);
                     ctx->pc = dest; 
                     gb_tick(ctx, cycles + BRANCH_TAKEN_EXTRA); 
-                    return; 
+                    GBRT_INTERPRETER_RETURN();
                 }
                 break;
             }
@@ -582,94 +636,85 @@ void gb_interpret(GBContext* ctx, uint16_t addr) {
                     gbrt_log_trace(ctx, (dest < 0x4000) ? 0 : ctx->rom_bank, dest);
                     ctx->pc = dest; 
                     gb_tick(ctx, cycles + BRANCH_TAKEN_EXTRA); 
-                    return; 
+                    GBRT_INTERPRETER_RETURN();
                 }
                 break;
             }
             
             case 0xCD: { /* CALL nn */
-                uint16_t dest = READ16(ctx);
+                uint16_t dest = interpreter_read_imm16_timed(ctx);
                 gbrt_log_trace(ctx, (dest < 0x4000) ? 0 : ctx->rom_bank, dest);
-                gb_push16(ctx, ctx->pc);
-                ctx->pc = dest;
-                gb_tick(ctx, cycles);
-                return;
+                gbrt_timed_call_after_imm16(ctx, dest, ctx->pc);
+                GBRT_INTERPRETER_RETURN();
             }
             case 0xC4: { /* CALL NZ, nn */
-                uint16_t dest = READ16(ctx);
+                uint16_t dest = interpreter_read_imm16_timed(ctx);
                 if (!ctx->f_z) {
                     gbrt_log_trace(ctx, (dest < 0x4000) ? 0 : ctx->rom_bank, dest);
-                    gb_push16(ctx, ctx->pc);
-                    ctx->pc = dest;
-                    gb_tick(ctx, cycles + CALL_TAKEN_EXTRA);
-                    return;
+                    gbrt_timed_call_after_imm16(ctx, dest, ctx->pc);
+                    GBRT_INTERPRETER_RETURN();
                 }
+                cycles = 0;
                 break;
             }
             case 0xCC: { /* CALL Z, nn */
-                uint16_t dest = READ16(ctx);
+                uint16_t dest = interpreter_read_imm16_timed(ctx);
                 if (ctx->f_z) {
                     gbrt_log_trace(ctx, (dest < 0x4000) ? 0 : ctx->rom_bank, dest);
-                    gb_push16(ctx, ctx->pc);
-                    ctx->pc = dest;
-                    gb_tick(ctx, cycles + CALL_TAKEN_EXTRA);
-                    return;
+                    gbrt_timed_call_after_imm16(ctx, dest, ctx->pc);
+                    GBRT_INTERPRETER_RETURN();
                 }
+                cycles = 0;
                 break;
             }
             case 0xD4: { /* CALL NC, nn */
-                uint16_t dest = READ16(ctx);
+                uint16_t dest = interpreter_read_imm16_timed(ctx);
                 if (!ctx->f_c) {
                     gbrt_log_trace(ctx, (dest < 0x4000) ? 0 : ctx->rom_bank, dest);
-                    gb_push16(ctx, ctx->pc);
-                    ctx->pc = dest;
-                    gb_tick(ctx, cycles + CALL_TAKEN_EXTRA);
-                    return;
+                    gbrt_timed_call_after_imm16(ctx, dest, ctx->pc);
+                    GBRT_INTERPRETER_RETURN();
                 }
+                cycles = 0;
                 break;
             }
             case 0xDC: { /* CALL C, nn */
-                uint16_t dest = READ16(ctx);
+                uint16_t dest = interpreter_read_imm16_timed(ctx);
                 if (ctx->f_c) {
                     gbrt_log_trace(ctx, (dest < 0x4000) ? 0 : ctx->rom_bank, dest);
-                    gb_push16(ctx, ctx->pc);
-                    ctx->pc = dest;
-                    gb_tick(ctx, cycles + CALL_TAKEN_EXTRA);
-                    return;
+                    gbrt_timed_call_after_imm16(ctx, dest, ctx->pc);
+                    GBRT_INTERPRETER_RETURN();
                 }
+                cycles = 0;
                 break;
             }
             
             case 0xC9: /* RET */
-                ctx->pc = gb_pop16(ctx);
-                gb_tick(ctx, cycles);
-                return;
+                gbrt_timed_ret(ctx);
+                GBRT_INTERPRETER_RETURN();
             case 0xC0: /* RET NZ */
-                if (!ctx->f_z) { ctx->pc = gb_pop16(ctx); gb_tick(ctx, cycles + RET_TAKEN_EXTRA); return; }
+                if (!ctx->f_z) { gbrt_timed_ret_cc(ctx); GBRT_INTERPRETER_RETURN(); }
                 break;
             case 0xC8: /* RET Z */
-                if (ctx->f_z) { ctx->pc = gb_pop16(ctx); gb_tick(ctx, cycles + RET_TAKEN_EXTRA); return; }
+                if (ctx->f_z) { gbrt_timed_ret_cc(ctx); GBRT_INTERPRETER_RETURN(); }
                 break;
             case 0xD0: /* RET NC */
-                if (!ctx->f_c) { ctx->pc = gb_pop16(ctx); gb_tick(ctx, cycles + RET_TAKEN_EXTRA); return; }
+                if (!ctx->f_c) { gbrt_timed_ret_cc(ctx); GBRT_INTERPRETER_RETURN(); }
                 break;
             case 0xD8: /* RET C */
-                if (ctx->f_c) { ctx->pc = gb_pop16(ctx); gb_tick(ctx, cycles + RET_TAKEN_EXTRA); return; }
+                if (ctx->f_c) { gbrt_timed_ret_cc(ctx); GBRT_INTERPRETER_RETURN(); }
                 break;
             case 0xD9: /* RETI */
-                ctx->pc = gb_pop16(ctx);
-                ctx->ime = 1; /* RETI enables IME immediately */
-                gb_tick(ctx, cycles);
-                return;
+                gbrt_timed_reti(ctx);
+                GBRT_INTERPRETER_RETURN();
                 
-            case 0xC7: gb_rst(ctx, 0x00); gb_tick(ctx, cycles); return;
-            case 0xCF: gb_rst(ctx, 0x08); gb_tick(ctx, cycles); return;
-            case 0xD7: gb_rst(ctx, 0x10); gb_tick(ctx, cycles); return;
-            case 0xDF: gb_rst(ctx, 0x18); gb_tick(ctx, cycles); return;
-            case 0xE7: gb_rst(ctx, 0x20); gb_tick(ctx, cycles); return;
-            case 0xEF: gb_rst(ctx, 0x28); gb_tick(ctx, cycles); return;
-            case 0xF7: gb_rst(ctx, 0x30); gb_tick(ctx, cycles); return;
-            case 0xFF: gb_rst(ctx, 0x38); gb_tick(ctx, cycles); return;
+            case 0xC7: gbrt_timed_rst(ctx, 0x00, ctx->pc); GBRT_INTERPRETER_RETURN();
+            case 0xCF: gbrt_timed_rst(ctx, 0x08, ctx->pc); GBRT_INTERPRETER_RETURN();
+            case 0xD7: gbrt_timed_rst(ctx, 0x10, ctx->pc); GBRT_INTERPRETER_RETURN();
+            case 0xDF: gbrt_timed_rst(ctx, 0x18, ctx->pc); GBRT_INTERPRETER_RETURN();
+            case 0xE7: gbrt_timed_rst(ctx, 0x20, ctx->pc); GBRT_INTERPRETER_RETURN();
+            case 0xEF: gbrt_timed_rst(ctx, 0x28, ctx->pc); GBRT_INTERPRETER_RETURN();
+            case 0xF7: gbrt_timed_rst(ctx, 0x30, ctx->pc); GBRT_INTERPRETER_RETURN();
+            case 0xFF: gbrt_timed_rst(ctx, 0x38, ctx->pc); GBRT_INTERPRETER_RETURN();
                 
             case 0xF3: ctx->ime = 0; ctx->ime_pending = 0; break; /* DI - also cancel pending EI */
             case 0xFB: ctx->ime_pending = 1; break; /* EI */
@@ -688,7 +733,25 @@ void gb_interpret(GBContext* ctx, uint16_t addr) {
                 cycles = CB_OPCODE_CYCLES[cb_op];  /* Override with CB-specific timing */
                 uint8_t r = cb_op & 7;
                 uint8_t b = (cb_op >> 3) & 7;
-                uint8_t val = get_reg8(ctx, r);
+                const bool memory_operand = r == 6;
+                const bool memory_rmw = memory_operand &&
+                                        !(cb_op >= 0x40 && cb_op < 0x80);
+                const uint16_t memory_target = ctx->hl;
+                uint8_t val;
+                if (memory_operand) {
+                    const uint8_t leading_cycles = memory_rmw
+                        ? (uint8_t)(cycles - 5u)
+                        : (uint8_t)(cycles - 1u);
+                    val = gbrt_timed_bus_read8(ctx,
+                                               memory_target,
+                                               leading_cycles);
+                    if (!memory_rmw) {
+                        cycles = 0;
+                    }
+                }
+                else {
+                    val = get_reg8(ctx, r);
+                }
                 
                 if (cb_op < 0x40) {
                     /* Shifts and Rotates */
@@ -702,7 +765,13 @@ void gb_interpret(GBContext* ctx, uint16_t addr) {
                         case 6: val = gb_swap(ctx, val); break;
                         case 7: val = gb_srl(ctx, val); break;
                     }
-                    set_reg8(ctx, r, val);
+                    if (memory_rmw) {
+                        gbrt_timed_bus_rmw_write8(ctx, memory_target, val);
+                        cycles = 0;
+                    }
+                    else {
+                        set_reg8(ctx, r, val);
+                    }
                 }
                 else if (cb_op < 0x80) {
                     /* BIT */
@@ -711,19 +780,31 @@ void gb_interpret(GBContext* ctx, uint16_t addr) {
                 else if (cb_op < 0xC0) {
                     /* RES */
                     val &= ~(1 << b);
-                    set_reg8(ctx, r, val);
+                    if (memory_rmw) {
+                        gbrt_timed_bus_rmw_write8(ctx, memory_target, val);
+                        cycles = 0;
+                    }
+                    else {
+                        set_reg8(ctx, r, val);
+                    }
                 }
                 else {
                     /* SET */
                     val |= (1 << b);
-                    set_reg8(ctx, r, val);
+                    if (memory_rmw) {
+                        gbrt_timed_bus_rmw_write8(ctx, memory_target, val);
+                        cycles = 0;
+                    }
+                    else {
+                        set_reg8(ctx, r, val);
+                    }
                 }
                 break;
             }
             
             default:
                 gbrt_note_unimplemented_interpreter_opcode(ctx,
-                                                           (uint8_t)(((ctx->pc - 1) < 0x4000) ? 0 : ctx->rom_bank),
+                                                           (uint16_t)(((ctx->pc - 1) < 0x4000) ? 0 : ctx->rom_bank),
                                                            (uint16_t)(ctx->pc - 1),
                                                            opcode);
                 DBG_GENERAL("Interpreter (0x%04X): Unimplemented opcode 0x%02X", ctx->pc - 1, opcode);
@@ -743,4 +824,5 @@ void gb_interpret(GBContext* ctx, uint16_t addr) {
     }
 
     gbrt_finish_interpreter_session(ctx, entry_bank, addr, instructions_executed, entry_cycles);
+#undef GBRT_INTERPRETER_RETURN
 }

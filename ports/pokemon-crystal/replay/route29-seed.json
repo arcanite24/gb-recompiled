@@ -1,0 +1,41 @@
+{
+  "schema": "gbrecompiled.data-mod-replay-seed",
+  "version": 1,
+  "game": {
+    "id": "crystal-recompiled",
+    "rom_sha256": "fdcc3c8c43813cf8731fc037d2a6d191bac75439c34b24ba1c27526e6acdc8a2",
+    "rom_size": 2097152
+  },
+  "configuration": {
+    "hardware_model": "auto",
+    "headless": true,
+    "no_audio": true,
+    "rtc_unix_time": 1700000000,
+    "ignore_rtc_persistence": true,
+    "fallback_diagnostics": true
+  },
+  "segments": [
+    {
+      "id": "new-game",
+      "input": "../route/inputs/new-game.json",
+      "frame_limit": 12050,
+      "capture_frame": 8250,
+      "expected_frame_sha256": "4fe548730b50523e70f4d7d71b54c94a9747896e368774d715165539570a9b7a",
+      "expected_state": {
+        "wram_bank_1_d000_dfff.3253": 24,
+        "wram_bank_1_d000_dfff.3254": 4
+      }
+    },
+    {
+      "id": "route29-wild-battle",
+      "input": "../route/inputs/adventure.json",
+      "frame_limit": 14500,
+      "capture_frame": 14000,
+      "expected_frame_sha256": "f017ebea694dd3c9e225717fa390fb002f74dfea1dff39c7e728e71da2fd2693",
+      "expected_state": {
+        "wram_bank_1_d000_dfff.518": 187,
+        "wram_bank_1_d000_dfff.531": 5
+      }
+    }
+  ]
+}

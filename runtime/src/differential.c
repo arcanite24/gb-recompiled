@@ -13,7 +13,7 @@
 #define DIFF_OAM_SIZE OAM_SIZE
 #define DIFF_HRAM_SIZE 0x7Fu
 #define DIFF_IO_TOTAL_SIZE 0x81u
-#define DIFF_MAX_SCRIPT_ENTRIES 256
+#define DIFF_MAX_SCRIPT_ENTRIES 2048
 
 typedef enum {
     GB_DIFF_INPUT_FRAME = 0,
@@ -42,7 +42,7 @@ static uint8_t gb_diff_pack_flags(const GBContext* ctx) {
 }
 
 static uint16_t gb_diff_current_bank(const GBContext* ctx) {
-    return (ctx->pc < 0x4000) ? 0 : ctx->rom_bank;
+    return gb_resolve_rom_bank(ctx, ctx->pc);
 }
 
 static void gb_diff_read_opcode_bytes(const GBContext* ctx, uint8_t bytes[3]) {
@@ -56,7 +56,7 @@ static void gb_diff_print_state(FILE* stream, const char* label, const GBContext
     fprintf(stream,
             "[DIFF] %s PC=%03X:%04X SP=%04X "
             "A=%02X B=%02X C=%02X D=%02X E=%02X H=%02X L=%02X F=%02X "
-            "IME=%u IME_PENDING=%u HALT=%u STOP=%u STOP_MODE=%u HALT_BUG=%u DS=%u "
+            "IME=%u IME_PENDING=%u HALT=%u STOP=%u STOP_MODE=%u HALT_BUG=%u DS=%u DS_REM=%u "
             "ROM=%03X RAM=%02X WRAM=%u VRAM=%u DMA=%u/%u HDMA=%04X->%04X/%u "
             "CYC=%u FRAME=%u DIV=%04X\n",
             label,
@@ -78,6 +78,7 @@ static void gb_diff_print_state(FILE* stream, const char* label, const GBContext
             ctx->stop_mode_active,
             ctx->halt_bug,
             ctx->cgb_double_speed,
+            ctx->cgb_system_cycle_remainder,
             ctx->rom_bank,
             ctx->ram_bank,
             ctx->wram_bank,
@@ -273,7 +274,7 @@ static void gb_diff_apply_input_state(const GBDiffInputScript* script,
                                       GBContext* ctx,
                                       GBJoypadState* state) {
     GBJoypadState next = {.dpad = 0xFF, .buttons = 0xFF};
-    uint64_t current_cycles = ctx ? ctx->cycles : 0;
+    uint64_t current_cycles = ctx ? ctx->total_cycles : 0;
 
     if (script != NULL) {
         for (size_t i = 0; i < script->count; i++) {
@@ -459,6 +460,7 @@ static bool gb_diff_compare_contexts(const GBContext* generated,
     DIFF_FIELD(stop_mode_active, "%u");
     DIFF_FIELD(halt_bug, "%u");
     DIFF_FIELD(cgb_double_speed, "%u");
+    DIFF_FIELD(cgb_system_cycle_remainder, "%u");
     DIFF_FIELD(rom_bank, "%u");
     DIFF_FIELD(ram_bank, "%u");
     DIFF_FIELD(wram_bank, "%u");
@@ -479,6 +481,7 @@ static bool gb_diff_compare_contexts(const GBContext* generated,
     DIFF_FIELD(last_joypad, "%u");
     DIFF_FIELD(dma.active, "%u");
     DIFF_FIELD(dma.source_high, "%u");
+    DIFF_FIELD(dma.active_source_high, "%u");
     DIFF_FIELD(dma.progress, "%u");
     DIFF_FIELD(dma.cycles_remaining, "%u");
     DIFF_FIELD(hdma.source, "%u");
@@ -605,6 +608,7 @@ bool gb_run_differential(GBContext* generated_ctx,
         .compare_memory = true,
         .log_fallbacks = false,
         .fail_on_fallback = false,
+        .inject_mismatch_step = 0,
         .input_script = NULL,
     };
 
@@ -649,7 +653,7 @@ bool gb_run_differential(GBContext* generated_ctx,
 
     uint64_t frames_completed = 0;
     uint64_t executed_steps = 0;
-    uint8_t last_logged_fallback_bank = 0xFF;
+    uint16_t last_logged_fallback_bank = UINT16_MAX;
     uint16_t last_logged_fallback_addr = 0xFFFF;
     bool unlimited_steps = (effective.max_steps == 0);
     uint64_t step_limit = effective.max_steps;
@@ -667,6 +671,11 @@ bool gb_run_differential(GBContext* generated_ctx,
 
         gb_debug_step(generated_ctx, GB_EXECUTION_GENERATED);
         gb_debug_step(interpreted_ctx, GB_EXECUTION_INTERPRETER);
+
+        if (effective.inject_mismatch_step == step + 1) {
+            interpreted_ctx->a ^= 0x01;
+            fprintf(stderr, "[DIFF] Injected mismatch at step %" PRIu64 "\n", step + 1);
+        }
 
         if (generated_ctx->used_dispatch_fallback) {
             if (effective.log_fallbacks &&

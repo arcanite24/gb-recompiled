@@ -1,0 +1,42 @@
+[
+  {
+    "cycle": 7997616,
+    "buttons": "S",
+    "duration": 280896
+  },
+  {
+    "cycle": 43390512,
+    "buttons": "S",
+    "duration": 842688
+  },
+  {
+    "cycle": 46480368,
+    "buttons": "S",
+    "duration": 1264032
+  },
+  {
+    "cycle": 50272464,
+    "buttons": "S",
+    "duration": 1825876
+  },
+  {
+    "cycle": 53849860,
+    "buttons": "S",
+    "duration": 983124
+  },
+  {
+    "cycle": 66700840,
+    "buttons": "S",
+    "duration": 1404480
+  },
+  {
+    "cycle": 76672648,
+    "buttons": "A",
+    "duration": 1825824
+  },
+  {
+    "cycle": 87978712,
+    "buttons": "A",
+    "duration": 2317392
+  }
+]

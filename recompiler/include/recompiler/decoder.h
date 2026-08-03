@@ -9,6 +9,7 @@
 #ifndef RECOMPILER_DECODER_H
 #define RECOMPILER_DECODER_H
 
+#include "rom.h"
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -189,8 +190,8 @@ enum class InstructionType : uint16_t {
 struct Instruction {
     // Location
     uint16_t address;           // Address in ROM
-    uint8_t bank;               // ROM bank (0 for fixed bank)
-    uint8_t resolved_target_bank = 255; // Resolved bank for CALL/JP/JR targets after analysis (255 = unknown)
+    BankId bank;                // ROM bank (0 for fixed bank)
+    BankId resolved_target_bank = UNKNOWN_BANK;
     
     // Raw bytes
     uint8_t opcode;             // Primary opcode
@@ -247,9 +248,6 @@ struct Instruction {
     std::string bytes_hex() const;
 };
 
-// Forward declaration
-class ROM;
-
 /* ============================================================================
  * Decoder Class
  * ========================================================================== */
@@ -262,13 +260,13 @@ public:
     explicit Decoder(const ROM& rom);
     
     Instruction decode(uint32_t full_addr) const;
-    Instruction decode(uint16_t addr, uint8_t bank) const;
+    Instruction decode(uint16_t addr, BankId bank) const;
     
 private:
-    void decode_main(Instruction& instr, uint8_t opcode, 
-                     uint16_t addr, uint8_t bank) const;
-    Instruction decode_cb(uint16_t addr, uint8_t bank) const;
-    uint16_t read_u16(uint16_t addr, uint8_t bank) const;
+    void decode_main(Instruction& instr, uint8_t opcode,
+                     uint16_t addr, BankId bank) const;
+    Instruction decode_cb(uint16_t addr, BankId bank) const;
+    uint16_t read_u16(uint16_t addr, BankId bank) const;
     
     const ROM& rom_;
 };
@@ -298,7 +296,7 @@ private:
  * @param bank Bank to decode (0 for bank 0, 1+ for switchable)
  * @return Vector of decoded instructions
  */
-std::vector<Instruction> decode_bank(const ROM& rom, uint8_t bank = 0);
+std::vector<Instruction> decode_bank(const ROM& rom, BankId bank = 0);
 
 
 /**

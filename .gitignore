@@ -1,5 +1,7 @@
 # Build outputs
 build/
+build_*/
+build-*/
 cmake-build-*/
 out/
 
@@ -26,6 +28,7 @@ roms/
 # IDE / Editor
 .idea/
 .vscode/
+.gsd/
 *.swp
 *.swo
 *~

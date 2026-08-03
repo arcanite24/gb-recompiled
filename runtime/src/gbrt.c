@@ -1,4 +1,6 @@
 #include "gbrt.h"
+#include "gbrt_data_mod.h"
+#include "gbrt_port.h"
 #include "ppu.h"
 #include "audio.h"
 #include "audio_stats.h"
@@ -8,6 +10,9 @@
 #include <string.h>
 #include <time.h>
 #include "gbrt_debug.h"
+#ifdef GBRT_ENABLE_NATIVE_PATCHES
+#include "gbrt_native_patch_internal.h"
+#endif
 
 /* ============================================================================
  * Definitions
@@ -25,6 +30,13 @@
 
 bool gbrt_trace_enabled = false;
 bool gbrt_log_lcd_transitions = false;
+bool gbrt_dispatch_fallback_tracking_enabled = false;
+bool gbrt_rgb_framebuffer_enabled = true;
+bool gbrt_benchmark_fast_tick_enabled = false;
+bool gbrt_force_scalar_timer = false;
+bool gbrt_force_eager_audio = false;
+bool gbrt_visibility_estimator_enabled = false;
+bool gbrt_test_breakpoint_enabled = false;
 uint64_t gbrt_instruction_count = 0;
 uint64_t gbrt_instruction_limit = 0;
 void (*gbrt_instruction_limit_callback)(void) = NULL;
@@ -36,6 +48,9 @@ static uint64_t gbrt_ppu_trace_start_frame = 0;
 static uint64_t gbrt_ppu_trace_end_frame = 0;
 
 static inline void gb_sync(GBContext* ctx);
+static void gbrt_trigger_oam_bug_write(GBContext* ctx, uint16_t address);
+static void gbrt_trigger_oam_bug_read(GBContext* ctx, uint16_t address);
+static uint32_t gb_halt_fast_forward_cycles(GBContext* ctx, uint32_t run_start, uint32_t max_cycles);
 static bool gb_context_try_load_battery_ram(GBContext* ctx);
 static bool gb_context_try_load_rtc(GBContext* ctx);
 static uint64_t gb_context_compute_rom_hash(const GBContext* ctx);
@@ -43,8 +58,6 @@ static bool gbrt_write_exact(FILE* file, const void* data, size_t size);
 static bool gbrt_read_exact(FILE* file, void* data, size_t size);
 
 typedef struct {
-    uint32_t magic;
-    uint32_t version;
     uint64_t saved_unix_time;
     uint64_t cycle_remainder;
     uint8_t s, m, h, dl, dh;
@@ -53,7 +66,88 @@ typedef struct {
 } GBRTCPersistedState;
 
 #define GBRTC_PERSIST_MAGIC 0x47525443u /* 'GRTC' */
-#define GBRTC_PERSIST_VERSION 1u
+#define GBRTC_PERSIST_VERSION 2u
+#define GBRTC_PERSIST_LEGACY_VERSION 1u
+#define GBRTC_PERSIST_SIZE 40u
+
+static uint32_t gbrt_read_le32(const uint8_t* data) {
+    return (uint32_t)data[0] |
+           ((uint32_t)data[1] << 8) |
+           ((uint32_t)data[2] << 16) |
+           ((uint32_t)data[3] << 24);
+}
+
+static uint64_t gbrt_read_le64(const uint8_t* data) {
+    uint64_t value = 0;
+    for (unsigned shift = 0; shift < 64; shift += 8) {
+        value |= (uint64_t)data[shift / 8] << shift;
+    }
+    return value;
+}
+
+static void gbrt_write_le32(uint8_t* data, uint32_t value) {
+    for (unsigned shift = 0; shift < 32; shift += 8) {
+        data[shift / 8] = (uint8_t)(value >> shift);
+    }
+}
+
+static void gbrt_write_le64(uint8_t* data, uint64_t value) {
+    for (unsigned shift = 0; shift < 64; shift += 8) {
+        data[shift / 8] = (uint8_t)(value >> shift);
+    }
+}
+
+static bool gbrt_decode_rtc_persistence(
+    const uint8_t serialized[GBRTC_PERSIST_SIZE],
+    GBRTCPersistedState* persisted,
+    uint32_t* version_out) {
+    const uint32_t magic = gbrt_read_le32(serialized);
+    const uint32_t version = gbrt_read_le32(serialized + 4);
+    if (magic != GBRTC_PERSIST_MAGIC ||
+        (version != GBRTC_PERSIST_LEGACY_VERSION &&
+         version != GBRTC_PERSIST_VERSION)) {
+        return false;
+    }
+    memset(persisted, 0, sizeof(*persisted));
+    persisted->saved_unix_time = gbrt_read_le64(serialized + 8);
+    persisted->cycle_remainder = gbrt_read_le64(serialized + 16);
+    persisted->s = serialized[24];
+    persisted->m = serialized[25];
+    persisted->h = serialized[26];
+    persisted->dl = serialized[27];
+    persisted->dh = serialized[28];
+    persisted->latched_s = serialized[29];
+    persisted->latched_m = serialized[30];
+    persisted->latched_h = serialized[31];
+    persisted->latched_dl = serialized[32];
+    persisted->latched_dh = serialized[33];
+    persisted->latch_state = serialized[34];
+    if (version_out) {
+        *version_out = version;
+    }
+    return true;
+}
+
+static void gbrt_encode_rtc_persistence(
+    uint8_t serialized[GBRTC_PERSIST_SIZE],
+    const GBRTCPersistedState* persisted) {
+    memset(serialized, 0, GBRTC_PERSIST_SIZE);
+    gbrt_write_le32(serialized, GBRTC_PERSIST_MAGIC);
+    gbrt_write_le32(serialized + 4, GBRTC_PERSIST_VERSION);
+    gbrt_write_le64(serialized + 8, persisted->saved_unix_time);
+    gbrt_write_le64(serialized + 16, persisted->cycle_remainder);
+    serialized[24] = persisted->s;
+    serialized[25] = persisted->m;
+    serialized[26] = persisted->h;
+    serialized[27] = persisted->dl;
+    serialized[28] = persisted->dh;
+    serialized[29] = persisted->latched_s;
+    serialized[30] = persisted->latched_m;
+    serialized[31] = persisted->latched_h;
+    serialized[32] = persisted->latched_dl;
+    serialized[33] = persisted->latched_dh;
+    serialized[34] = persisted->latch_state;
+}
 
 typedef struct {
     uint32_t magic;
@@ -89,6 +183,7 @@ typedef struct {
     uint8_t halt_bug;
     uint8_t single_step_mode;
     uint8_t cgb_double_speed;
+    uint8_t cgb_system_cycle_remainder;
     GBConfig config;
     char save_id[64];
     uint16_t rom_bank;
@@ -98,17 +193,19 @@ typedef struct {
     uint8_t mbc_type;
     uint8_t ram_enabled;
     uint8_t mbc_mode;
+    uint8_t rom_bank_low;
     uint8_t rom_bank_upper;
+    uint8_t mbc1_multicart;
     uint8_t rtc_mode;
     uint8_t rtc_reg;
     uint8_t last_joypad;
     uint8_t used_dispatch_fallback;
-    uint8_t dispatch_fallback_bank;
+    uint16_t dispatch_fallback_bank;
     uint8_t has_unimplemented_interpreter_opcode;
     uint8_t last_unimplemented_opcode;
-    uint8_t last_unimplemented_bank;
-    uint8_t frame_first_fallback_bank;
-    uint8_t frame_last_fallback_bank;
+    uint16_t last_unimplemented_bank;
+    uint16_t frame_first_fallback_bank;
+    uint16_t frame_last_fallback_bank;
     uint16_t dispatch_fallback_addr;
     uint16_t frame_first_fallback_addr;
     uint16_t frame_last_fallback_addr;
@@ -118,6 +215,7 @@ typedef struct {
         uint8_t active;
         uint8_t pending;
         uint8_t source_high;
+        uint8_t active_source_high;
         uint8_t progress;
         uint16_t cycles_remaining;
         uint8_t startup_delay;
@@ -128,6 +226,8 @@ typedef struct {
         uint8_t blocks_remaining;
         uint8_t active;
         uint8_t hblank_mode;
+        uint16_t cpu_stall_cycles;
+        uint8_t processing_stall;
     } hdma;
     struct {
         uint8_t active;
@@ -142,6 +242,7 @@ typedef struct {
         bool active;
     } rtc;
     uint32_t cycles;
+    uint64_t total_cycles;
     uint32_t frame_cycles;
     uint32_t last_sync_cycles;
     uint32_t run_cycle_budget;
@@ -170,7 +271,7 @@ typedef struct {
 } GBSavestateCoreState;
 
 #define GBSAVESTATE_MAGIC 0x56534247u /* 'GBSV' */
-#define GBSAVESTATE_VERSION 1u
+#define GBSAVESTATE_VERSION 9u
 
 static int gbrt_compare_hotspots_desc(const GBInterpreterHotspot* lhs,
                                       const GBInterpreterHotspot* rhs) {
@@ -216,7 +317,7 @@ static void gbrt_sort_interpreter_hotspots(GBContext* ctx) {
 }
 
 static size_t gbrt_find_or_allocate_interpreter_hotspot(GBContext* ctx,
-                                                        uint8_t bank,
+                                                        uint16_t bank,
                                                         uint16_t addr) {
     size_t replacement = 0;
 
@@ -309,7 +410,7 @@ static void gbrt_log_oam_write(GBContext* ctx,
             (unsigned long long)frame_index,
             ctx->frame_cycles,
             ctx->pc,
-            (ctx->pc < 0x4000) ? 0u : (unsigned)ctx->rom_bank,
+            (unsigned)gb_resolve_rom_bank(ctx, ctx->pc),
             ctx->io[0x44],
             ctx->io[0x41] & 0x03,
             addr,
@@ -329,7 +430,7 @@ static void gbrt_log_dma_start(GBContext* ctx, uint8_t source_high) {
             (unsigned long long)frame_index,
             ctx->frame_cycles,
             ctx->pc,
-            (ctx->pc < 0x4000) ? 0u : (unsigned)ctx->rom_bank,
+            (unsigned)gb_resolve_rom_bank(ctx, ctx->pc),
             ctx->io[0x44],
             ctx->io[0x41] & 0x03,
             source_high);
@@ -350,7 +451,7 @@ static void gbrt_log_vram_write(GBContext* ctx,
             (unsigned long long)frame_index,
             ctx->frame_cycles,
             ctx->pc,
-            (ctx->pc < 0x4000) ? 0u : (unsigned)ctx->rom_bank,
+            (unsigned)gb_resolve_rom_bank(ctx, ctx->pc),
             ctx->io[0x44],
             ctx->io[0x41] & 0x03,
             addr,
@@ -431,6 +532,14 @@ static bool gb_save_id_differs_from_legacy_title(const GBContext* ctx, const cha
     return strcmp(save_id, legacy_title) != 0;
 }
 
+static void gb_rtc_reset(GBContext* ctx) {
+    if (!ctx) {
+        return;
+    }
+    memset(&ctx->rtc, 0, sizeof(ctx->rtc));
+    ctx->rtc.active = true;
+}
+
 static void gb_rtc_refresh_latch(GBContext* ctx) {
     if (!ctx) {
         return;
@@ -441,6 +550,15 @@ static void gb_rtc_refresh_latch(GBContext* ctx) {
     ctx->rtc.latched_h = ctx->rtc.h;
     ctx->rtc.latched_dl = ctx->rtc.dl;
     ctx->rtc.latched_dh = ctx->rtc.dh;
+}
+
+static uint64_t gb_context_current_unix_time(const GBContext* ctx) {
+    if (ctx && ctx->config.rtc_unix_time_override_enabled) {
+        return ctx->config.rtc_unix_time_override;
+    }
+
+    time_t now = time(NULL);
+    return (now == (time_t)-1 || now < 0) ? 0u : (uint64_t)now;
 }
 
 static void gb_rtc_advance_seconds(GBContext* ctx, uint64_t elapsed_seconds) {
@@ -504,24 +622,41 @@ static bool gb_context_try_load_rtc(GBContext* ctx) {
     if (!gb_cart_type_has_rtc(ctx->rom[0x147])) {
         return false;
     }
+    if (ctx->config.ignore_rtc_persistence) {
+        printf("[GBRT] RTC persistence load explicitly ignored\n");
+        return false;
+    }
 
-    GBRTCPersistedState persisted;
-    memset(&persisted, 0, sizeof(persisted));
+    uint8_t serialized[GBRTC_PERSIST_SIZE];
+    memset(serialized, 0, sizeof(serialized));
 
     char save_id[64];
     gb_context_get_save_id(ctx, save_id);
     const char* loaded_id = save_id;
-    bool loaded = ctx->callbacks.load_rtc_data(ctx, save_id, &persisted, sizeof(persisted));
+    bool loaded = ctx->callbacks.load_rtc_data(
+        ctx, save_id, serialized, sizeof(serialized));
     if (!loaded && ctx->save_id[0] && gb_save_id_differs_from_legacy_title(ctx, save_id)) {
         char legacy_title[17];
         gb_context_get_rom_title(ctx, legacy_title);
-        loaded = ctx->callbacks.load_rtc_data(ctx, legacy_title, &persisted, sizeof(persisted));
+        loaded = ctx->callbacks.load_rtc_data(
+            ctx, legacy_title, serialized, sizeof(serialized));
         if (loaded) {
             loaded_id = legacy_title;
         }
     }
 
-    if (!loaded || persisted.magic != GBRTC_PERSIST_MAGIC || persisted.version != GBRTC_PERSIST_VERSION) {
+    if (!loaded) {
+        return false;
+    }
+    GBRTCPersistedState persisted;
+    uint32_t persisted_version = 0;
+    if (!gbrt_decode_rtc_persistence(
+            serialized, &persisted, &persisted_version)) {
+        ctx->persistence_load_failed = true;
+        fprintf(stderr,
+                "[GBRT] Rejected RTC data for '%s': unsupported magic or version; "
+                "automatic persistence overwrite suppressed\n",
+                loaded_id);
         return false;
     }
 
@@ -539,9 +674,8 @@ static bool gb_context_try_load_rtc(GBContext* ctx) {
     ctx->rtc.last_time = persisted.cycle_remainder % 4194304u;
     ctx->rtc.active = (ctx->rtc.dh & 0x40u) == 0;
 
-    time_t now = time(NULL);
-    if (ctx->rtc.active && persisted.saved_unix_time > 0 && now != (time_t)-1 && now > 0) {
-        uint64_t now_u64 = (uint64_t)now;
+    uint64_t now_u64 = gb_context_current_unix_time(ctx);
+    if (ctx->rtc.active && persisted.saved_unix_time > 0 && now_u64 > 0) {
         if (now_u64 > persisted.saved_unix_time) {
             gb_rtc_advance_seconds(ctx, now_u64 - persisted.saved_unix_time);
         }
@@ -550,7 +684,10 @@ static bool gb_context_try_load_rtc(GBContext* ctx) {
     if (loaded_id != save_id) {
         printf("[GBRT] Loaded RTC data for '%s' via legacy title fallback\n", loaded_id);
     } else {
-        printf("[GBRT] Loaded RTC data for '%s'\n", loaded_id);
+        printf(
+            "[GBRT] Loaded RTC data for '%s' (serialization v%u)\n",
+            loaded_id,
+            persisted_version);
     }
     return true;
 }
@@ -565,10 +702,7 @@ static bool gb_context_save_rtc(GBContext* ctx) {
 
     GBRTCPersistedState persisted;
     memset(&persisted, 0, sizeof(persisted));
-    persisted.magic = GBRTC_PERSIST_MAGIC;
-    persisted.version = GBRTC_PERSIST_VERSION;
-    time_t now = time(NULL);
-    persisted.saved_unix_time = (now == (time_t)-1 || now < 0) ? 0u : (uint64_t)now;
+    persisted.saved_unix_time = gb_context_current_unix_time(ctx);
     persisted.cycle_remainder = ctx->rtc.last_time;
     persisted.s = ctx->rtc.s;
     persisted.m = ctx->rtc.m;
@@ -581,12 +715,18 @@ static bool gb_context_save_rtc(GBContext* ctx) {
     persisted.latched_dl = ctx->rtc.latched_dl;
     persisted.latched_dh = ctx->rtc.latched_dh;
     persisted.latch_state = ctx->rtc.latch_state;
+    uint8_t serialized[GBRTC_PERSIST_SIZE];
+    gbrt_encode_rtc_persistence(serialized, &persisted);
 
     char save_id[64];
     gb_context_get_save_id(ctx, save_id);
-    bool result = ctx->callbacks.save_rtc_data(ctx, save_id, &persisted, sizeof(persisted));
+    bool result = ctx->callbacks.save_rtc_data(
+        ctx, save_id, serialized, sizeof(serialized));
     if (result) {
-        printf("[GBRT] Saved RTC data for '%s'\n", save_id);
+        printf(
+            "[GBRT] Saved RTC data for '%s' (serialization v%u)\n",
+            save_id,
+            GBRTC_PERSIST_VERSION);
     } else {
         printf("[GBRT] Failed to save RTC data for '%s'\n", save_id);
     }
@@ -664,6 +804,93 @@ static uint64_t gb_context_compute_rom_hash(const GBContext* ctx) {
     return hash;
 }
 
+static bool gb_detect_mbc1_multicart(const uint8_t* rom, size_t rom_size) {
+    static const uint8_t nintendo_logo[48] = {
+        0xCE, 0xED, 0x66, 0x66, 0xCC, 0x0D, 0x00, 0x0B,
+        0x03, 0x73, 0x00, 0x83, 0x00, 0x0C, 0x00, 0x0D,
+        0x00, 0x08, 0x11, 0x1F, 0x88, 0x89, 0x00, 0x0E,
+        0xDC, 0xCC, 0x6E, 0xE6, 0xDD, 0xDD, 0xD9, 0x99,
+        0xBB, 0xBB, 0x67, 0x63, 0x6E, 0x0E, 0xEC, 0xCC,
+        0xDD, 0xDC, 0x99, 0x9F, 0xBB, 0xB9, 0x33, 0x3E,
+    };
+    const size_t secondary_logo = (0x10u * 0x4000u) + 0x0104u;
+    return rom &&
+           rom_size >= secondary_logo + sizeof(nintendo_logo) &&
+           memcmp(rom + secondary_logo,
+                  nintendo_logo,
+                  sizeof(nintendo_logo)) == 0;
+}
+
+static uint16_t gb_wrap_rom_bank(const GBContext* ctx, uint32_t bank) {
+    if (!ctx || ctx->rom_size < 0x4000u) {
+        return 0;
+    }
+    const uint32_t bank_count = (uint32_t)(ctx->rom_size / 0x4000u);
+    return bank_count ? (uint16_t)(bank % bank_count) : 0;
+}
+
+uint16_t gb_resolve_rom_bank(const GBContext* ctx, uint16_t addr) {
+    if (!ctx || addr >= 0x8000) {
+        return 0;
+    }
+
+    if (ctx->mbc_type >= 0x01 && ctx->mbc_type <= 0x03) {
+        const uint8_t raw_low = ctx->rom_bank_low & 0x1F;
+        const uint8_t shift = ctx->mbc1_multicart ? 4 : 5;
+        const uint16_t high = (uint16_t)(ctx->rom_bank_upper & 0x03) << shift;
+        if (addr < 0x4000) {
+            return gb_wrap_rom_bank(ctx, ctx->mbc_mode ? high : 0);
+        }
+
+        uint16_t low = ctx->mbc1_multicart ? (raw_low & 0x0F) : raw_low;
+        if (raw_low == 0) {
+            low = 1;
+        }
+        return gb_wrap_rom_bank(ctx, high | low);
+    }
+
+    if (addr < 0x4000) {
+        return 0;
+    }
+
+    if (ctx->mbc_type >= 0x05 && ctx->mbc_type <= 0x06) {
+        uint16_t bank = ctx->rom_bank_low & 0x0F;
+        return gb_wrap_rom_bank(ctx, bank == 0 ? 1 : bank);
+    }
+    if (ctx->mbc_type >= 0x0F && ctx->mbc_type <= 0x13) {
+        uint16_t bank = ctx->rom_bank_low & 0x7F;
+        return gb_wrap_rom_bank(ctx, bank == 0 ? 1 : bank);
+    }
+    if (ctx->mbc_type >= 0x19 && ctx->mbc_type <= 0x1E) {
+        return gb_wrap_rom_bank(
+            ctx,
+            ((uint16_t)(ctx->rom_bank_upper & 0x01) << 8) |
+                ctx->rom_bank_low);
+    }
+    if (ctx->mbc_type == 0x00 ||
+        ctx->mbc_type == 0x08 ||
+        ctx->mbc_type == 0x09) {
+        return gb_wrap_rom_bank(ctx, 1);
+    }
+    return gb_wrap_rom_bank(ctx, ctx->rom_bank);
+}
+
+static bool gb_resolve_rom_offset(const GBContext* ctx,
+                                  uint16_t addr,
+                                  size_t* out_offset) {
+    if (!ctx || !out_offset || addr >= 0x8000) {
+        return false;
+    }
+    const uint16_t bank = gb_resolve_rom_bank(ctx, addr);
+    const size_t offset =
+        ((size_t)bank * 0x4000u) + (size_t)(addr & 0x3FFFu);
+    if (offset >= ctx->rom_size) {
+        return false;
+    }
+    *out_offset = offset;
+    return true;
+}
+
 static bool gbrt_write_exact(FILE* file, const void* data, size_t size) {
     return size == 0 || (file && data && fwrite(data, 1, size, file) == size);
 }
@@ -696,6 +923,7 @@ static void gbrt_capture_core_state(const GBContext* ctx, GBSavestateCoreState* 
     state->halt_bug = ctx->halt_bug;
     state->single_step_mode = ctx->single_step_mode;
     state->cgb_double_speed = ctx->cgb_double_speed;
+    state->cgb_system_cycle_remainder = ctx->cgb_system_cycle_remainder;
     state->config = ctx->config;
     memcpy(state->save_id, ctx->save_id, sizeof(state->save_id));
     state->rom_bank = ctx->rom_bank;
@@ -705,7 +933,9 @@ static void gbrt_capture_core_state(const GBContext* ctx, GBSavestateCoreState* 
     state->mbc_type = ctx->mbc_type;
     state->ram_enabled = ctx->ram_enabled;
     state->mbc_mode = ctx->mbc_mode;
+    state->rom_bank_low = ctx->rom_bank_low;
     state->rom_bank_upper = ctx->rom_bank_upper;
+    state->mbc1_multicart = ctx->mbc1_multicart;
     state->rtc_mode = ctx->rtc_mode;
     state->rtc_reg = ctx->rtc_reg;
     state->last_joypad = ctx->last_joypad;
@@ -726,6 +956,7 @@ static void gbrt_capture_core_state(const GBContext* ctx, GBSavestateCoreState* 
     memcpy(&state->serial_transfer, &ctx->serial_transfer, sizeof(state->serial_transfer));
     memcpy(&state->rtc, &ctx->rtc, sizeof(state->rtc));
     state->cycles = ctx->cycles;
+    state->total_cycles = ctx->total_cycles;
     state->frame_cycles = ctx->frame_cycles;
     state->last_sync_cycles = ctx->last_sync_cycles;
     state->run_cycle_budget = ctx->run_cycle_budget;
@@ -778,6 +1009,7 @@ static void gbrt_restore_core_state(GBContext* ctx, const GBSavestateCoreState* 
     ctx->halt_bug = state->halt_bug;
     ctx->single_step_mode = state->single_step_mode;
     ctx->cgb_double_speed = state->cgb_double_speed;
+    ctx->cgb_system_cycle_remainder = state->cgb_system_cycle_remainder;
     ctx->config = state->config;
     memcpy(ctx->save_id, state->save_id, sizeof(ctx->save_id));
     ctx->rom_bank = state->rom_bank;
@@ -787,7 +1019,9 @@ static void gbrt_restore_core_state(GBContext* ctx, const GBSavestateCoreState* 
     ctx->mbc_type = state->mbc_type;
     ctx->ram_enabled = state->ram_enabled;
     ctx->mbc_mode = state->mbc_mode;
+    ctx->rom_bank_low = state->rom_bank_low;
     ctx->rom_bank_upper = state->rom_bank_upper;
+    ctx->mbc1_multicart = state->mbc1_multicart;
     ctx->rtc_mode = state->rtc_mode;
     ctx->rtc_reg = state->rtc_reg;
     ctx->last_joypad = state->last_joypad;
@@ -808,6 +1042,7 @@ static void gbrt_restore_core_state(GBContext* ctx, const GBSavestateCoreState* 
     memcpy(&ctx->serial_transfer, &state->serial_transfer, sizeof(ctx->serial_transfer));
     memcpy(&ctx->rtc, &state->rtc, sizeof(ctx->rtc));
     ctx->cycles = state->cycles;
+    ctx->total_cycles = state->total_cycles;
     ctx->frame_cycles = state->frame_cycles;
     ctx->last_sync_cycles = state->last_sync_cycles;
     ctx->run_cycle_budget = state->run_cycle_budget;
@@ -847,26 +1082,29 @@ GBContext* gb_context_create(const GBConfig* config) {
     if (!gb_is_cgb_hardware(ctx)) {
         ctx->config.cgb_compatibility_mode = false;
     }
-    
+
     ctx->wram = (uint8_t*)calloc(1, WRAM_BANK_SIZE * 8);
     ctx->vram = (uint8_t*)calloc(1, VRAM_SIZE * 2);
     ctx->oam = (uint8_t*)calloc(1, OAM_SIZE);
     ctx->hram = (uint8_t*)calloc(1, HRAM_SIZE);
     ctx->io = (uint8_t*)calloc(1, IO_SIZE + 1);
-    
+
     if (!ctx->wram || !ctx->vram || !ctx->oam || !ctx->hram || !ctx->io) {
         gb_context_destroy(ctx);
         return NULL;
     }
-    
+
     GBPPU* ppu = (GBPPU*)calloc(1, sizeof(GBPPU));
     if (ppu) {
         ppu_init(ppu);
         ctx->ppu = ppu;
     }
-    
-    ctx->apu = gb_audio_create();
-    audio_stats_init();
+
+    if (ctx->config.enable_audio) {
+        ctx->apu = gb_audio_create();
+        audio_stats_init();
+    }
+    gb_rtc_reset(ctx);
     gb_context_reset(ctx, true);
 
     if (gbrt_trace_filename) {
@@ -891,14 +1129,32 @@ GBContext* gb_context_create(const GBConfig* config) {
     return ctx;
 }
 
+void gb_context_set_host_configuration_service(
+    GBContext* ctx,
+    const GBHostConfigurationContract* contract,
+    const char* path) {
+    if (ctx == NULL) return;
+    ctx->host_configuration_contract = contract != NULL
+        ? *contract
+        : (GBHostConfigurationContract){0};
+    ctx->host_configuration_path =
+        path != NULL && path[0] != '\0' ? path : NULL;
+}
+
 void gb_context_destroy(GBContext* ctx) {
     if (!ctx) return;
+    gbrt_port_detach(ctx);
+    gbrt_data_mod_unload(ctx);
     
     /* Save RAM before destroying if available */
-    if (ctx->eram && ctx->callbacks.save_battery_ram) {
+    if (ctx->eram && ctx->callbacks.save_battery_ram && !ctx->persistence_load_failed) {
         gb_context_save_ram(ctx);
+    } else if (ctx->persistence_load_failed) {
+        fprintf(stderr,
+                "[GBRT] Automatic persistence save suppressed because persisted "
+                "data was rejected during load\n");
     }
-    
+
     if (ctx->trace_file) fclose((FILE*)ctx->trace_file);
     if (ctx->ppu_trace_file) fclose((FILE*)ctx->ppu_trace_file);
     free(ctx->wram);
@@ -912,6 +1168,9 @@ void gb_context_destroy(GBContext* ctx) {
     if (ctx->ppu) free(ctx->ppu);
     if (ctx->apu) gb_audio_destroy(ctx->apu);
     if (ctx->rom) free(ctx->rom);
+#ifdef GBRT_ENABLE_NATIVE_PATCHES
+    gbrt_native_patch_destroy(ctx);
+#endif
     free(ctx);
 }
 
@@ -919,6 +1178,10 @@ void gb_context_reset(GBContext* ctx, bool skip_bootrom) {
     if (!ctx) {
         return;
     }
+
+#ifdef GBRT_ENABLE_NATIVE_PATCHES
+    gbrt_native_patch_reset(ctx);
+#endif
 
     if (ctx->apu) {
         gb_audio_reset(ctx->apu);
@@ -932,6 +1195,7 @@ void gb_context_reset(GBContext* ctx, bool skip_bootrom) {
     ctx->dma.active = 0;
     ctx->dma.pending = 0;
     ctx->dma.source_high = 0;
+    ctx->dma.active_source_high = 0;
     ctx->dma.progress = 0;
     ctx->dma.cycles_remaining = 0;
     ctx->dma.startup_delay = 0;
@@ -948,6 +1212,12 @@ void gb_context_reset(GBContext* ctx, bool skip_bootrom) {
     ctx->stop_mode_active = 0;
     ctx->single_step_mode = 0;
     ctx->cgb_double_speed = 0;
+    ctx->cgb_system_cycle_remainder = 0;
+    ctx->audio_pending_cpu_cycles = 0u;
+    ctx->audio_cycles_until_event = 0u;
+    ctx->audio_pending_old_div = 0u;
+    ctx->audio_pending_system_cycle_remainder = 0u;
+    ctx->audio_pending_double_speed = 0u;
     memset(&ctx->serial_transfer, 0, sizeof(ctx->serial_transfer));
     ctx->last_joypad = 0xFF;
     ctx->used_dispatch_fallback = 0;
@@ -970,6 +1240,9 @@ void gb_context_reset(GBContext* ctx, bool skip_bootrom) {
     ctx->last_unimplemented_bank = 0;
     ctx->last_unimplemented_addr = 0;
     memset(ctx->interpreter_hotspots, 0, sizeof(ctx->interpreter_hotspots));
+    memset(ctx->dispatch_fallback_sites, 0, sizeof(ctx->dispatch_fallback_sites));
+    ctx->dispatch_fallback_site_count = 0;
+    ctx->dispatch_fallback_sites_dropped = 0;
     ctx->lcd_off_active = 0;
     ctx->lcd_off_start_cycles = 0;
     ctx->lcd_off_start_frame_cycles = 0;
@@ -980,27 +1253,14 @@ void gb_context_reset(GBContext* ctx, bool skip_bootrom) {
     ctx->total_lcd_off_cycles = 0;
     ctx->total_lcd_transition_count = 0;
     ctx->total_lcd_off_span_count = 0;
-    
-    /* Reset RTC state */
-    ctx->rtc.s = 0;
-    ctx->rtc.m = 0;
-    ctx->rtc.h = 0;
-    ctx->rtc.dl = 0;
-    ctx->rtc.dh = 0;
-    ctx->rtc.latched_s = 0;
-    ctx->rtc.latched_m = 0;
-    ctx->rtc.latched_h = 0;
-    ctx->rtc.latched_dl = 0;
-    ctx->rtc.latched_dh = 0;
-    ctx->rtc.latch_state = 0;
-    ctx->rtc.last_time = 0;
-    ctx->rtc.active = true;  /* RTC oscillator active by default */
+    gbrt_reset_performance_counters(ctx);
     
     /* Reset MBC state */
     ctx->rtc_mode = 0;
     ctx->rtc_reg = 0;
     ctx->ram_enabled = 0;
     ctx->mbc_mode = 0;
+    ctx->rom_bank_low = 1;
     ctx->rom_bank_upper = 0;
     ctx->rom_bank = 1;
     ctx->ram_bank = 0;
@@ -1087,22 +1347,31 @@ void gb_context_reset(GBContext* ctx, bool skip_bootrom) {
 }
 
 bool gb_context_load_rom(GBContext* ctx, const uint8_t* data, size_t size) {
+    gbrt_data_mod_unload(ctx);
     if (ctx->rom) free(ctx->rom);
     ctx->rom = (uint8_t*)malloc(size);
     if (!ctx->rom) return false;
     memcpy(ctx->rom, data, size);
     ctx->rom_size = size;
+    /* A new cartridge starts from a clean RTC before any persisted state is
+     * loaded. Console/CPU resets preserve the cartridge clock. */
+    gb_rtc_reset(ctx);
     
     /* Parse Header for RAM/Battery info */
     if (size > 0x149) {
         uint8_t type = ctx->rom[0x147];
         uint8_t ram_size_code = ctx->rom[0x149];
-        
+
+        ctx->mbc_type = type;
+        ctx->mbc1_multicart =
+            (type >= 0x01 && type <= 0x03) &&
+            gb_detect_mbc1_multicart(ctx->rom, ctx->rom_size);
+
         bool has_battery = gb_cart_type_has_battery(type);
-        
+
         /* Calculate RAM size */
         size_t ram_bytes = 0;
-        
+
         /* MBC2 has fixed 512x4 bits (256 bytes effective, usually 512 allocated) */
         if (type == 0x05 || type == 0x06) {
             ram_bytes = 512;
@@ -1142,26 +1411,205 @@ bool gb_context_load_rom(GBContext* ctx, const uint8_t* data, size_t size) {
     return true;
 }
 
-bool gb_context_save_ram(GBContext* ctx) {
-    if (!ctx || !ctx->eram || !ctx->eram_size || !ctx->callbacks.save_battery_ram) {
+bool gb_context_save_battery_snapshot(
+    GBContext* ctx,
+    const uint8_t* data,
+    size_t size) {
+    if (!ctx || !ctx->eram || !ctx->eram_size ||
+        !ctx->callbacks.save_battery_ram || !data || size != ctx->eram_size) {
+        return false;
+    }
+    if (ctx->persistence_load_failed) {
+        fprintf(stderr,
+                "[GBRT] Refusing to overwrite persistence after a rejected load\n");
         return false;
     }
     
     char save_id[64];
     gb_context_get_save_id(ctx, save_id);
     
-    bool ram_result = ctx->callbacks.save_battery_ram(ctx, save_id, ctx->eram, ctx->eram_size);
+    bool ram_result =
+        ctx->callbacks.save_battery_ram(ctx, save_id, data, size);
     if (ram_result) {
         printf("[GBRT] Saved battery RAM for '%s'\n", save_id);
     } else {
         printf("[GBRT] Failed to save battery RAM for '%s'\n", save_id);
     }
 
+    return ram_result;
+}
+
+bool gb_context_save_ram(GBContext* ctx) {
+    if (!ctx || !ctx->eram || !ctx->eram_size) {
+        return false;
+    }
+    bool ram_result =
+        gb_context_save_battery_snapshot(ctx, ctx->eram, ctx->eram_size);
+
     bool rtc_result = true;
-    if (gb_cart_type_has_rtc(ctx->rom[0x147])) {
+    if (ctx->rom && ctx->rom_size > 0x147u &&
+        gb_cart_type_has_rtc(ctx->rom[0x147])) {
         rtc_result = gb_context_save_rtc(ctx);
     }
     return ram_result && rtc_result;
+}
+
+static const char* gbrt_semantic_transaction_outcome_name(
+    GBSemanticTransactionOutcome outcome) {
+    switch (outcome) {
+        case GB_SEMANTIC_TRANSACTION_COMMITTED: return "committed";
+        case GB_SEMANTIC_TRANSACTION_ABORTED: return "aborted";
+        case GB_SEMANTIC_TRANSACTION_VALIDATION_FAILED:
+            return "validation_failed";
+        case GB_SEMANTIC_TRANSACTION_COMMIT_FAILED: return "commit_failed";
+        default: return "none";
+    }
+}
+
+bool gb_context_write_state_json(const GBContext* ctx, const char* path) {
+    if (!ctx || !path || !path[0]) {
+        return false;
+    }
+    FILE* file = fopen(path, "wb");
+    if (!file) {
+        return false;
+    }
+
+    const GBPPU* ppu = (const GBPPU*)ctx->ppu;
+    const uint8_t flags = (uint8_t)((ctx->f_z ? 0x80 : 0) |
+                                    (ctx->f_n ? 0x40 : 0) |
+                                    (ctx->f_h ? 0x20 : 0) |
+                                    (ctx->f_c ? 0x10 : 0));
+    const int written = fprintf(
+        file,
+        "{\n"
+        "  \"a\": %u,\n"
+        "  \"f\": %u,\n"
+        "  \"b\": %u,\n"
+        "  \"c\": %u,\n"
+        "  \"d\": %u,\n"
+        "  \"e\": %u,\n"
+        "  \"h\": %u,\n"
+        "  \"l\": %u,\n"
+        "  \"sp\": %u,\n"
+        "  \"pc\": %u,\n"
+        "  \"cycles\": %u,\n"
+        "  \"total_cycles\": %llu,\n"
+        "  \"completed_frames\": %llu,\n"
+        "  \"ly\": %u,\n"
+        "  \"ppu_mode\": %u,\n"
+        "  \"rtc\": {\"seconds\": %u, \"minutes\": %u, \"hours\": %u, "
+        "\"day_low\": %u, \"day_high\": %u, \"cycle_remainder\": %llu, "
+        "\"active\": %s},\n"
+        "  \"hram_ff80_ff90\": [",
+        ctx->a,
+        flags,
+        ctx->b,
+        ctx->c,
+        ctx->d,
+        ctx->e,
+        ctx->h,
+        ctx->l,
+        ctx->sp,
+        ctx->pc,
+        ctx->cycles,
+        (unsigned long long)ctx->total_cycles,
+        (unsigned long long)ctx->completed_frames,
+        ppu ? ppu->ly : 0,
+        ppu ? (unsigned)ppu->mode : 0,
+        ctx->rtc.s,
+        ctx->rtc.m,
+        ctx->rtc.h,
+        ctx->rtc.dl,
+        ctx->rtc.dh,
+        (unsigned long long)ctx->rtc.last_time,
+        ctx->rtc.active ? "true" : "false");
+    bool success = written > 0;
+    for (size_t i = 0; success && i < 17; ++i) {
+        success = fprintf(file, "%s%u", i ? ", " : "", ctx->hram[i]) > 0;
+    }
+    if (success) {
+        success = fprintf(file, "],\n  \"hram_ff80_fffe\": [") > 0;
+    }
+    for (size_t i = 0; success && i < HRAM_SIZE; ++i) {
+        success = fprintf(file, "%s%u", i ? ", " : "", ctx->hram[i]) > 0;
+    }
+    if (success) {
+        success = fprintf(file, "],\n  \"wram_bank_0_c000_cfff\": [") > 0;
+    }
+    for (size_t i = 0; success && i < WRAM_BANK_SIZE; ++i) {
+        success = fprintf(file, "%s%u", i ? ", " : "", ctx->wram[i]) > 0;
+    }
+    if (success) {
+        success = fprintf(file, "],\n  \"wram_bank_1_d000_dfff\": [") > 0;
+    }
+    for (size_t i = 0; success && i < WRAM_BANK_SIZE; ++i) {
+        success = fprintf(file,
+                          "%s%u",
+                          i ? ", " : "",
+                          ctx->wram[WRAM_BANK_SIZE + i]) > 0;
+    }
+    if (success) {
+        success = fprintf(file, "],\n  \"eram_a000_a0ff\": [") > 0;
+    }
+    const size_t eram_prefix_size =
+        ctx->eram_size < 0x100u ? ctx->eram_size : 0x100u;
+    for (size_t i = 0; success && i < eram_prefix_size; ++i) {
+        success = fprintf(file, "%s%u", i ? ", " : "", ctx->eram[i]) > 0;
+    }
+    if (success) {
+        success = fprintf(
+                      file,
+                      "],\n"
+                      "  \"host_configuration\": {"
+                      "\"present\": %s, \"applied\": %s, "
+                      "\"enabled\": %s, \"policy_id\": \"%s\", "
+                      "\"sha256\": \"%s\"},\n"
+                      "  \"semantic_transaction\": {"
+                      "\"sequence\": %llu, \"outcome\": \"%s\", "
+                      "\"dirty_ranges\": [",
+                      ctx->config.host_configuration.present ? "true" : "false",
+                      ctx->config.host_configuration.applied ? "true" : "false",
+                      ctx->config.host_configuration.enabled ? "true" : "false",
+                      ctx->config.host_configuration.present
+                          ? ctx->config.host_configuration.policy_id
+                          : "",
+                      ctx->config.host_configuration.present
+                          ? ctx->config.host_configuration.sha256
+                          : "",
+                      (unsigned long long)ctx->semantic_transaction_sequence,
+                      gbrt_semantic_transaction_outcome_name(
+                          ctx->semantic_transaction_outcome)) > 0;
+    }
+    for (size_t index = 0;
+         success && index < ctx->semantic_transaction_dirty_count;
+         ++index) {
+        const GBSemanticTransactionRangeMetadata* range =
+            &ctx->semantic_transaction_dirty[index];
+        success = fprintf(
+                      file,
+                      "%s{\"space\": %u, \"bank\": %u, "
+                      "\"address\": %u, \"width\": %u}",
+                      index ? ", " : "",
+                      range->space,
+                      range->bank,
+                      range->address,
+                      range->width) > 0;
+    }
+    if (success) {
+        success = fprintf(
+                      file,
+                      "]},\n  \"dispatch_fallbacks\": %llu\n}\n",
+                      (unsigned long long)ctx->total_dispatch_fallbacks) > 0;
+    }
+    success = success && fflush(file) == 0 && ferror(file) == 0;
+    if (fclose(file) != 0) {
+        return false;
+    }
+    if (!success) {
+        remove(path);
+    }
+    return success;
 }
 
 bool gb_context_save_state_file(GBContext* ctx, const char* path) {
@@ -1169,6 +1617,8 @@ bool gb_context_save_state_file(GBContext* ctx, const char* path) {
         !ctx->wram || !ctx->vram || !ctx->oam || !ctx->hram || !ctx->io) {
         return false;
     }
+
+    gbrt_audio_sync(ctx);
 
     FILE* file = fopen(path, "wb");
     if (!file) {
@@ -1375,6 +1825,12 @@ bool gb_context_load_state_file(GBContext* ctx, const char* path) {
         return false;
     }
     gbrt_restore_core_state(ctx, &core_state);
+    ctx->audio_pending_cpu_cycles = 0u;
+    ctx->audio_cycles_until_event = 0u;
+    ctx->audio_pending_old_div = ctx->div_counter;
+    ctx->audio_pending_system_cycle_remainder =
+        ctx->cgb_system_cycle_remainder & 1u;
+    ctx->audio_pending_double_speed = ctx->cgb_double_speed ? 1u : 0u;
 
     free(eram_data);
     free(wram_data);
@@ -1390,13 +1846,17 @@ bool gb_context_load_state_file(GBContext* ctx, const char* path) {
 }
 
 static uint8_t gb_direct_read_dma_source(GBContext* ctx, uint16_t addr) {
-    if (addr < 0x4000) {
-        return (addr < ctx->rom_size) ? ctx->rom[addr] : 0xFF;
+    if (addr < 0x8000) {
+        size_t rom_offset = 0;
+        return gb_resolve_rom_offset(ctx, addr, &rom_offset)
+            ? gbrt_data_mod_read_rom(ctx, rom_offset, false)
+            : 0xFF;
     }
 
-    if (addr < 0x8000) {
-        uint32_t rom_addr = ((uint32_t)ctx->rom_bank * 0x4000u) + (uint32_t)(addr - 0x4000);
-        return (rom_addr < ctx->rom_size) ? ctx->rom[rom_addr] : 0xFF;
+    if (addr < 0xA000) {
+        uint32_t vram_addr =
+            ((uint32_t)ctx->vram_bank * VRAM_SIZE) + (addr - 0x8000u);
+        return ctx->vram ? ctx->vram[vram_addr] : 0xFF;
     }
 
     if (addr >= 0xA000 && addr < 0xC000) {
@@ -1415,7 +1875,25 @@ static uint8_t gb_direct_read_dma_source(GBContext* ctx, uint16_t addr) {
         return ctx->wram[(ctx->wram_bank * WRAM_BANK_SIZE) + (addr - 0xD000)];
     }
 
+    if (addr >= 0xE000 && addr < 0xFE00) {
+        return gb_direct_read_dma_source(ctx, (uint16_t)(addr - 0x2000));
+    }
+
     return 0xFF;
+}
+
+static uint8_t gb_direct_read_oam_dma_source(GBContext* ctx, uint16_t addr) {
+    if (addr >= 0xE000) {
+        /* DMG exposes only the lower 13 WRAM address lines to OAM DMA, so
+         * E000-FFFF mirror C000-DFFF even across the normal FE00 echo cutoff.
+         * CGB-family hardware instead returns open-bus FF for these sources.
+         */
+        if (gb_is_cgb_hardware(ctx)) {
+            return 0xFF;
+        }
+        addr = (uint16_t)(addr & ~0x2000u);
+    }
+    return gb_direct_read_dma_source(ctx, addr);
 }
 
 static void gb_hdma_refresh_registers(GBContext* ctx);
@@ -1462,7 +1940,8 @@ void gbrt_hdma_hblank(GBContext* ctx) {
 
     ctx->hdma.active = 1;
     gb_hdma_copy_block(ctx);
-    ctx->stopped = 1;
+    ctx->hdma.cpu_stall_cycles = (uint16_t)(
+        ctx->hdma.cpu_stall_cycles + (ctx->cgb_double_speed ? 64u : 32u));
 }
 
 static uint8_t gb_hdma_status_read(const GBContext* ctx) {
@@ -1507,6 +1986,8 @@ static void gb_hdma_start(GBContext* ctx, uint8_t value) {
     if (!ctx->hdma.hblank_mode) {
         while (ctx->hdma.active || ctx->hdma.blocks_remaining > 0) {
             gb_hdma_copy_block(ctx);
+            /* The CPU is blocked, but every other clocked device advances. */
+            gb_tick(ctx, ctx->cgb_double_speed ? 64u : 32u);
         }
     } else {
         ctx->hdma.active = 0;
@@ -1519,47 +2000,631 @@ static void gb_hdma_start(GBContext* ctx, uint8_t value) {
  * Memory Access
  * ========================================================================== */
 
-uint8_t gb_read8(GBContext* ctx, uint16_t addr) {
-    /* During OAM DMA, CPU can only access HRAM (0xFF80-0xFFFE) and I/O registers
-     * (0xFF00-0xFF7F, 0xFFFF). All other memory returns 0xFF. */
-    if (ctx->dma.active && !(addr >= 0xFF00)) {
-        return 0xFF;  /* Bus conflict - return undefined */
+typedef enum {
+    GB_DMA_BUS_NONE,
+    GB_DMA_BUS_CARTRIDGE,
+    GB_DMA_BUS_VRAM,
+    GB_DMA_BUS_WRAM,
+} GBDMABus;
+
+static GBDMABus gb_oam_dma_bus_for_addr(uint16_t addr) {
+    if (addr < 0x8000 || (addr >= 0xA000 && addr < 0xC000)) {
+        return GB_DMA_BUS_CARTRIDGE;
     }
-    
-    /* ROM Bank 0 (0x0000-0x3FFF) */
-    if (addr < 0x4000) {
-        /* MBC1 Mode 1: Upper bits affect bank 0 region too */
-        if (ctx->mbc_type >= 0x01 && ctx->mbc_type <= 0x03 && ctx->mbc_mode == 1) {
-            uint32_t bank0 = (uint32_t)ctx->rom_bank_upper << 5;
-            uint32_t rom_addr = (bank0 * 0x4000) + addr;
-            if (rom_addr < ctx->rom_size) {
-                return ctx->rom[rom_addr];
-            }
-            return 0xFF;
+    if (addr < 0xA000) {
+        return GB_DMA_BUS_VRAM;
+    }
+    if (addr >= 0xC000) {
+        return GB_DMA_BUS_WRAM;
+    }
+    return GB_DMA_BUS_NONE;
+}
+
+static bool gb_oam_dma_blocks_cpu_addr(const GBContext* ctx, uint16_t addr) {
+    if (!ctx) {
+        return false;
+    }
+    const bool startup_bus_block =
+        ctx->dma.pending && ctx->dma.startup_delay <= 4;
+    if (!ctx->dma.active && !startup_bus_block) {
+        return false;
+    }
+    if (addr >= 0xFF80 && addr <= 0xFFFE) {
+        return false;
+    }
+    /* FF46 remains writable so an in-flight transfer can be restarted. */
+    if (addr == 0xFF46) {
+        return false;
+    }
+    if (!gb_is_cgb_hardware(ctx)) {
+        if (addr >= 0xFE00) {
+            return true;
         }
-        return ctx->rom[addr];
+
+        /* DMG has a dedicated VRAM bus, while cartridge and WRAM share the
+         * main bus. OAM DMA only steals the source bus, so a VRAM-source
+         * transfer still permits ROM/WRAM access and vice versa. */
+        const GBDMABus source_bus = gb_oam_dma_bus_for_addr(
+            (uint16_t)(ctx->dma.active
+                ? ((uint16_t)ctx->dma.active_source_high << 8)
+                : ((uint16_t)ctx->dma.source_high << 8)));
+        const GBDMABus address_bus = gb_oam_dma_bus_for_addr(addr);
+        if (source_bus == GB_DMA_BUS_VRAM) {
+            return address_bus == GB_DMA_BUS_VRAM;
+        }
+        return address_bus == GB_DMA_BUS_CARTRIDGE ||
+               address_bus == GB_DMA_BUS_WRAM;
     }
-    
-    /* ROM Bank N (0x4000-0x7FFF) */
-    if (addr < 0x8000) {
-        uint32_t rom_addr = ((uint32_t)ctx->rom_bank * 0x4000) + (addr - 0x4000);
-        if (rom_addr < ctx->rom_size) {
-            return ctx->rom[rom_addr];
+    if (addr >= 0xFE00) {
+        return false;
+    }
+
+    const uint8_t source_high = ctx->dma.active
+        ? ctx->dma.active_source_high
+        : ctx->dma.source_high;
+    const uint16_t source = (uint16_t)source_high << 8;
+    return gb_oam_dma_bus_for_addr(addr) == gb_oam_dma_bus_for_addr(source);
+}
+
+#define GB_TIMA_RELOAD_CYCLE_FLAG 0x80u
+
+static uint16_t gb_timer_mask(uint8_t tac) {
+    static const uint16_t masks[] = {
+        1u << 9,
+        1u << 3,
+        1u << 5,
+        1u << 7,
+    };
+    return masks[tac & 0x03u];
+}
+
+static bool gb_timer_input(const GBContext* ctx, uint8_t tac) {
+    return (tac & 0x04u) != 0 &&
+           (ctx->div_counter & gb_timer_mask(tac)) != 0;
+}
+
+static void gb_timer_increment(GBContext* ctx) {
+    if (ctx->io[0x05] == 0xFF) {
+        ctx->io[0x05] = 0x00;
+        ctx->tima_reload_pending = 4;
+    } else {
+        ctx->io[0x05]++;
+    }
+}
+
+static void gb_timer_advance_reload_state(GBContext* ctx) {
+    uint8_t state = ctx->tima_reload_pending;
+    if (state == 0) {
+        return;
+    }
+
+    if (state & GB_TIMA_RELOAD_CYCLE_FLAG) {
+        uint8_t remaining = state & (uint8_t)~GB_TIMA_RELOAD_CYCLE_FLAG;
+        ctx->tima_reload_pending = remaining > 1
+            ? (uint8_t)(GB_TIMA_RELOAD_CYCLE_FLAG | (remaining - 1u))
+            : 0;
+        return;
+    }
+
+    state--;
+    if (state == 0) {
+        ctx->io[0x05] = ctx->io[0x06];
+        ctx->io[0x0F] |= 0x04;
+        ctx->tima_reload_pending = GB_TIMA_RELOAD_CYCLE_FLAG | 4u;
+    } else {
+        ctx->tima_reload_pending = state;
+    }
+}
+
+static void gb_timer_tick_scalar(GBContext* ctx, uint32_t cpu_cycles) {
+    for (uint32_t cycle = 0; cycle < cpu_cycles; ++cycle) {
+        gb_timer_advance_reload_state(ctx);
+        const bool old_input = gb_timer_input(ctx, ctx->io[0x07]);
+        ctx->div_counter++;
+        const bool new_input = gb_timer_input(ctx, ctx->io[0x07]);
+        if (old_input && !new_input) {
+            gb_timer_increment(ctx);
+        }
+    }
+    ctx->io[0x04] = (uint8_t)(ctx->div_counter >> 8);
+}
+
+static void gb_timer_tick_arithmetic(GBContext* ctx, uint32_t cpu_cycles) {
+    uint32_t remaining = cpu_cycles;
+
+    /* Overflow and reload expose one-T-cycle write/interrupt windows. Keep
+     * those short intervals on the scalar oracle; the state lasts at most
+     * eight cycles before the common uninterrupted path resumes. */
+    while (remaining > 0u && ctx->tima_reload_pending != 0u) {
+        gb_timer_tick_scalar(ctx, 1u);
+        remaining--;
+    }
+
+    while (remaining > 0u) {
+        const uint8_t tac = ctx->io[0x07];
+        if ((tac & 0x04u) == 0u) {
+            ctx->div_counter = (uint16_t)(ctx->div_counter + remaining);
+            remaining = 0u;
+            break;
+        }
+
+        const uint32_t period = (uint32_t)gb_timer_mask(tac) << 1u;
+        const uint32_t phase = ctx->div_counter & (period - 1u);
+        const uint32_t cycles_to_first_edge = period - phase;
+        if (remaining < cycles_to_first_edge) {
+            ctx->div_counter = (uint16_t)(ctx->div_counter + remaining);
+            remaining = 0u;
+            break;
+        }
+
+        const uint32_t edge_count =
+            1u + (remaining - cycles_to_first_edge) / period;
+        const uint32_t edges_to_overflow = 0x100u - ctx->io[0x05];
+        if (edge_count < edges_to_overflow) {
+            ctx->io[0x05] = (uint8_t)(ctx->io[0x05] + edge_count);
+            ctx->div_counter = (uint16_t)(ctx->div_counter + remaining);
+            remaining = 0u;
+            break;
+        }
+
+        const uint32_t cycles_to_overflow =
+            cycles_to_first_edge + (edges_to_overflow - 1u) * period;
+        ctx->div_counter =
+            (uint16_t)(ctx->div_counter + cycles_to_overflow);
+        remaining -= cycles_to_overflow;
+        ctx->io[0x05] = 0u;
+        ctx->tima_reload_pending = 4u;
+
+        while (remaining > 0u && ctx->tima_reload_pending != 0u) {
+            gb_timer_tick_scalar(ctx, 1u);
+            remaining--;
+        }
+    }
+
+    ctx->io[0x04] = (uint8_t)(ctx->div_counter >> 8);
+}
+
+static void gb_timer_tick(GBContext* ctx, uint32_t cpu_cycles) {
+    if (gbrt_force_scalar_timer) {
+        gb_timer_tick_scalar(ctx, cpu_cycles);
+        return;
+    }
+    gb_timer_tick_arithmetic(ctx, cpu_cycles);
+}
+
+static uint32_t gbrt_min_deadline(uint32_t current, uint32_t candidate) {
+    return candidate < current ? candidate : current;
+}
+
+uint32_t gbrt_cycles_until_next_event(const GBContext* ctx) {
+    if (!ctx || ctx->stopped || ctx->frame_done || ctx->single_step_mode ||
+        ctx->halted || ctx->halt_bug || ctx->stop_mode_active ||
+        ctx->ime_pending || ctx->cgb_double_speed ||
+        gbrt_benchmark_fast_tick_enabled ||
+        ctx->last_sync_cycles != ctx->cycles ||
+        gbrt_instruction_limit > 0 || gbrt_trace_enabled ||
+        ctx->trace_file || ctx->ppu_trace_file) {
+        return 0u;
+    }
+
+    if (ctx->ime && (ctx->io[0x0F] & ctx->io[0x80] & 0x1Fu)) {
+        return 0u;
+    }
+
+    uint32_t deadline = UINT32_MAX;
+
+    if (ctx->run_cycle_budget > 0u) {
+        const uint32_t elapsed =
+            ctx->cycles - ctx->run_cycle_budget_start;
+        if (elapsed >= ctx->run_cycle_budget) {
+            return 0u;
+        }
+        deadline = ctx->run_cycle_budget - elapsed;
+    }
+
+    if (ctx->tima_reload_pending) {
+        deadline = gbrt_min_deadline(deadline, 1u);
+    } else if (ctx->io[0x07] & 0x04u) {
+        const uint32_t period = (uint32_t)gb_timer_mask(ctx->io[0x07]) << 1u;
+        const uint32_t phase = ctx->div_counter & (period - 1u);
+        deadline = gbrt_min_deadline(deadline, period - phase);
+    }
+
+    if (ctx->ppu) {
+        deadline = gbrt_min_deadline(
+            deadline,
+            ppu_cycles_until_next_event((const GBPPU*)ctx->ppu, ctx));
+    }
+
+    if (ctx->hdma.cpu_stall_cycles > 0u) {
+        return 0u;
+    }
+
+    if (ctx->dma.pending) {
+        if (ctx->dma.startup_delay == 0u) {
+            return 0u;
+        }
+        deadline = gbrt_min_deadline(deadline, ctx->dma.startup_delay);
+    }
+    if (ctx->dma.active) {
+        if (ctx->dma.cycles_remaining == 0u) {
+            return 0u;
+        }
+        uint32_t until_byte = ctx->dma.cycles_remaining % 4u;
+        if (until_byte == 0u) {
+            until_byte = 4u;
+        }
+        deadline = gbrt_min_deadline(deadline, until_byte);
+    }
+
+    if (ctx->serial_transfer.active) {
+        if (ctx->serial_transfer.cycles_remaining == 0u) {
+            return 0u;
+        }
+        deadline = gbrt_min_deadline(
+            deadline, ctx->serial_transfer.cycles_remaining);
+    }
+
+    return deadline;
+}
+
+#ifdef GBRT_ENABLE_PERFORMANCE_COUNTERS
+static size_t gbrt_profile_tick_cycle_bucket(uint32_t cycles) {
+    if (cycles <= 4u) return cycles == 0u ? 0u : (size_t)(cycles - 1u);
+    if (cycles <= 7u) return 4u;
+    if (cycles == 8u) return 5u;
+    if (cycles <= 11u) return 6u;
+    if (cycles == 12u) return 7u;
+    if (cycles <= 15u) return 8u;
+    if (cycles == 16u) return 9u;
+    return cycles <= 31u ? 10u : 11u;
+}
+
+static size_t gbrt_profile_deadline_bucket(uint32_t deadline) {
+    if (deadline == UINT32_MAX) return 9u;
+    if (deadline == 0u) return 0u;
+    if (deadline == 1u) return 1u;
+    if (deadline <= 3u) return 2u;
+    if (deadline <= 7u) return 3u;
+    if (deadline <= 15u) return 4u;
+    if (deadline <= 31u) return 5u;
+    if (deadline <= 63u) return 6u;
+    if (deadline <= 255u) return 7u;
+    return 8u;
+}
+
+static size_t gbrt_profile_group_size_bucket(uint64_t units) {
+    if (units <= 2u) return units == 1u ? 0u : 1u;
+    if (units <= 4u) return 2u;
+    if (units <= 8u) return 3u;
+    if (units <= 16u) return 4u;
+    return 5u;
+}
+
+static void gbrt_profile_flush_group(GBPerformanceCounters* counters) {
+    if (counters->profile_group_units == 0u) {
+        return;
+    }
+    counters->region_groups++;
+    counters->region_grouped_units += counters->profile_group_units;
+    counters->region_grouped_tick_commits +=
+        counters->profile_group_tick_commits;
+    counters->region_group_size_histogram[
+        gbrt_profile_group_size_bucket(counters->profile_group_units)]++;
+    counters->profile_group_units = 0u;
+    counters->profile_group_tick_commits = 0u;
+    counters->profile_group_cycles = 0u;
+    counters->profile_group_deadline_remaining = 0u;
+}
+
+static void gbrt_profile_start_group(GBPerformanceCounters* counters,
+                                     uint64_t unit_ticks,
+                                     uint64_t unit_cycles,
+                                     uint32_t deadline) {
+    counters->profile_group_units = 1u;
+    counters->profile_group_tick_commits = unit_ticks;
+    counters->profile_group_cycles = unit_cycles;
+    counters->profile_group_deadline_remaining = deadline;
+}
+
+void gbrt_profile_generated_safepoint(GBContext* ctx) {
+    GBPerformanceCounters* counters = &ctx->performance_counters;
+    if (ctx->stopped) {
+        counters->profile_unit_visibility_mask |=
+            GBRT_PROFILE_VISIBILITY_STOPPED;
+    }
+
+    const uint64_t unit_ticks = counters->profile_unit_tick_commits;
+    const uint64_t unit_cycles = counters->profile_unit_tick_cycles;
+    const uint32_t visibility = counters->profile_unit_visibility_mask;
+    const bool eligible = visibility == 0u && unit_ticks > 0u;
+    const uint32_t deadline = gbrt_cycles_until_next_event(ctx);
+    counters->deadline_histogram[gbrt_profile_deadline_bucket(deadline)]++;
+
+    if (visibility & GBRT_PROFILE_VISIBILITY_GENERIC_READ) {
+        counters->visibility_unit_histogram[2]++;
+    }
+    if (visibility & GBRT_PROFILE_VISIBILITY_GENERIC_WRITE) {
+        counters->visibility_unit_histogram[3]++;
+    }
+    if (visibility & GBRT_PROFILE_VISIBILITY_TRANSITION) {
+        counters->visibility_unit_histogram[4]++;
+    }
+    if (visibility & GBRT_PROFILE_VISIBILITY_FALLBACK) {
+        counters->visibility_unit_histogram[5]++;
+    }
+    if (visibility & GBRT_PROFILE_VISIBILITY_STOPPED) {
+        counters->visibility_unit_histogram[6]++;
+    }
+    if (eligible) {
+        counters->region_candidate_units++;
+        counters->visibility_unit_histogram[
+            counters->profile_unit_safe_memory ? 1u : 0u]++;
+    }
+
+    if (unit_ticks > 0u) {
+        bool merged = false;
+        if (counters->profile_group_units > 0u && eligible) {
+            const uint32_t remaining =
+                counters->profile_group_deadline_remaining;
+            if (remaining == UINT32_MAX || unit_cycles <= remaining) {
+                counters->profile_group_units++;
+                counters->profile_group_tick_commits += unit_ticks;
+                counters->profile_group_cycles += unit_cycles;
+                counters->region_estimated_removable_tick_commits +=
+                    unit_ticks;
+                counters->region_estimated_removable_safepoints++;
+                if (remaining != UINT32_MAX) {
+                    counters->profile_group_deadline_remaining =
+                        (uint32_t)(remaining - unit_cycles);
+                }
+                if (deadline < counters->profile_group_deadline_remaining) {
+                    counters->profile_group_deadline_remaining = deadline;
+                }
+                merged = true;
+            }
+        }
+
+        if (!merged) {
+            if (counters->profile_group_units > 0u) {
+                if (!eligible) {
+                    counters->region_reject_visibility++;
+                } else {
+                    counters->region_reject_deadline++;
+                }
+                gbrt_profile_flush_group(counters);
+            }
+            gbrt_profile_start_group(counters, unit_ticks, unit_cycles, deadline);
+        }
+    }
+
+    if (ctx->stopped || deadline == 0u) {
+        gbrt_profile_flush_group(counters);
+    }
+
+    counters->profile_unit_tick_commits = 0u;
+    counters->profile_unit_tick_cycles = 0u;
+    counters->profile_unit_visibility_mask = 0u;
+    counters->profile_unit_safe_memory = 0u;
+}
+
+static void gbrt_profile_note_tick(GBContext* ctx, uint32_t cycles) {
+    GBPerformanceCounters* counters = &ctx->performance_counters;
+    counters->tick_commits++;
+    counters->tick_cycles += cycles;
+    if (gbrt_visibility_estimator_enabled) {
+        counters->profile_unit_tick_commits++;
+        counters->profile_unit_tick_cycles += cycles;
+    }
+    counters->tick_cycle_histogram[gbrt_profile_tick_cycle_bucket(cycles)]++;
+
+    size_t ppu_mode = 0u;
+    if (ctx->ppu) {
+        const GBPPU* ppu = (const GBPPU*)ctx->ppu;
+        if (ppu->lcdc & LCDC_LCD_ENABLE) {
+            switch (ppu->mode) {
+                case PPU_MODE_OAM: ppu_mode = 1u; break;
+                case PPU_MODE_DRAW: ppu_mode = 2u; break;
+                case PPU_MODE_HBLANK: ppu_mode = 3u; break;
+                case PPU_MODE_VBLANK: ppu_mode = 4u; break;
+                default: break;
+            }
+        }
+    }
+    counters->ppu_mode_tick_commits[ppu_mode]++;
+    counters->ppu_mode_tick_cycles[ppu_mode] += cycles;
+
+    const size_t timer_state = ctx->tima_reload_pending
+        ? 2u
+        : ((ctx->io[0x07] & 0x04u) ? 1u : 0u);
+    counters->timer_state_tick_commits[timer_state]++;
+    counters->timer_state_tick_cycles[timer_state] += cycles;
+}
+#endif
+
+static void gb_timer_write_div(GBContext* ctx) {
+    gbrt_audio_sync(ctx);
+    const uint16_t old_div = ctx->div_counter;
+    const bool old_input = gb_timer_input(ctx, ctx->io[0x07]);
+    ctx->div_counter = 0;
+    ctx->io[0x04] = 0;
+    if (ctx->apu) {
+        gb_audio_div_reset(ctx->apu, old_div, ctx->cgb_double_speed != 0);
+    }
+    if (old_input) {
+        gb_timer_increment(ctx);
+    }
+}
+
+void gbrt_audio_sync(GBContext* ctx) {
+    if (!ctx || !ctx->apu || ctx->audio_pending_cpu_cycles == 0u) {
+        return;
+    }
+
+#ifdef GBRT_ENABLE_PERFORMANCE_COUNTERS
+    ctx->performance_counters.audio_step_calls++;
+    ctx->performance_counters.audio_step_cycles +=
+        ctx->audio_pending_cpu_cycles;
+#endif
+    gb_audio_step_timed(ctx,
+                        ctx->audio_pending_old_div,
+                        ctx->audio_pending_cpu_cycles,
+                        ctx->audio_pending_double_speed != 0,
+                        ctx->audio_pending_system_cycle_remainder);
+    ctx->audio_pending_cpu_cycles = 0u;
+    ctx->audio_cycles_until_event = 0u;
+}
+
+static void gbrt_audio_schedule(GBContext* ctx,
+                                uint16_t old_div,
+                                uint32_t cpu_cycles,
+                                uint32_t system_cycles,
+                                bool double_speed,
+                                uint8_t system_cycle_remainder) {
+    if (!ctx || !ctx->apu || cpu_cycles == 0u) {
+        return;
+    }
+
+    if (gbrt_force_eager_audio) {
+        gbrt_audio_sync(ctx);
+#ifdef GBRT_ENABLE_PERFORMANCE_COUNTERS
+        ctx->performance_counters.audio_step_calls++;
+        ctx->performance_counters.audio_step_cycles += cpu_cycles;
+#endif
+        gb_audio_step_timed(ctx,
+                            old_div,
+                            cpu_cycles,
+                            double_speed,
+                            system_cycle_remainder);
+        return;
+    }
+
+    if (ctx->audio_pending_cpu_cycles == 0u) {
+        const uint32_t deadline = gb_audio_cycles_until_sample(ctx->apu);
+        if (deadline == UINT32_MAX) {
+            return;
+        }
+        ctx->audio_pending_old_div = old_div;
+        ctx->audio_pending_system_cycle_remainder =
+            system_cycle_remainder & 1u;
+        ctx->audio_pending_double_speed = double_speed ? 1u : 0u;
+        ctx->audio_cycles_until_event = deadline;
+    } else if (ctx->audio_pending_double_speed != (double_speed ? 1u : 0u)) {
+        /* Speed changes are synchronized by gb_stop(); retain a defensive
+         * boundary for direct host-side manipulation of the context. */
+        gbrt_audio_sync(ctx);
+        gbrt_audio_schedule(ctx,
+                            old_div,
+                            cpu_cycles,
+                            system_cycles,
+                            double_speed,
+                            system_cycle_remainder);
+        return;
+    }
+
+    ctx->audio_pending_cpu_cycles += cpu_cycles;
+    if (system_cycles >= ctx->audio_cycles_until_event) {
+        gbrt_audio_sync(ctx);
+    } else {
+        ctx->audio_cycles_until_event -= system_cycles;
+    }
+}
+
+static void gb_timer_write_tac(GBContext* ctx, uint8_t value) {
+    const uint8_t old_tac = ctx->io[0x07];
+    const bool old_input = gb_timer_input(ctx, old_tac);
+    const bool new_input = gb_timer_input(ctx, value);
+    const uint16_t new_mask = gb_timer_mask(value);
+    const bool enable_on_counter_fall =
+        (old_tac & 0x04u) == 0 &&
+        (value & 0x04u) != 0 &&
+        (((uint16_t)(ctx->div_counter - 1u) & new_mask) != 0) &&
+        ((ctx->div_counter & new_mask) == 0);
+    const bool cgb_disable_edge = gb_is_cgb_hardware(ctx) &&
+                                  (old_tac & 0x04u) != 0 &&
+                                  (value & 0x04u) == 0;
+    if ((old_input && !new_input && !cgb_disable_edge) ||
+        enable_on_counter_fall) {
+        gb_timer_increment(ctx);
+    }
+    ctx->io[0x07] = value;
+}
+
+static bool gb_ppu_blocks_cpu_oam_read(const GBContext* ctx) {
+    const GBPPU* ppu = ctx ? (const GBPPU*)ctx->ppu : NULL;
+    if (!ppu) {
+        const uint8_t stat_mode = ctx ? (ctx->io[0x41] & 3u) : 0u;
+        return stat_mode == PPU_MODE_OAM || stat_mode == PPU_MODE_DRAW;
+    }
+
+    return ppu->mode == PPU_MODE_OAM ||
+           ppu->visible_mode == PPU_MODE_OAM ||
+           ppu->visible_mode == PPU_MODE_DRAW;
+}
+
+static bool gb_ppu_blocks_cpu_oam_write(const GBContext* ctx) {
+    const GBPPU* ppu = ctx ? (const GBPPU*)ctx->ppu : NULL;
+    if (!ppu) {
+        const uint8_t stat_mode = ctx ? (ctx->io[0x41] & 3u) : 0u;
+        return stat_mode == PPU_MODE_OAM || stat_mode == PPU_MODE_DRAW;
+    }
+
+    /* Writes begin blocking with visible mode 2, one M-cycle after reads.
+     * At the other edge both regain access until visible mode 3 begins. */
+    return ppu->visible_mode == PPU_MODE_DRAW ||
+           (ppu->visible_mode == PPU_MODE_OAM &&
+            ppu->mode == PPU_MODE_OAM);
+}
+
+static bool gb_ppu_blocks_cpu_vram_read(const GBContext* ctx) {
+    const GBPPU* ppu = ctx ? (const GBPPU*)ctx->ppu : NULL;
+    if (!ppu) {
+        return ctx && (ctx->io[0x41] & 3u) == PPU_MODE_DRAW;
+    }
+    return ppu->mode == PPU_MODE_DRAW ||
+           ppu->visible_mode == PPU_MODE_DRAW;
+}
+
+static uint8_t gbrt_read8_impl(GBContext* ctx,
+                               uint16_t addr,
+                               bool trigger_oam_bug) {
+    if (gb_oam_dma_blocks_cpu_addr(ctx, addr)) {
+        /* On DMG-family hardware, cartridge/VRAM/WRAM share the CPU data bus.
+         * A blocked read below OAM therefore observes the byte most recently
+         * driven by the DMA source, not a hard-wired FF. OAM itself remains
+         * unreadable during the transfer. CGB has separate buses and retains
+         * the existing bus-specific FF behavior. */
+        if (!gb_is_cgb_hardware(ctx) &&
+            ctx->dma.active &&
+            ctx->dma.progress > 0 &&
+            addr < 0xFE00) {
+            const uint16_t source_addr =
+                (uint16_t)(((uint16_t)ctx->dma.active_source_high << 8) |
+                           (uint16_t)(ctx->dma.progress - 1u));
+            return gb_direct_read_oam_dma_source(ctx, source_addr);
         }
         return 0xFF;
     }
-    
+
+    /* ROM (0x0000-0x7FFF), resolved through the mapper for both windows. */
+    if (addr < 0x8000) {
+        size_t rom_offset = 0;
+        return gb_resolve_rom_offset(ctx, addr, &rom_offset)
+            ? gbrt_data_mod_read_rom(ctx, rom_offset, false)
+            : 0xFF;
+    }
+
     /* VRAM (0x8000-0x9FFF) */
     if (addr < 0xA000) {
         gb_sync(ctx);
-        if ((ctx->io[0x41] & 3) == 3) return 0xFF;
+        if (gb_ppu_blocks_cpu_vram_read(ctx)) return 0xFF;
         return ctx->vram[(ctx->vram_bank * VRAM_SIZE) + (addr - 0x8000)];
     }
-    
+
     /* External RAM / RTC (0xA000-0xBFFF) */
     if (addr < 0xC000) {
         if (!ctx->ram_enabled) return 0xFF;
-        
+
         /* MBC3 RTC mode */
         if (ctx->rtc_mode) {
             switch (ctx->rtc_reg) {
@@ -1571,7 +2636,7 @@ uint8_t gb_read8(GBContext* ctx, uint16_t addr) {
                 default: return 0xFF;
             }
         }
-        
+
         /* MBC2: 512x4 bit internal RAM (upper 4 bits always high) */
         if (ctx->mbc_type >= 0x05 && ctx->mbc_type <= 0x06) {
             /* MBC2 RAM is only 512 bytes, echoed throughout 0xA000-0xBFFF */
@@ -1580,7 +2645,7 @@ uint8_t gb_read8(GBContext* ctx, uint16_t addr) {
             }
             return 0xFF;
         }
-        
+
         /* Standard external RAM */
         if (ctx->eram) {
             uint32_t eram_addr = ((uint32_t)ctx->ram_bank * 0x2000) + (addr - 0xA000);
@@ -1592,14 +2657,22 @@ uint8_t gb_read8(GBContext* ctx, uint16_t addr) {
     }
     if (addr < 0xD000) return ctx->wram[addr - 0xC000];
     if (addr < 0xE000) return ctx->wram[(ctx->wram_bank * WRAM_BANK_SIZE) + (addr - 0xD000)];
-    if (addr < 0xFE00) return gb_read8(ctx, addr - 0x2000);
-    if (addr < 0xFEA0) {
+    if (addr < 0xFE00) {
+        return gbrt_read8_impl(ctx,
+                               (uint16_t)(addr - 0x2000),
+                               trigger_oam_bug);
+    }
+    if (addr < 0xFF00) {
         gb_sync(ctx);
-        uint8_t stat = ctx->io[0x41] & 3;
-        if (stat == 2 || stat == 3) return 0xFF;
+        if (trigger_oam_bug) {
+            gbrt_trigger_oam_bug_read(ctx, addr);
+        }
+        if (addr >= 0xFEA0) {
+            return 0xFF;
+        }
+        if (gb_ppu_blocks_cpu_oam_read(ctx)) return 0xFF;
         return ctx->oam[addr - 0xFE00];
     }
-    if (addr < 0xFF00) return 0xFF;
     if (addr < 0xFF80) {
         if (addr == 0xFF00) {
             const GBJoypadState* joypad = (const GBJoypadState*)ctx->joypad;
@@ -1612,6 +2685,7 @@ uint8_t gb_read8(GBContext* ctx, uint16_t addr) {
             return res;
         }
         if (addr == 0xFF04) return (uint8_t)(ctx->div_counter >> 8);
+        if (addr == 0xFF0F) return (uint8_t)(0xE0 | (ctx->io[0x0F] & 0x1F));
         if (addr == 0xFF4D) {
             if (!gb_is_cgb_mode(ctx)) return 0xFF;
             return (uint8_t)((ctx->io[0x4D] & 0x01) | (ctx->cgb_double_speed ? 0xFE : 0x7E));
@@ -1649,10 +2723,14 @@ uint8_t gb_read8(GBContext* ctx, uint16_t addr) {
         }
         if (addr == 0xFF76) {
             if (!gb_is_cgb_hardware(ctx)) return 0xFF;
+            if (!ctx->apu) return 0x00;
+            gbrt_audio_sync(ctx);
             return gb_audio_read_pcm12(ctx->apu);
         }
         if (addr == 0xFF77) {
             if (!gb_is_cgb_hardware(ctx)) return 0xFF;
+            if (!ctx->apu) return 0x00;
+            gbrt_audio_sync(ctx);
             return gb_audio_read_pcm34(ctx->apu);
         }
         if (addr == 0xFF70) {
@@ -1667,7 +2745,10 @@ uint8_t gb_read8(GBContext* ctx, uint16_t addr) {
             gb_sync(ctx);
             return ppu_read_register((GBPPU*)ctx->ppu, addr);
         }
-        if (addr >= 0xFF10 && addr <= 0xFF3F) return gb_audio_read(ctx, addr);
+        if (addr >= 0xFF10 && addr <= 0xFF3F) {
+            gbrt_audio_sync(ctx);
+            return gb_audio_read(ctx, addr);
+        }
         return ctx->io[addr - 0xFF00];
     }
     if (addr < 0xFFFF) return ctx->hram[addr - 0xFF80];
@@ -1675,10 +2756,15 @@ uint8_t gb_read8(GBContext* ctx, uint16_t addr) {
     return 0xFF;
 }
 
-void gb_write8(GBContext* ctx, uint16_t addr, uint8_t value) {
-    /* During OAM DMA, CPU can only write to HRAM (0xFF80-0xFFFE) and I/O registers
-     * (0xFF00-0xFF7F, 0xFFFF). All other memory writes are ignored. */
-    if (ctx->dma.active && !(addr >= 0xFF00)) {
+uint8_t gb_read8(GBContext* ctx, uint16_t addr) {
+    return gbrt_read8_impl(ctx, addr, true);
+}
+
+static void gbrt_write8_impl(GBContext* ctx,
+                             uint16_t addr,
+                             uint8_t value,
+                             bool trigger_oam_bug) {
+    if (gb_oam_dma_blocks_cpu_addr(ctx, addr)) {
         return;  /* Bus conflict - write ignored */
     }
     
@@ -1693,16 +2779,11 @@ void gb_write8(GBContext* ctx, uint16_t addr, uint8_t value) {
                 ctx->ram_enabled = ((value & 0x0F) == 0x0A);
             } else if (addr < 0x4000) {
                 /* 0x2000-0x3FFF: ROM Bank Number (lower 5 bits) */
-                uint8_t bank = value & 0x1F;
-                if (bank == 0) bank = 1;  /* Bank 0 is not selectable */
-                ctx->rom_bank = (ctx->rom_bank & 0x60) | bank;
+                ctx->rom_bank_low = value & 0x1F;
             } else if (addr < 0x6000) {
                 /* 0x4000-0x5FFF: RAM Bank / Upper ROM Bank bits */
                 ctx->rom_bank_upper = value & 0x03;
-                if (ctx->mbc_mode == 0) {
-                    /* Mode 0: Upper 2 bits go to ROM bank */
-                    ctx->rom_bank = (ctx->rom_bank & 0x1F) | (ctx->rom_bank_upper << 5);
-                } else {
+                if (ctx->mbc_mode != 0) {
                     /* Mode 1: Used as RAM bank */
                     ctx->ram_bank = ctx->rom_bank_upper;
                 }
@@ -1710,18 +2791,14 @@ void gb_write8(GBContext* ctx, uint16_t addr, uint8_t value) {
                 /* 0x6000-0x7FFF: Banking Mode Select */
                 ctx->mbc_mode = value & 0x01;
                 if (ctx->mbc_mode == 0) {
-                    /* Mode 0: RAM bank fixed to 0, upper bits go to ROM */
+                    /* Mode 0: RAM bank fixed to 0. */
                     ctx->ram_bank = 0;
-                    ctx->rom_bank = (ctx->rom_bank & 0x1F) | (ctx->rom_bank_upper << 5);
                 } else {
-                    /* Mode 1: RAM bank from upper bits, ROM bank fixed lower region */
+                    /* Mode 1: RAM bank and lower ROM window use upper bits. */
                     ctx->ram_bank = ctx->rom_bank_upper;
                 }
             }
-            /* MBC1 quirk: Banks 0x00, 0x20, 0x40, 0x60 map to 0x01, 0x21, 0x41, 0x61 */
-            if ((ctx->rom_bank & 0x1F) == 0) {
-                ctx->rom_bank = (ctx->rom_bank & 0x60) | 0x01;
-            }
+            ctx->rom_bank = gb_resolve_rom_bank(ctx, 0x4000);
         }
         /* ================================================================
          * MBC2 (Cartridge types 0x05, 0x06)
@@ -1731,8 +2808,8 @@ void gb_write8(GBContext* ctx, uint16_t addr, uint8_t value) {
                 /* MBC2: Bit 8 of addr determines RAM enable vs ROM bank */
                 if (addr & 0x0100) {
                     /* 0x2100-0x3FFF: ROM Bank Number (lower 4 bits) */
-                    ctx->rom_bank = value & 0x0F;
-                    if (ctx->rom_bank == 0) ctx->rom_bank = 1;
+                    ctx->rom_bank_low = value & 0x0F;
+                    ctx->rom_bank = gb_resolve_rom_bank(ctx, 0x4000);
                 } else {
                     /* 0x0000-0x1FFF: RAM Enable (if bit 8 is 0) */
                     ctx->ram_enabled = ((value & 0x0F) == 0x0A);
@@ -1749,8 +2826,8 @@ void gb_write8(GBContext* ctx, uint16_t addr, uint8_t value) {
                 ctx->ram_enabled = ((value & 0x0F) == 0x0A);
             } else if (addr < 0x4000) {
                 /* ROM Bank Number (1-127) */
-                ctx->rom_bank = value & 0x7F;
-                if (ctx->rom_bank == 0) ctx->rom_bank = 1;
+                ctx->rom_bank_low = value & 0x7F;
+                ctx->rom_bank = gb_resolve_rom_bank(ctx, 0x4000);
             } else if (addr < 0x6000) {
                 /* RAM Bank Number or RTC Register Select */
                 if (value <= 0x03) {
@@ -1786,11 +2863,13 @@ void gb_write8(GBContext* ctx, uint16_t addr, uint8_t value) {
                 ctx->ram_enabled = ((value & 0x0F) == 0x0A);
             } else if (addr < 0x3000) {
                 /* ROM Bank Number (lower 8 bits) */
-                ctx->rom_bank = (ctx->rom_bank & 0x100) | value;
+                ctx->rom_bank_low = value;
+                ctx->rom_bank = gb_resolve_rom_bank(ctx, 0x4000);
                 /* MBC5 allows bank 0 - no fixup needed */
             } else if (addr < 0x4000) {
                 /* ROM Bank Number (9th bit) */
-                ctx->rom_bank = (ctx->rom_bank & 0xFF) | ((value & 0x01) << 8);
+                ctx->rom_bank_upper = value & 0x01;
+                ctx->rom_bank = gb_resolve_rom_bank(ctx, 0x4000);
             } else if (addr < 0x6000) {
                 /* RAM Bank Number (0-15) */
                 ctx->ram_bank = value & 0x0F;
@@ -1803,6 +2882,7 @@ void gb_write8(GBContext* ctx, uint16_t addr, uint8_t value) {
         else {
             /* Simple fallback: just ROM bank register */
             if (addr >= 0x2000 && addr < 0x4000) {
+                ctx->rom_bank_low = value & 0x1F;
                 ctx->rom_bank = value & 0x1F;
                 if (ctx->rom_bank == 0) ctx->rom_bank = 1;
             }
@@ -1860,12 +2940,23 @@ void gb_write8(GBContext* ctx, uint16_t addr, uint8_t value) {
     }
     if (addr < 0xD000) { ctx->wram[addr - 0xC000] = value; return; }
     if (addr < 0xE000) { ctx->wram[(ctx->wram_bank * WRAM_BANK_SIZE) + (addr - 0xD000)] = value; return; }
-    if (addr < 0xFE00) { gb_write8(ctx, addr - 0x2000, value); return; }
-    if (addr < 0xFEA0) {
+    if (addr < 0xFE00) {
+        gbrt_write8_impl(ctx,
+                         (uint16_t)(addr - 0x2000),
+                         value,
+                         trigger_oam_bug);
+        return;
+    }
+    if (addr < 0xFF00) {
         gb_sync(ctx);
+        if (trigger_oam_bug) {
+            gbrt_trigger_oam_bug_write(ctx, addr);
+        }
+        if (addr >= 0xFEA0) {
+            return;
+        }
         /* OAM is not CPU-accessible during modes 2 and 3. */
-        uint8_t stat = ctx->io[0x41] & 3;
-        if (stat == 2 || stat == 3) {
+        if (gb_ppu_blocks_cpu_oam_write(ctx)) {
             gbrt_log_oam_write(ctx, addr, value, 0, "mode-blocked");
             return;
         }
@@ -1874,7 +2965,6 @@ void gb_write8(GBContext* ctx, uint16_t addr, uint8_t value) {
         gbrt_log_oam_write(ctx, addr, value, 1, "cpu");
         return;
     }
-    if (addr < 0xFF00) return;
     if (addr < 0xFF80) {
         if (addr == 0xFF46) {
             gb_sync(ctx);
@@ -1885,11 +2975,17 @@ void gb_write8(GBContext* ctx, uint16_t addr, uint8_t value) {
             ctx->io[0x46] = value;
             gbrt_log_dma_start(ctx, value);
             ctx->dma.source_high = value;
-            ctx->dma.progress = 0;
-            ctx->dma.cycles_remaining = 640;
-            ctx->dma.startup_delay = 8;  /* 2 M-cycles before bus blocking starts */
+            if (!ctx->dma.active) {
+                ctx->dma.active_source_high = value;
+                ctx->dma.progress = 0;
+                ctx->dma.cycles_remaining = 640;
+            }
+            /* The write is M=0. One complete M-cycle remains accessible, and
+             * the new transfer owns the bus when M=2 begins. If another DMA
+             * is already active it keeps running during this delay.
+             */
+            ctx->dma.startup_delay = 8;
             ctx->dma.pending = 1;
-            ctx->dma.active = 0;  /* not yet blocking the bus */
             return;
         }
         if (addr == 0xFF02) {
@@ -2004,38 +3100,37 @@ void gb_write8(GBContext* ctx, uint16_t addr, uint8_t value) {
             ppu_write_register((GBPPU*)ctx->ppu, ctx, addr, value);
             return;
         }
-        if (addr >= 0xFF10 && addr <= 0xFF3F) { gb_audio_write(ctx, addr, value); return; }
-        if (addr == 0xFF04) { 
-            uint16_t old_div = ctx->div_counter;
-            ctx->div_counter = 0; 
-            ctx->io[0x04] = 0; /* Update register view immediately */
-            if (ctx->apu) gb_audio_div_reset(ctx->apu, old_div, ctx->cgb_double_speed != 0);
-            
-            /* DIV Reset Glitch: 
-             * If the selected bit for TIMA is 1 in old_div and becomes 0 (it does, since div is 0),
-             * this counts as a falling edge and increments TIMA.
-             */
-             uint8_t tac = ctx->io[0x07];
-             if (tac & 0x04) { /* Timer Enabled */
-                uint16_t mask;
-                switch (tac & 0x03) {
-                    case 0: mask = 1 << 9; break; /* 1024 cycles */
-                    case 1: mask = 1 << 3; break; /* 16 cycles */
-                    case 2: mask = 1 << 5; break; /* 64 cycles */
-                    case 3: mask = 1 << 7; break; /* 256 cycles */
-                    default: mask = 0; break;
-                }
-                if (old_div & mask) {
-                    /* Glitch triggered: Increment TIMA */
-                    if (ctx->io[0x05] == 0xFF) { 
-                        ctx->io[0x05] = ctx->io[0x06]; 
-                        ctx->io[0x0F] |= 0x04; 
-                    } else {
-                        ctx->io[0x05]++;
-                    }
-                }
-             }
-            return; 
+        if (addr >= 0xFF10 && addr <= 0xFF3F) {
+            gbrt_audio_sync(ctx);
+            gb_audio_write(ctx, addr, value);
+            return;
+        }
+        if (addr == 0xFF04) {
+            gb_timer_write_div(ctx);
+            return;
+        }
+        if (addr == 0xFF05) {
+            if (ctx->tima_reload_pending & GB_TIMA_RELOAD_CYCLE_FLAG) {
+                return;
+            }
+            ctx->io[0x05] = value;
+            ctx->tima_reload_pending = 0;
+            return;
+        }
+        if (addr == 0xFF06) {
+            ctx->io[0x06] = value;
+            if (ctx->tima_reload_pending & GB_TIMA_RELOAD_CYCLE_FLAG) {
+                ctx->io[0x05] = value;
+            }
+            return;
+        }
+        if (addr == 0xFF07) {
+            gb_timer_write_tac(ctx, value);
+            return;
+        }
+        if (addr == 0xFF0F) {
+            ctx->io[0x0F] = value & 0x1F;
+            return;
         }
         if ((addr >= 0xFF40 && addr <= 0xFF4B) || (addr >= 0xFF68 && addr <= 0xFF6B)) {
             gb_sync(ctx);
@@ -2052,6 +3147,10 @@ void gb_write8(GBContext* ctx, uint16_t addr, uint8_t value) {
     if (addr == 0xFFFF) { ctx->io[0x80] = value; return; }
 }
 
+void gb_write8(GBContext* ctx, uint16_t addr, uint8_t value) {
+    gbrt_write8_impl(ctx, addr, value, true);
+}
+
 uint16_t gb_read16(GBContext* ctx, uint16_t addr) {
     return (uint16_t)gb_read8(ctx, addr) | ((uint16_t)gb_read8(ctx, addr + 1) << 8);
 }
@@ -2059,6 +3158,214 @@ uint16_t gb_read16(GBContext* ctx, uint16_t addr) {
 void gb_write16(GBContext* ctx, uint16_t addr, uint16_t value) {
     gb_write8(ctx, addr, value & 0xFF);
     gb_write8(ctx, addr + 1, value >> 8);
+}
+
+static uint16_t gbrt_load_oam_word(const uint8_t* oam, size_t offset) {
+    return (uint16_t)(oam[offset] | ((uint16_t)oam[offset + 1] << 8));
+}
+
+static void gbrt_store_oam_word(uint8_t* oam,
+                                size_t offset,
+                                uint16_t value) {
+    oam[offset] = (uint8_t)value;
+    oam[offset + 1] = (uint8_t)(value >> 8);
+}
+
+static bool gbrt_dmg_accessed_oam_row(const GBContext* ctx,
+                                      size_t* row_out) {
+    if (!ctx || !ctx->ppu || !row_out || gb_is_cgb_hardware(ctx)) {
+        return false;
+    }
+
+    const GBPPU* ppu = (const GBPPU*)ctx->ppu;
+    const bool normal_oam_scan = ppu->mode == PPU_MODE_OAM;
+    const bool lcd_startup_oam_scan =
+        ppu->mode == PPU_MODE_HBLANK && ppu->lcd_startup_phase == 1u;
+    if (!(ppu->lcdc & LCDC_LCD_ENABLE) ||
+        (!normal_oam_scan && !lcd_startup_oam_scan) ||
+        ppu->ly >= VISIBLE_SCANLINES) {
+        return false;
+    }
+
+    size_t row;
+    if (normal_oam_scan) {
+        /* The PPU's internal OAM bus is eight dots ahead of the runtime's
+         * visible mode-2 counter. At counter dot 0 the second OAM row is
+         * already exposed; dot 76 has advanced beyond the 160-byte array. */
+        row = 8u + (size_t)((ppu->mode_cycles / 4u) * 8u);
+    } else {
+        if (ppu->mode_cycles < 6u) {
+            return false;
+        }
+        row = 8u + (size_t)(((ppu->mode_cycles - 6u) / 4u) * 8u);
+    }
+    if (row >= OAM_SIZE) {
+        return false;
+    }
+    *row_out = row;
+    return true;
+}
+
+static void gbrt_trigger_oam_bug_write(GBContext* ctx, uint16_t address) {
+    if (address < 0xFE00 || address >= 0xFF00) {
+        return;
+    }
+
+    size_t row = 0;
+    const bool row_valid = gbrt_dmg_accessed_oam_row(ctx, &row);
+    if (gbrt_trace_enabled) {
+        const GBPPU* ppu = ctx && ctx->ppu ? (const GBPPU*)ctx->ppu : NULL;
+        fprintf(stderr,
+                "[OAM-BUG] access=write addr=%04X model=%u ly=%u "
+                "mode=%u visible=%u startup=%u dot=%u row=%s%zu "
+                "cycles=%u pc=%04X\n",
+                address,
+                ctx ? (unsigned)ctx->config.model : 0u,
+                ppu ? (unsigned)ppu->ly : 0u,
+                ppu ? (unsigned)ppu->mode : 0u,
+                ppu ? (unsigned)ppu->visible_mode : 0u,
+                ppu ? (unsigned)ppu->lcd_startup_phase : 0u,
+                ppu ? (unsigned)ppu->mode_cycles : 0u,
+                row_valid ? "" : "none/",
+                row,
+                ctx ? ctx->cycles : 0u,
+                ctx ? ctx->pc : 0u);
+    }
+    if (!row_valid) {
+        return;
+    }
+
+    const uint16_t current = gbrt_load_oam_word(ctx->oam, row);
+    const uint16_t previous_first = gbrt_load_oam_word(ctx->oam, row - 8u);
+    const uint16_t previous_third = gbrt_load_oam_word(ctx->oam, row - 4u);
+    const uint16_t glitched =
+        (uint16_t)(((current ^ previous_third) &
+                    (previous_first ^ previous_third)) ^
+                   previous_third);
+
+    gbrt_store_oam_word(ctx->oam, row, glitched);
+    memcpy(ctx->oam + row + 2u, ctx->oam + row - 6u, 6u);
+}
+
+static uint16_t gbrt_oam_read_secondary(uint16_t a,
+                                        uint16_t b,
+                                        uint16_t c,
+                                        uint16_t d) {
+    return (uint16_t)((b & (a | c | d)) | (a & c & d));
+}
+
+static uint16_t gbrt_oam_read_tertiary(uint16_t a,
+                                       uint16_t b,
+                                       uint16_t c,
+                                       uint16_t d,
+                                       uint16_t e,
+                                       unsigned variant) {
+    if (variant == 1u) {
+        return (uint16_t)(c | (a & b & d & e));
+    }
+    if (variant == 2u) {
+        return (uint16_t)((c & (a | b | d | e)) | (a & b & d & e));
+    }
+    return (uint16_t)((c & (a | b | d | e)) | (b & d & e));
+}
+
+static uint16_t gbrt_oam_read_quaternary_dmg(uint16_t b,
+                                              uint16_t c,
+                                              uint16_t d,
+                                              uint16_t e,
+                                              uint16_t f,
+                                              uint16_t g,
+                                              uint16_t h) {
+    return (uint16_t)((e & (h | g | ((uint16_t)~d & f) | c | b)) |
+                      (c & g & h));
+}
+
+static void gbrt_trigger_oam_bug_read(GBContext* ctx, uint16_t address) {
+    if (address < 0xFE00 || address >= 0xFF00) {
+        return;
+    }
+
+    size_t row = 0;
+    const bool row_valid = gbrt_dmg_accessed_oam_row(ctx, &row);
+    if (gbrt_trace_enabled) {
+        const GBPPU* ppu = ctx && ctx->ppu ? (const GBPPU*)ctx->ppu : NULL;
+        fprintf(stderr,
+                "[OAM-BUG] access=read addr=%04X model=%u ly=%u "
+                "mode=%u visible=%u startup=%u dot=%u row=%s%zu "
+                "cycles=%u pc=%04X\n",
+                address,
+                ctx ? (unsigned)ctx->config.model : 0u,
+                ppu ? (unsigned)ppu->ly : 0u,
+                ppu ? (unsigned)ppu->mode : 0u,
+                ppu ? (unsigned)ppu->visible_mode : 0u,
+                ppu ? (unsigned)ppu->lcd_startup_phase : 0u,
+                ppu ? (unsigned)ppu->mode_cycles : 0u,
+                row_valid ? "" : "none/",
+                row,
+                ctx ? ctx->cycles : 0u,
+                ctx ? ctx->pc : 0u);
+    }
+    if (!row_valid) {
+        return;
+    }
+
+    if ((row & 0x18u) == 0x10u) {
+        gbrt_store_oam_word(
+            ctx->oam,
+            row - 8u,
+            gbrt_oam_read_secondary(
+                gbrt_load_oam_word(ctx->oam, row - 16u),
+                gbrt_load_oam_word(ctx->oam, row - 8u),
+                gbrt_load_oam_word(ctx->oam, row),
+                gbrt_load_oam_word(ctx->oam, row - 4u)));
+        if (row < 0x98u) {
+            memcpy(ctx->oam + row - 16u, ctx->oam + row - 8u, 8u);
+        }
+    } else if ((row & 0x18u) == 0u) {
+        unsigned variant = 1u;
+        if (row == 0x20u) {
+            variant = 2u;
+        } else if (row == 0x60u) {
+            variant = 3u;
+        }
+
+        uint16_t glitched;
+        if (row == 0x40u) {
+            glitched = gbrt_oam_read_quaternary_dmg(
+                gbrt_load_oam_word(ctx->oam, row),
+                gbrt_load_oam_word(ctx->oam, row - 4u),
+                gbrt_load_oam_word(ctx->oam, row - 6u),
+                gbrt_load_oam_word(ctx->oam, row - 8u),
+                gbrt_load_oam_word(ctx->oam, row - 14u),
+                gbrt_load_oam_word(ctx->oam, row - 16u),
+                gbrt_load_oam_word(ctx->oam, row - 32u));
+        } else {
+            glitched = gbrt_oam_read_tertiary(
+                gbrt_load_oam_word(ctx->oam, row),
+                gbrt_load_oam_word(ctx->oam, row - 4u),
+                gbrt_load_oam_word(ctx->oam, row - 8u),
+                gbrt_load_oam_word(ctx->oam, row - 16u),
+                gbrt_load_oam_word(ctx->oam, row - 32u),
+                variant);
+        }
+        gbrt_store_oam_word(ctx->oam, row - 8u, glitched);
+        if (row < 0x98u) {
+            memcpy(ctx->oam + row - 16u, ctx->oam + row - 8u, 8u);
+            memcpy(ctx->oam + row - 32u, ctx->oam + row - 8u, 8u);
+        }
+    } else {
+        const uint16_t glitched =
+            (uint16_t)(gbrt_load_oam_word(ctx->oam, row - 8u) |
+                       (gbrt_load_oam_word(ctx->oam, row) &
+                        gbrt_load_oam_word(ctx->oam, row - 4u)));
+        gbrt_store_oam_word(ctx->oam, row - 8u, glitched);
+        gbrt_store_oam_word(ctx->oam, row, glitched);
+    }
+
+    memcpy(ctx->oam + row, ctx->oam + row - 8u, 8u);
+    if (row == 0x80u) {
+        memcpy(ctx->oam, ctx->oam + row, 8u);
+    }
 }
 
 void gb_push16(GBContext* ctx, uint16_t value) {
@@ -2070,6 +3377,70 @@ uint16_t gb_pop16(GBContext* ctx) {
     uint16_t val = gb_read16(ctx, ctx->sp);
     ctx->sp += 2;
     return val;
+}
+
+/* Stack bus primitives shared by generated code, the interpreter, copied
+ * RAM/HRAM execution, and interrupt entry. Memory is sampled late in each
+ * M-cycle, matching the final-T-cycle convention used by the other timed bus
+ * helpers in this runtime. */
+static void gbrt_timed_stack_write16(GBContext* ctx,
+                                     uint16_t value,
+                                     uint8_t leading_cycles,
+                                     bool commit_pc,
+                                     uint16_t target_pc) {
+    /* PUSH-like instructions expose the original SP through the IDU during
+     * their internal machine cycle, before either byte decrement/write. */
+    gb_tick(ctx, (uint32_t)leading_cycles - 4u);
+    gbrt_trigger_oam_bug_write(ctx, ctx->sp);
+    gb_tick(ctx, 4u);
+    ctx->sp--;
+    gbrt_trigger_oam_bug_write(ctx, ctx->sp);
+    gb_tick(ctx, 3u);
+    gbrt_write8_impl(ctx, ctx->sp, (uint8_t)(value >> 8), false);
+    gb_tick(ctx, 1);
+
+    ctx->sp--;
+    gbrt_trigger_oam_bug_write(ctx, ctx->sp);
+    gb_tick(ctx, 3u);
+    gbrt_write8_impl(ctx, ctx->sp, (uint8_t)value, false);
+    if (commit_pc) {
+        ctx->pc = target_pc;
+    }
+    gb_tick(ctx, 1);
+}
+
+static uint16_t gbrt_timed_stack_read16(GBContext* ctx,
+                                        uint8_t leading_cycles,
+                                        bool commit_pc) {
+    gb_tick(ctx, leading_cycles);
+    const uint16_t low_address = ctx->sp;
+    gbrt_trigger_oam_bug_read(ctx, low_address);
+    gb_tick(ctx, 3u);
+    const uint8_t low = gbrt_read8_impl(ctx, low_address, false);
+    ctx->sp++;
+    gb_tick(ctx, 1);
+
+    const uint16_t high_address = ctx->sp;
+    gbrt_trigger_oam_bug_read(ctx, high_address);
+    gb_tick(ctx, 3);
+    const uint8_t high = gbrt_read8_impl(ctx, high_address, false);
+    ctx->sp++;
+    const uint16_t value = (uint16_t)(low | ((uint16_t)high << 8));
+    if (commit_pc) {
+        ctx->pc = value;
+    }
+    gb_tick(ctx, 1);
+    return value;
+}
+
+void gbrt_timed_push16(GBContext* ctx, uint16_t value) {
+    /* Opcode fetch + internal stack cycle, then two writes. */
+    gbrt_timed_stack_write16(ctx, value, 8, false, 0);
+}
+
+uint16_t gbrt_timed_pop16(GBContext* ctx) {
+    /* Opcode fetch, then two reads. */
+    return gbrt_timed_stack_read16(ctx, 4, false);
 }
 
 /* ============================================================================
@@ -2139,17 +3510,74 @@ void gb_add16(GBContext* ctx, uint16_t val) {
     ctx->f_c = res > 0xFFFF;
     ctx->hl = (uint16_t)res;
 }
+
+void gbrt_timed_inc16(GBContext* ctx, uint16_t* value) {
+    const uint16_t address_bus = *value;
+    gb_tick(ctx, 4);
+    gbrt_trigger_oam_bug_write(ctx, address_bus);
+    (*value)++;
+    gb_tick(ctx, 4);
+}
+
+void gbrt_timed_dec16(GBContext* ctx, uint16_t* value) {
+    const uint16_t address_bus = *value;
+    gb_tick(ctx, 4);
+    gbrt_trigger_oam_bug_write(ctx, address_bus);
+    (*value)--;
+    gb_tick(ctx, 4);
+}
+
+uint8_t gbrt_timed_hl_read_auto(GBContext* ctx, int8_t delta) {
+    const uint16_t address_bus = ctx->hl;
+    gb_tick(ctx, 4);
+    ctx->hl = (uint16_t)(ctx->hl + delta);
+    gbrt_trigger_oam_bug_read(ctx, address_bus);
+    gb_tick(ctx, 3);
+    const uint8_t value = gbrt_read8_impl(ctx, address_bus, false);
+    gb_tick(ctx, 1);
+    return value;
+}
+
+void gbrt_timed_hl_write_auto(GBContext* ctx, uint8_t value, int8_t delta) {
+    const uint16_t address_bus = ctx->hl;
+    gb_tick(ctx, 4);
+    ctx->hl = (uint16_t)(ctx->hl + delta);
+    gbrt_trigger_oam_bug_write(ctx, address_bus);
+    gb_tick(ctx, 3);
+    gbrt_write8_impl(ctx, address_bus, value, false);
+    gb_tick(ctx, 1);
+}
+
 void gb_add_sp(GBContext* ctx, int8_t off) {
     ctx->f_z = 0; ctx->f_n = 0;
     ctx->f_h = ((ctx->sp & 0x0F) + (off & 0x0F)) > 0x0F;
     ctx->f_c = ((ctx->sp & 0xFF) + (off & 0xFF)) > 0xFF;
     ctx->sp += off;
 }
+
+void gbrt_timed_add_sp(GBContext* ctx, uint16_t immediate_addr) {
+    /* M0 fetches the opcode. Sample e late in M1, then retire the two idle
+     * machine cycles before exposing the updated stack pointer. */
+    gb_tick(ctx, 7);
+    const int8_t offset = (int8_t)gb_read8(ctx, immediate_addr);
+    gb_tick(ctx, 9);
+    gb_add_sp(ctx, offset);
+}
+
 void gb_ld_hl_sp_n(GBContext* ctx, int8_t off) {
     ctx->f_z = 0; ctx->f_n = 0;
     ctx->f_h = ((ctx->sp & 0x0F) + (off & 0x0F)) > 0x0F;
     ctx->f_c = ((ctx->sp & 0xFF) + (off & 0xFF)) > 0xFF;
     ctx->hl = ctx->sp + off;
+}
+
+void gbrt_timed_ld_hl_sp_n(GBContext* ctx, uint16_t immediate_addr) {
+    /* M0 fetches the opcode. Sample e late in M1, then retire the single idle
+     * machine cycle before exposing the updated HL value. */
+    gb_tick(ctx, 7);
+    const int8_t offset = (int8_t)gb_read8(ctx, immediate_addr);
+    gb_tick(ctx, 5);
+    gb_ld_hl_sp_n(ctx, offset);
 }
 
 uint8_t gb_rlc(GBContext* ctx, uint8_t v) { ctx->f_c = v >> 7; v = (v << 1) | ctx->f_c; ctx->f_z = v == 0; ctx->f_n = 0; ctx->f_h = 0; return v; }
@@ -2189,9 +3617,140 @@ void gb_daa(GBContext* ctx) {
  * Control Flow helpers
  * ========================================================================== */
 
-void gb_ret(GBContext* ctx) { ctx->pc = gb_pop16(ctx); }
+void gb_ret(GBContext* ctx) {
+    ctx->pc = gb_pop16(ctx);
+#ifdef GBRT_ENABLE_NATIVE_PATCHES
+    gbrt_native_patch_on_return(ctx);
+#endif
+}
+
+void gbrt_timed_call(GBContext* ctx,
+                     uint16_t target,
+                     uint16_t return_address) {
+    /* Opcode + two immediate reads + internal stack cycle, then two writes. */
+    gbrt_timed_stack_write16(ctx, return_address, 16, true, target);
+}
+
+void gbrt_timed_call_after_imm16(GBContext* ctx,
+                                 uint16_t target,
+                                 uint16_t return_address) {
+    /* The opcode and two immediate-read M-cycles have already retired. */
+    gbrt_timed_stack_write16(ctx, return_address, 4, true, target);
+}
+
+void gbrt_timed_ret(GBContext* ctx) {
+    /* Opcode fetch, two stack reads, then the internal jump cycle. */
+    (void)gbrt_timed_stack_read16(ctx, 4, true);
+    gb_tick(ctx, 4);
+#ifdef GBRT_ENABLE_NATIVE_PATCHES
+    gbrt_native_patch_on_return(ctx);
+#endif
+}
+
+void gbrt_timed_ret_cc(GBContext* ctx) {
+    /* Conditional RET has one extra internal cycle before the stack reads. */
+    (void)gbrt_timed_stack_read16(ctx, 8, true);
+    gb_tick(ctx, 4);
+#ifdef GBRT_ENABLE_NATIVE_PATCHES
+    gbrt_native_patch_on_return(ctx);
+#endif
+}
+
+void gbrt_timed_reti(GBContext* ctx) {
+    gbrt_timed_ret(ctx);
+    ctx->ime = 1;
+    ctx->ime_pending = 0;
+    /* RETI enables IME at its instruction boundary. A pending source must be
+     * serviced before compiled dispatch executes the instruction at the
+     * restored PC. */
+    if (ctx->io[0x0F] & ctx->io[0x80] & 0x1F) {
+        ctx->stopped = 1;
+    }
+}
+
+void gbrt_timed_jump(GBContext* ctx,
+                     uint16_t target,
+                     uint8_t instruction_cycles) {
+    if (instruction_cycles == 0) {
+        ctx->pc = target;
+        return;
+    }
+    gb_tick(ctx, (uint32_t)instruction_cycles - 1u);
+    ctx->pc = target;
+    gb_tick(ctx, 1);
+}
+
 void gbrt_jump_hl(GBContext* ctx) { ctx->pc = ctx->hl; }
+
+bool gbrt_fast_forward_visible_ly_wait(GBContext* ctx,
+                                       uint8_t target_ly,
+                                       uint32_t miss_iteration_cycles,
+                                       uint32_t hit_iteration_cycles) {
+    if (!ctx || !ctx->ppu || target_ly >= VISIBLE_SCANLINES ||
+        miss_iteration_cycles == 0 || hit_iteration_cycles == 0) {
+        return false;
+    }
+    if (ctx->cgb_double_speed ||
+        ctx->dma.pending ||
+        ctx->dma.active ||
+        ctx->serial_transfer.active ||
+        (ctx->io[0x07] & 0x04) ||
+        ctx->tima_reload_pending > 0 ||
+        !(ctx->io[0x40] & LCDC_LCD_ENABLE)) {
+        return false;
+    }
+
+    const GBPPU* ppu = (const GBPPU*)ctx->ppu;
+    uint32_t line_progress = 0;
+    switch (ppu->mode) {
+        case PPU_MODE_OAM:
+            line_progress = ppu->mode_cycles;
+            break;
+        case PPU_MODE_DRAW:
+            line_progress = CYCLES_OAM_SCAN + ppu->mode_cycles;
+            break;
+        case PPU_MODE_HBLANK:
+            line_progress = CYCLES_OAM_SCAN + ppu->mode3_length + ppu->mode_cycles;
+            break;
+        default:
+            return false;
+    }
+    if (line_progress >= CYCLES_SCANLINE || ppu->ly >= VISIBLE_SCANLINES) {
+        return false;
+    }
+    if (target_ly < ppu->ly) {
+        return false;
+    }
+
+    const uint32_t frame_pos = ((uint32_t)ppu->ly * CYCLES_SCANLINE) + line_progress;
+    const uint32_t target_start = (uint32_t)target_ly * CYCLES_SCANLINE;
+    const uint32_t target_end = target_start + CYCLES_SCANLINE;
+    uint32_t cycles_until_hit = 0;
+    if (frame_pos < target_start) {
+        cycles_until_hit = ((target_start - frame_pos + miss_iteration_cycles - 1) /
+                            miss_iteration_cycles) * miss_iteration_cycles;
+        if (frame_pos + cycles_until_hit >= target_end) {
+            return false;
+        }
+    }
+
+    ctx->a = target_ly;
+    ctx->f_z = 1;
+    ctx->f_n = 1;
+    ctx->f_h = 0;
+    ctx->f_c = 0;
+    gb_tick(ctx, cycles_until_hit + hit_iteration_cycles);
+    return !ctx->stopped;
+}
+
 void gb_rst(GBContext* ctx, uint8_t vec) { gb_push16(ctx, ctx->pc); ctx->pc = vec; }
+
+void gbrt_timed_rst(GBContext* ctx,
+                    uint8_t vec,
+                    uint16_t return_address) {
+    /* Opcode fetch + internal stack cycle, then two writes. */
+    gbrt_timed_stack_write16(ctx, return_address, 8, true, vec);
+}
 
 static bool gbrt_condition_true(const GBContext* ctx, uint8_t condition) {
     switch (condition) {
@@ -2254,11 +3813,9 @@ uint8_t gbrt_try_execute_highmem_stub(GBContext* ctx, uint16_t addr) {
             static const uint8_t conditions[] = {0, 1, 2, 3};
             uint8_t condition = conditions[(opcode - 0xC0) >> 3];
             if (gbrt_condition_true(ctx, condition)) {
-                gb_ret(ctx);
-                gb_tick(ctx, 20);
+                gbrt_timed_ret_cc(ctx);
             } else {
-                ctx->pc = (uint16_t)(addr + 1);
-                gb_tick(ctx, 8);
+                gbrt_timed_jump(ctx, (uint16_t)(addr + 1), 8);
             }
             return 1;
         }
@@ -2272,11 +3829,9 @@ uint8_t gbrt_try_execute_highmem_stub(GBContext* ctx, uint16_t addr) {
             uint16_t target = (uint16_t)(gb_read8(ctx, (uint16_t)(addr + 1)) |
                                          (gb_read8(ctx, (uint16_t)(addr + 2)) << 8));
             if (gbrt_condition_true(ctx, condition)) {
-                ctx->pc = target;
-                gb_tick(ctx, 16);
+                gbrt_timed_jump(ctx, target, 16);
             } else {
-                ctx->pc = (uint16_t)(addr + 3);
-                gb_tick(ctx, 12);
+                gbrt_timed_jump(ctx, (uint16_t)(addr + 3), 12);
             }
             return 1;
         }
@@ -2284,8 +3839,7 @@ uint8_t gbrt_try_execute_highmem_stub(GBContext* ctx, uint16_t addr) {
         case 0xC3: { /* JP nn */
             uint16_t target = (uint16_t)(gb_read8(ctx, (uint16_t)(addr + 1)) |
                                          (gb_read8(ctx, (uint16_t)(addr + 2)) << 8));
-            ctx->pc = target;
-            gb_tick(ctx, 16);
+            gbrt_timed_jump(ctx, target, 16);
             return 1;
         }
 
@@ -2298,12 +3852,9 @@ uint8_t gbrt_try_execute_highmem_stub(GBContext* ctx, uint16_t addr) {
             uint16_t target = (uint16_t)(gb_read8(ctx, (uint16_t)(addr + 1)) |
                                          (gb_read8(ctx, (uint16_t)(addr + 2)) << 8));
             if (gbrt_condition_true(ctx, condition)) {
-                gb_push16(ctx, (uint16_t)(addr + 3));
-                ctx->pc = target;
-                gb_tick(ctx, 24);
+                gbrt_timed_call(ctx, target, (uint16_t)(addr + 3));
             } else {
-                ctx->pc = (uint16_t)(addr + 3);
-                gb_tick(ctx, 12);
+                gbrt_timed_jump(ctx, (uint16_t)(addr + 3), 12);
             }
             return 1;
         }
@@ -2316,34 +3867,28 @@ uint8_t gbrt_try_execute_highmem_stub(GBContext* ctx, uint16_t addr) {
         case 0xEF: /* RST 28 */
         case 0xF7: /* RST 30 */
         case 0xFF: /* RST 38 */
-            gb_push16(ctx, (uint16_t)(addr + 1));
-            ctx->pc = (uint16_t)(opcode & 0x38);
-            gb_tick(ctx, 16);
+            gbrt_timed_rst(ctx,
+                           (uint8_t)(opcode & 0x38),
+                           (uint16_t)(addr + 1));
             return 1;
 
         case 0xC9: /* RET */
-            gb_ret(ctx);
-            gb_tick(ctx, 16);
+            gbrt_timed_ret(ctx);
             return 1;
 
         case 0xCD: { /* CALL nn */
             uint16_t target = (uint16_t)(gb_read8(ctx, (uint16_t)(addr + 1)) |
                                          (gb_read8(ctx, (uint16_t)(addr + 2)) << 8));
-            gb_push16(ctx, (uint16_t)(addr + 3));
-            ctx->pc = target;
-            gb_tick(ctx, 24);
+            gbrt_timed_call(ctx, target, (uint16_t)(addr + 3));
             return 1;
         }
 
         case 0xD9: /* RETI */
-            ctx->ime = 1;
-            gb_ret(ctx);
-            gb_tick(ctx, 16);
+            gbrt_timed_reti(ctx);
             return 1;
 
         case 0xE9: /* JP HL */
-            gbrt_jump_hl(ctx);
-            gb_tick(ctx, 4);
+            gbrt_timed_jump(ctx, ctx->hl, 4);
             return 1;
 
         case 0xF3: /* DI */
@@ -2428,8 +3973,7 @@ static uint8_t gbrt_execute_oam_dma_wait_loop(GBContext* ctx,
         return 1;
     }
 
-    gb_ret(ctx);
-    gb_tick(ctx, 16);
+    gbrt_timed_ret(ctx);
     return 1;
 }
 
@@ -2461,16 +4005,24 @@ uint8_t gbrt_try_execute_hram_stub(GBContext* ctx, uint16_t addr) {
     return 0;
 }
 
+static uint8_t gbrt_stub_final_read8(GBContext* ctx,
+                                     uint16_t addr,
+                                     uint8_t cycles) {
+    return gbrt_timed_bus_read8(ctx, addr, (uint8_t)(cycles - 1u));
+}
+
+static void gbrt_stub_final_write8(GBContext* ctx,
+                                   uint16_t addr,
+                                   uint8_t value,
+                                   uint8_t cycles) {
+    gbrt_timed_bus_write8(ctx,
+                          addr,
+                          value,
+                          (uint8_t)(cycles - 1u));
+}
+
 uint8_t gbrt_try_execute_ram_stub(GBContext* ctx, uint16_t addr) {
     if (!ctx) {
-        return 0;
-    }
-
-    if (ctx->dma.active) {
-        /* During OAM DMA, only HRAM is accessible and helper routines rely on
-         * real instruction timing before touching the stack again. Avoid
-         * shortcutting control flow while DMA is in flight.
-         */
         return 0;
     }
 
@@ -2481,11 +4033,27 @@ uint8_t gbrt_try_execute_ram_stub(GBContext* ctx, uint16_t addr) {
         return 0;
     }
 
+    if (ctx->dma.active && !in_hram) {
+        /* The DMG CPU cannot execute copied WRAM code while OAM DMA owns the
+         * external bus. HRAM remains available and its helpers must continue
+         * with instruction-accurate timing until the transfer completes.
+         */
+        return 0;
+    }
+
     uint8_t opcode = gb_read8(ctx, addr);
     switch (opcode) {
         case 0x00: /* NOP */
             ctx->pc = (uint16_t)(addr + 1);
             gb_tick(ctx, 4);
+            return 1;
+
+        case 0x40: /* LD B,B - opt-in test harness breakpoint */
+            ctx->pc = (uint16_t)(addr + 1);
+            gb_tick(ctx, 4);
+            if (gbrt_test_breakpoint_enabled) {
+                ctx->stopped = 1;
+            }
             return 1;
 
         case 0x04: ctx->b = gb_inc8(ctx, ctx->b); ctx->pc = (uint16_t)(addr + 1); gb_tick(ctx, 4); return 1;
@@ -2536,43 +4104,33 @@ uint8_t gbrt_try_execute_ram_stub(GBContext* ctx, uint16_t addr) {
         }
 
         case 0x22: /* LD (HL+),A */
-            gb_write8(ctx, ctx->hl, ctx->a);
-            ctx->hl++;
+            gbrt_timed_hl_write_auto(ctx, ctx->a, 1);
             ctx->pc = (uint16_t)(addr + 1);
-            gb_tick(ctx, 8);
             return 1;
 
         case 0x2A: /* LD A,(HL+) */
-            ctx->a = gb_read8(ctx, ctx->hl);
-            ctx->hl++;
+            ctx->a = gbrt_timed_hl_read_auto(ctx, 1);
             ctx->pc = (uint16_t)(addr + 1);
-            gb_tick(ctx, 8);
             return 1;
 
         case 0x32: /* LD (HL-),A */
-            gb_write8(ctx, ctx->hl, ctx->a);
-            ctx->hl--;
+            gbrt_timed_hl_write_auto(ctx, ctx->a, -1);
             ctx->pc = (uint16_t)(addr + 1);
-            gb_tick(ctx, 8);
             return 1;
 
         case 0x3A: /* LD A,(HL-) */
-            ctx->a = gb_read8(ctx, ctx->hl);
-            ctx->hl--;
+            ctx->a = gbrt_timed_hl_read_auto(ctx, -1);
             ctx->pc = (uint16_t)(addr + 1);
-            gb_tick(ctx, 8);
             return 1;
 
         case 0x77: /* LD (HL),A */
-            gb_write8(ctx, ctx->hl, ctx->a);
+            gbrt_stub_final_write8(ctx, ctx->hl, ctx->a, 8);
             ctx->pc = (uint16_t)(addr + 1);
-            gb_tick(ctx, 8);
             return 1;
 
         case 0x7E: /* LD A,(HL) */
-            ctx->a = gb_read8(ctx, ctx->hl);
+            ctx->a = gbrt_stub_final_read8(ctx, ctx->hl, 8);
             ctx->pc = (uint16_t)(addr + 1);
-            gb_tick(ctx, 8);
             return 1;
 
         case 0xAF: /* XOR A */
@@ -2586,14 +4144,12 @@ uint8_t gbrt_try_execute_ram_stub(GBContext* ctx, uint16_t addr) {
                 return 0;
             }
             uint16_t target = gb_read16(ctx, (uint16_t)(addr + 1));
-            ctx->pc = target;
-            gb_tick(ctx, 16);
+            gbrt_timed_jump(ctx, target, 16);
             return 1;
         }
 
         case 0xC9: /* RET */
-            gb_ret(ctx);
-            gb_tick(ctx, 16);
+            gbrt_timed_ret(ctx);
             return 1;
 
         case 0xC0: /* RET NZ */
@@ -2602,11 +4158,9 @@ uint8_t gbrt_try_execute_ram_stub(GBContext* ctx, uint16_t addr) {
         case 0xD8: { /* RET C */
             bool taken = gbrt_condition_true(ctx, (uint8_t)((opcode >> 3) & 0x03));
             if (taken) {
-                gb_ret(ctx);
-                gb_tick(ctx, 20);
+                gbrt_timed_ret_cc(ctx);
             } else {
-                ctx->pc = (uint16_t)(addr + 1);
-                gb_tick(ctx, 8);
+                gbrt_timed_jump(ctx, (uint16_t)(addr + 1), 8);
             }
             return 1;
         }
@@ -2620,8 +4174,9 @@ uint8_t gbrt_try_execute_ram_stub(GBContext* ctx, uint16_t addr) {
             }
             uint16_t target = gb_read16(ctx, (uint16_t)(addr + 1));
             bool taken = gbrt_condition_true(ctx, (uint8_t)((opcode >> 3) & 0x03));
-            ctx->pc = taken ? target : (uint16_t)(addr + 3);
-            gb_tick(ctx, taken ? 16 : 12);
+            gbrt_timed_jump(ctx,
+                            taken ? target : (uint16_t)(addr + 3),
+                            taken ? 16 : 12);
             return 1;
         }
 
@@ -2630,9 +4185,7 @@ uint8_t gbrt_try_execute_ram_stub(GBContext* ctx, uint16_t addr) {
                 return 0;
             }
             uint16_t target = gb_read16(ctx, (uint16_t)(addr + 1));
-            gb_push16(ctx, (uint16_t)(addr + 3));
-            ctx->pc = target;
-            gb_tick(ctx, 24);
+            gbrt_timed_call(ctx, target, (uint16_t)(addr + 3));
             return 1;
         }
 
@@ -2646,21 +4199,15 @@ uint8_t gbrt_try_execute_ram_stub(GBContext* ctx, uint16_t addr) {
             uint16_t target = gb_read16(ctx, (uint16_t)(addr + 1));
             bool taken = gbrt_condition_true(ctx, (uint8_t)((opcode >> 3) & 0x03));
             if (taken) {
-                gb_push16(ctx, (uint16_t)(addr + 3));
-                ctx->pc = target;
-                gb_tick(ctx, 24);
+                gbrt_timed_call(ctx, target, (uint16_t)(addr + 3));
             } else {
-                ctx->pc = (uint16_t)(addr + 3);
-                gb_tick(ctx, 12);
+                gbrt_timed_jump(ctx, (uint16_t)(addr + 3), 12);
             }
             return 1;
         }
 
         case 0xD9: /* RETI */
-            gb_ret(ctx);
-            ctx->ime = 1;
-            ctx->ime_pending = 0;
-            gb_tick(ctx, 16);
+            gbrt_timed_reti(ctx);
             return 1;
 
         case 0xE0: { /* LDH (n),A */
@@ -2668,16 +4215,20 @@ uint8_t gbrt_try_execute_ram_stub(GBContext* ctx, uint16_t addr) {
                 return 0;
             }
             uint8_t offset = gb_read8(ctx, (uint16_t)(addr + 1));
-            gb_write8(ctx, (uint16_t)(0xFF00u + offset), ctx->a);
+            gbrt_stub_final_write8(ctx,
+                                   (uint16_t)(0xFF00u + offset),
+                                   ctx->a,
+                                   12);
             ctx->pc = (uint16_t)(addr + 2);
-            gb_tick(ctx, 12);
             return 1;
         }
 
         case 0xE2: /* LD (C),A */
-            gb_write8(ctx, (uint16_t)(0xFF00u + ctx->c), ctx->a);
+            gbrt_stub_final_write8(ctx,
+                                   (uint16_t)(0xFF00u + ctx->c),
+                                   ctx->a,
+                                   8);
             ctx->pc = (uint16_t)(addr + 1);
-            gb_tick(ctx, 8);
             return 1;
 
         case 0xE6: /* AND n */
@@ -2689,9 +4240,16 @@ uint8_t gbrt_try_execute_ram_stub(GBContext* ctx, uint16_t addr) {
             gb_tick(ctx, 8);
             return 1;
 
+        case 0xE8: /* ADD SP,e */
+            if (addr == 0xFFFF) {
+                return 0;
+            }
+            ctx->pc = (uint16_t)(addr + 2);
+            gbrt_timed_add_sp(ctx, (uint16_t)(addr + 1));
+            return 1;
+
         case 0xE9: /* JP HL */
-            ctx->pc = ctx->hl;
-            gb_tick(ctx, 4);
+            gbrt_timed_jump(ctx, ctx->hl, 4);
             return 1;
 
         case 0xEA: { /* LD (nn),A */
@@ -2699,9 +4257,8 @@ uint8_t gbrt_try_execute_ram_stub(GBContext* ctx, uint16_t addr) {
                 return 0;
             }
             uint16_t target = gb_read16(ctx, (uint16_t)(addr + 1));
-            gb_write8(ctx, target, ctx->a);
+            gbrt_stub_final_write8(ctx, target, ctx->a, 16);
             ctx->pc = (uint16_t)(addr + 3);
-            gb_tick(ctx, 16);
             return 1;
         }
 
@@ -2719,16 +4276,18 @@ uint8_t gbrt_try_execute_ram_stub(GBContext* ctx, uint16_t addr) {
                 return 0;
             }
             uint8_t offset = gb_read8(ctx, (uint16_t)(addr + 1));
-            ctx->a = gb_read8(ctx, (uint16_t)(0xFF00u + offset));
+            ctx->a = gbrt_stub_final_read8(ctx,
+                                           (uint16_t)(0xFF00u + offset),
+                                           12);
             ctx->pc = (uint16_t)(addr + 2);
-            gb_tick(ctx, 12);
             return 1;
         }
 
         case 0xF2: /* LD A,(C) */
-            ctx->a = gb_read8(ctx, (uint16_t)(0xFF00u + ctx->c));
+            ctx->a = gbrt_stub_final_read8(ctx,
+                                           (uint16_t)(0xFF00u + ctx->c),
+                                           8);
             ctx->pc = (uint16_t)(addr + 1);
-            gb_tick(ctx, 8);
             return 1;
 
         case 0xF6: /* OR n */
@@ -2740,14 +4299,21 @@ uint8_t gbrt_try_execute_ram_stub(GBContext* ctx, uint16_t addr) {
             gb_tick(ctx, 8);
             return 1;
 
+        case 0xF8: /* LD HL,SP+e */
+            if (addr == 0xFFFF) {
+                return 0;
+            }
+            ctx->pc = (uint16_t)(addr + 2);
+            gbrt_timed_ld_hl_sp_n(ctx, (uint16_t)(addr + 1));
+            return 1;
+
         case 0xFA: { /* LD A,(nn) */
             if (addr >= 0xFFFE) {
                 return 0;
             }
             uint16_t target = gb_read16(ctx, (uint16_t)(addr + 1));
-            ctx->a = gb_read8(ctx, target);
+            ctx->a = gbrt_stub_final_read8(ctx, target, 16);
             ctx->pc = (uint16_t)(addr + 3);
-            gb_tick(ctx, 16);
             return 1;
         }
 
@@ -2792,16 +4358,22 @@ void gbrt_log_ppu_scanline(GBContext* ctx,
                            uint8_t window_line,
                            bool window_triggered) {
     uint64_t frame_index = ctx ? (ctx->completed_frames + 1) : 0;
+    const GBPPU* ppu = ctx ? (const GBPPU*)ctx->ppu : NULL;
     if (!gbrt_ppu_trace_enabled_for_frame(ctx, frame_index)) {
         return;
     }
 
     fprintf((FILE*)ctx->ppu_trace_file,
-            "[PPU-LINE] frame=%llu cyc=%u ly=%u mode=%u lcdc=%02X stat=%02X scx=%u scy=%u wx=%u wy=%u bgp=%02X obp0=%02X obp1=%02X window_line=%u window_triggered=%u\n",
+            "[PPU-LINE] frame=%llu cyc=%u ly=%u mode=%u visible_mode=%u irq_mode=%u mode3_dots=%u hblank_dots=%u sprites=%u lcdc=%02X stat=%02X scx=%u scy=%u wx=%u wy=%u bgp=%02X obp0=%02X obp1=%02X window_line=%u window_triggered=%u\n",
             (unsigned long long)frame_index,
             ctx->frame_cycles,
             ly,
             mode,
+            ppu ? ppu->visible_mode : mode,
+            ppu ? ppu->stat_irq_mode : mode,
+            ppu ? ppu->mode3_length : 0u,
+            ppu ? ppu->hblank_length : 0u,
+            ppu ? ppu->visible_sprite_count : 0u,
             lcdc,
             stat,
             scx,
@@ -2848,7 +4420,7 @@ void gbrt_log_oam_snapshot(GBContext* ctx, const char* reason) {
             (unsigned long long)frame_index,
             ctx->frame_cycles,
             ctx->pc,
-            (ctx->pc < 0x4000) ? 0u : (unsigned)ctx->rom_bank,
+            (unsigned)gb_resolve_rom_bank(ctx, ctx->pc),
             ctx->io[0x44],
             ctx->io[0x41] & 0x03,
             reason ? reason : "-");
@@ -2886,7 +4458,7 @@ void gbrt_log_stat_irq_check(GBContext* ctx,
             (unsigned long long)frame_index,
             ctx->frame_cycles,
             ctx->pc,
-            (ctx->pc < 0x4000) ? 0u : (unsigned)ctx->rom_bank,
+            (unsigned)gb_resolve_rom_bank(ctx, ctx->pc),
             ly,
             mode,
             stat,
@@ -2918,7 +4490,7 @@ void gbrt_log_stat_irq_request(GBContext* ctx,
             (unsigned long long)frame_index,
             ctx->frame_cycles,
             ctx->pc,
-            (ctx->pc < 0x4000) ? 0u : (unsigned)ctx->rom_bank,
+            (unsigned)gb_resolve_rom_bank(ctx, ctx->pc),
             ly,
             mode,
             stat,
@@ -2946,7 +4518,7 @@ void gbrt_log_interrupt_service(GBContext* ctx,
             (unsigned long long)frame_index,
             ctx->frame_cycles,
             pc_before,
-            (pc_before < 0x4000) ? 0u : (unsigned)ctx->rom_bank,
+            (unsigned)gb_resolve_rom_bank(ctx, pc_before),
             sp_before,
             vector,
             name ? name : "-",
@@ -2957,19 +4529,27 @@ void gbrt_log_interrupt_service(GBContext* ctx,
 
 #ifndef _MSC_VER
 __attribute__((weak)) void gb_dispatch(GBContext* ctx, uint16_t addr) {
-    gbrt_log_trace(ctx, (addr < 0x4000) ? 0 : ctx->rom_bank, addr);
+    gbrt_log_trace(ctx, gb_resolve_rom_bank(ctx, addr), addr);
     ctx->pc = addr;
     gb_interpret(ctx, addr);
 }
 
 __attribute__((weak)) void gb_dispatch_call(GBContext* ctx, uint16_t addr) {
-    gbrt_log_trace(ctx, (addr < 0x4000) ? 0 : ctx->rom_bank, addr);
+    gbrt_log_trace(ctx, gb_resolve_rom_bank(ctx, addr), addr);
     ctx->pc = addr;
 }
 #endif
 
-void gbrt_note_dispatch_fallback(GBContext* ctx, uint8_t bank, uint16_t addr) {
+void gbrt_note_dispatch_fallback(GBContext* ctx, uint16_t bank, uint16_t addr) {
     if (!ctx) return;
+#ifdef GBRT_ENABLE_PERFORMANCE_COUNTERS
+    ctx->performance_counters.interpreter_fallbacks++;
+    if (gbrt_visibility_estimator_enabled) {
+        ctx->performance_counters.profile_unit_visibility_mask |=
+            GBRT_PROFILE_VISIBILITY_FALLBACK;
+    }
+#endif
+    if (!gbrt_dispatch_fallback_tracking_enabled) return;
     if (ctx->frame_dispatch_fallbacks == 0) {
         ctx->frame_first_fallback_bank = bank;
         ctx->frame_first_fallback_addr = addr;
@@ -2983,8 +4563,203 @@ void gbrt_note_dispatch_fallback(GBContext* ctx, uint8_t bank, uint16_t addr) {
     ctx->total_dispatch_fallbacks++;
 }
 
+const char* gbrt_dispatch_fallback_reason_name(GBDispatchFallbackReason reason) {
+    switch (reason) {
+        case GB_DISPATCH_FALLBACK_ADDRESS_NOT_COMPILED:
+            return "address_not_compiled";
+        case GB_DISPATCH_FALLBACK_BANK_NOT_COMPILED:
+            return "bank_not_compiled";
+        case GB_DISPATCH_FALLBACK_PAGE_NOT_COMPILED:
+            return "page_not_compiled";
+        case GB_DISPATCH_FALLBACK_WRITABLE_HRAM:
+            return "writable_hram";
+        default:
+            return "unknown";
+    }
+}
+
+static GBDispatchFallbackSite* gbrt_find_or_allocate_dispatch_fallback_site(
+    GBContext* ctx,
+    uint16_t bank,
+    uint16_t addr,
+    GBDispatchFallbackReason reason,
+    uint16_t compiled_bank_variants) {
+    for (uint16_t i = 0; i < ctx->dispatch_fallback_site_count; ++i) {
+        GBDispatchFallbackSite* site = &ctx->dispatch_fallback_sites[i];
+        if (site->bank == bank && site->addr == addr && site->reason == reason) {
+            return site;
+        }
+    }
+    if (ctx->dispatch_fallback_site_count >= GBRT_DISPATCH_FALLBACK_SITE_CAPACITY) {
+        ctx->dispatch_fallback_sites_dropped++;
+        return NULL;
+    }
+
+    GBDispatchFallbackSite* site =
+        &ctx->dispatch_fallback_sites[ctx->dispatch_fallback_site_count++];
+    memset(site, 0, sizeof(*site));
+    site->valid = 1;
+    site->reason = reason;
+    site->bank = bank;
+    site->addr = addr;
+    site->compiled_bank_variants = compiled_bank_variants;
+    site->first_frame = ctx->completed_frames + 1;
+    site->last_frame = site->first_frame;
+    return site;
+}
+
+void gbrt_execute_dispatch_fallback(GBContext* ctx,
+                                    uint16_t bank,
+                                    uint16_t addr,
+                                    GBDispatchFallbackReason reason,
+                                    uint16_t compiled_bank_variants) {
+    if (!ctx) {
+        return;
+    }
+
+    const uint64_t instructions_before = ctx->total_interpreter_instructions;
+    const uint32_t cycles_before = ctx->cycles;
+    gbrt_note_dispatch_fallback(ctx, bank, addr);
+    GBDispatchFallbackSite* site = NULL;
+    if (gbrt_dispatch_fallback_tracking_enabled) {
+        site = gbrt_find_or_allocate_dispatch_fallback_site(
+            ctx, bank, addr, reason, compiled_bank_variants);
+    }
+
+    gb_interpret(ctx, addr);
+
+    if (site) {
+        site->entries++;
+        site->instructions +=
+            ctx->total_interpreter_instructions - instructions_before;
+        site->cycles += (uint32_t)(ctx->cycles - cycles_before);
+        site->last_frame = ctx->completed_frames + 1;
+    }
+}
+
+bool gbrt_performance_counters_available(void) {
+#ifdef GBRT_ENABLE_PERFORMANCE_COUNTERS
+    return true;
+#else
+    return false;
+#endif
+}
+
+void gbrt_reset_performance_counters(GBContext* ctx) {
+    if (!ctx) {
+        return;
+    }
+    memset(&ctx->performance_counters, 0, sizeof(ctx->performance_counters));
+}
+
+#ifdef GBRT_ENABLE_PERFORMANCE_COUNTERS
+static void gbrt_report_histogram(const char* name,
+                                  const char* buckets,
+                                  const uint64_t* counts,
+                                  size_t count) {
+    fprintf(stderr, "[PERF-HISTOGRAM] name=%s buckets=%s counts=", name, buckets);
+    for (size_t i = 0; i < count; ++i) {
+        fprintf(stderr, "%s%llu",
+                i == 0 ? "" : ",",
+                (unsigned long long)counts[i]);
+    }
+    fputc('\n', stderr);
+}
+
+void gbrt_report_performance_counters(GBContext* ctx) {
+    if (!ctx) {
+        return;
+    }
+    gbrt_audio_sync(ctx);
+    fprintf(stderr,
+            "[PERF-COUNTERS] available=%u tick_commits=%llu tick_cycles=%llu generated_safepoints=%llu direct_transitions=%llu indirect_dispatches=%llu generic_reads=%llu specialized_reads=%llu generic_writes=%llu specialized_writes=%llu interpreter_fallbacks=%llu ppu_tick_calls=%llu ppu_dots=%llu ppu_draw_dots=%llu ppu_rendered_pixels=%llu ppu_stable_spans=%llu ppu_stable_span_dots=%llu audio_samples=%llu rtc_tick_calls=%llu rtc_tick_cycles=%llu dma_tick_calls=%llu dma_tick_cycles=%llu serial_tick_calls=%llu serial_tick_cycles=%llu timer_tick_calls=%llu timer_tick_cycles=%llu audio_step_calls=%llu audio_step_cycles=%llu interrupt_checks=%llu interrupt_stops=%llu frame_stops=%llu region_candidate_units=%llu region_groups=%llu region_grouped_units=%llu region_grouped_tick_commits=%llu region_estimated_removable_tick_commits=%llu region_estimated_removable_safepoints=%llu region_reject_visibility=%llu region_reject_deadline=%llu\n",
+            gbrt_performance_counters_available() ? 1u : 0u,
+            (unsigned long long)ctx->performance_counters.tick_commits,
+            (unsigned long long)ctx->performance_counters.tick_cycles,
+            (unsigned long long)ctx->performance_counters.generated_safepoints,
+            (unsigned long long)ctx->performance_counters.generated_direct_transitions,
+            (unsigned long long)ctx->performance_counters.generated_indirect_dispatches,
+            (unsigned long long)ctx->performance_counters.generated_generic_reads,
+            (unsigned long long)ctx->performance_counters.generated_specialized_reads,
+            (unsigned long long)ctx->performance_counters.generated_generic_writes,
+            (unsigned long long)ctx->performance_counters.generated_specialized_writes,
+            (unsigned long long)ctx->performance_counters.interpreter_fallbacks,
+            (unsigned long long)ctx->performance_counters.ppu_tick_calls,
+            (unsigned long long)ctx->performance_counters.ppu_dots,
+            (unsigned long long)ctx->performance_counters.ppu_draw_dots,
+            (unsigned long long)ctx->performance_counters.ppu_rendered_pixels,
+            (unsigned long long)ctx->performance_counters.ppu_stable_spans,
+            (unsigned long long)ctx->performance_counters.ppu_stable_span_dots,
+            (unsigned long long)ctx->performance_counters.audio_samples,
+            (unsigned long long)ctx->performance_counters.rtc_tick_calls,
+            (unsigned long long)ctx->performance_counters.rtc_tick_cycles,
+            (unsigned long long)ctx->performance_counters.dma_tick_calls,
+            (unsigned long long)ctx->performance_counters.dma_tick_cycles,
+            (unsigned long long)ctx->performance_counters.serial_tick_calls,
+            (unsigned long long)ctx->performance_counters.serial_tick_cycles,
+            (unsigned long long)ctx->performance_counters.timer_tick_calls,
+            (unsigned long long)ctx->performance_counters.timer_tick_cycles,
+            (unsigned long long)ctx->performance_counters.audio_step_calls,
+            (unsigned long long)ctx->performance_counters.audio_step_cycles,
+            (unsigned long long)ctx->performance_counters.interrupt_checks,
+            (unsigned long long)ctx->performance_counters.interrupt_stops,
+            (unsigned long long)ctx->performance_counters.frame_stops,
+            (unsigned long long)ctx->performance_counters.region_candidate_units,
+            (unsigned long long)ctx->performance_counters.region_groups,
+            (unsigned long long)ctx->performance_counters.region_grouped_units,
+            (unsigned long long)ctx->performance_counters.region_grouped_tick_commits,
+            (unsigned long long)ctx->performance_counters.region_estimated_removable_tick_commits,
+            (unsigned long long)ctx->performance_counters.region_estimated_removable_safepoints,
+            (unsigned long long)ctx->performance_counters.region_reject_visibility,
+            (unsigned long long)ctx->performance_counters.region_reject_deadline);
+
+    gbrt_report_histogram("tick_cycles", "1,2,3,4,5-7,8,9-11,12,13-15,16,17-31,32+",
+                          ctx->performance_counters.tick_cycle_histogram, 12);
+    gbrt_report_histogram("ppu_mode", "lcd_off,oam,draw,hblank,vblank",
+                          ctx->performance_counters.ppu_mode_tick_commits, 5);
+    gbrt_report_histogram("ppu_mode_cycles", "lcd_off,oam,draw,hblank,vblank",
+                          ctx->performance_counters.ppu_mode_tick_cycles, 5);
+    gbrt_report_histogram("timer_state", "disabled,enabled,reload",
+                          ctx->performance_counters.timer_state_tick_commits, 3);
+    gbrt_report_histogram("timer_state_cycles", "disabled,enabled,reload",
+                          ctx->performance_counters.timer_state_tick_cycles, 3);
+    gbrt_report_histogram("deadline", "zero,one,2-3,4-7,8-15,16-31,32-63,64-255,256+,infinite",
+                          ctx->performance_counters.deadline_histogram, 10);
+    gbrt_report_histogram("visibility_units", "register_only,safe_memory,generic_read,generic_write,transition,fallback,stopped",
+                          ctx->performance_counters.visibility_unit_histogram, 7);
+    gbrt_report_histogram("region_group_size", "one,two,3-4,5-8,9-16,17+",
+                          ctx->performance_counters.region_group_size_histogram, 6);
+}
+#else
+void gbrt_report_performance_counters(GBContext* ctx) {
+    if (!ctx) {
+        return;
+    }
+    gbrt_audio_sync(ctx);
+    fprintf(stderr,
+            "[PERF-COUNTERS] available=0 tick_commits=%llu tick_cycles=%llu generated_safepoints=%llu direct_transitions=%llu indirect_dispatches=%llu generic_reads=%llu specialized_reads=%llu generic_writes=%llu specialized_writes=%llu interpreter_fallbacks=%llu ppu_tick_calls=%llu ppu_dots=%llu ppu_draw_dots=%llu ppu_rendered_pixels=%llu ppu_stable_spans=%llu ppu_stable_span_dots=%llu audio_samples=%llu\n",
+            (unsigned long long)ctx->performance_counters.tick_commits,
+            (unsigned long long)ctx->performance_counters.tick_cycles,
+            (unsigned long long)ctx->performance_counters.generated_safepoints,
+            (unsigned long long)ctx->performance_counters.generated_direct_transitions,
+            (unsigned long long)ctx->performance_counters.generated_indirect_dispatches,
+            (unsigned long long)ctx->performance_counters.generated_generic_reads,
+            (unsigned long long)ctx->performance_counters.generated_specialized_reads,
+            (unsigned long long)ctx->performance_counters.generated_generic_writes,
+            (unsigned long long)ctx->performance_counters.generated_specialized_writes,
+            (unsigned long long)ctx->performance_counters.interpreter_fallbacks,
+            (unsigned long long)ctx->performance_counters.ppu_tick_calls,
+            (unsigned long long)ctx->performance_counters.ppu_dots,
+            (unsigned long long)ctx->performance_counters.ppu_draw_dots,
+            (unsigned long long)ctx->performance_counters.ppu_rendered_pixels,
+            (unsigned long long)ctx->performance_counters.ppu_stable_spans,
+            (unsigned long long)ctx->performance_counters.ppu_stable_span_dots,
+            (unsigned long long)ctx->performance_counters.audio_samples);
+}
+#endif
+
 void gbrt_note_interpreter_session(GBContext* ctx,
-                                   uint8_t bank,
+                                   uint16_t bank,
                                    uint16_t addr,
                                    uint32_t instructions,
                                    uint32_t cycles) {
@@ -3009,7 +4784,7 @@ void gbrt_note_interpreter_session(GBContext* ctx,
 }
 
 void gbrt_note_unimplemented_interpreter_opcode(GBContext* ctx,
-                                                uint8_t bank,
+                                                uint16_t bank,
                                                 uint16_t addr,
                                                 uint8_t opcode) {
     if (!ctx) {
@@ -3088,16 +4863,30 @@ void gbrt_note_lcd_transition(GBContext* ctx, bool lcd_enabled, uint8_t old_lcdc
  * ========================================================================== */
 
 static inline void gb_sync(GBContext* ctx) {
-    uint32_t current = ctx->cycles;
-    uint32_t delta = current - ctx->last_sync_cycles;
-    if (delta > 0) {
-        ctx->last_sync_cycles = current;
-        if (ctx->ppu) ppu_tick((GBPPU*)ctx->ppu, ctx, delta);
+    while (1) {
+        uint32_t current = ctx->cycles;
+        uint32_t delta = current - ctx->last_sync_cycles;
+        if (delta > 0) {
+            ctx->last_sync_cycles = current;
+            if (ctx->ppu) ppu_tick((GBPPU*)ctx->ppu, ctx, delta);
+        }
+
+        if (ctx->hdma.cpu_stall_cycles > 0 &&
+            !ctx->hdma.processing_stall) {
+            const uint16_t stall = ctx->hdma.cpu_stall_cycles;
+            ctx->hdma.cpu_stall_cycles = 0;
+            ctx->hdma.processing_stall = 1;
+            gb_tick(ctx, stall);
+            ctx->hdma.processing_stall = 0;
+            continue;
+        }
+        break;
     }
 }
 
 void gb_add_cycles(GBContext* ctx, uint32_t cycles) {
     ctx->cycles += cycles;
+    ctx->total_cycles += cycles;
     ctx->frame_cycles += cycles;
     if (ctx->run_cycle_budget > 0 &&
         (ctx->cycles - ctx->run_cycle_budget_start) >= ctx->run_cycle_budget) {
@@ -3108,8 +4897,6 @@ void gb_add_cycles(GBContext* ctx, uint32_t cycles) {
         ctx->total_lcd_off_cycles += cycles;
     }
 }
-
-
 
 static void gb_rtc_tick(GBContext* ctx, uint32_t cycles) {
     if (!ctx->rtc.active) return;
@@ -3143,62 +4930,28 @@ static void gb_rtc_tick(GBContext* ctx, uint32_t cycles) {
     }
 }
 
-/**
- * Process OAM DMA transfer
- * DMA takes 160 M-cycles (640 T-cycles), copying 1 byte per M-cycle.
- * There is a 2 M-cycle (8 T-cycle) startup delay before bus blocking begins.
- */
-static void gb_dma_tick(GBContext* ctx, uint32_t cycles) {
-    /* Handle DMA startup delay: DMA was requested but bus blocking hasn't started yet */
-    if (ctx->dma.pending && ctx->dma.startup_delay > 0) {
-        if (cycles >= ctx->dma.startup_delay) {
-            cycles -= ctx->dma.startup_delay;
-            ctx->dma.startup_delay = 0;
-            ctx->dma.active = 1;  /* Bus blocking now active */
-            ctx->dma.pending = 0;
-        } else {
-            ctx->dma.startup_delay -= (uint8_t)cycles;
-            return;
-        }
-    }
-
-    if (!ctx->dma.active) return;
-    
-    /* Process DMA cycles */
+static void gb_dma_advance_active(GBContext* ctx, uint32_t cycles) {
     while (cycles > 0 && ctx->dma.active) {
-        /* Each byte takes 4 T-cycles (1 M-cycle) */
-        uint32_t byte_cycles = (cycles >= 4) ? 4 : cycles;
+        /* Preserve the sub-M-cycle phase across gb_tick() calls. Memory
+         * accesses intentionally split an instruction around its final bus
+         * cycle, so a transfer can be advanced by 1 then 3 T-cycles rather
+         * than a single aligned 4-cycle call.
+         */
+        uint32_t until_byte = ctx->dma.cycles_remaining % 4u;
+        if (until_byte == 0) {
+            until_byte = 4;
+        }
+        uint32_t byte_cycles = cycles < until_byte ? cycles : until_byte;
         cycles -= byte_cycles;
         ctx->dma.cycles_remaining -= byte_cycles;
         
         /* Copy one byte every 4 T-cycles */
         if (ctx->dma.progress < 160 && (ctx->dma.cycles_remaining % 4) == 0) {
-            uint16_t src_addr = ((uint16_t)ctx->dma.source_high << 8) | ctx->dma.progress;
-            /* Directly access ROM/RAM without triggering normal restrictions */
-            uint8_t byte;
-            if (src_addr < 0x8000) {
-                /* ROM */
-                if (src_addr < 0x4000) {
-                    byte = ctx->rom[src_addr];
-                } else {
-                    byte = ctx->rom[(ctx->rom_bank * 0x4000) + (src_addr - 0x4000)];
-                }
-            } else if (src_addr < 0xA000) {
-                /* VRAM */
-                byte = ctx->vram[src_addr - 0x8000];
-            } else if (src_addr < 0xC000) {
-                /* External RAM */
-                byte = ctx->eram ? ctx->eram[(ctx->ram_bank * 0x2000) + (src_addr - 0xA000)] : 0xFF;
-            } else if (src_addr < 0xE000) {
-                /* WRAM */
-                if (src_addr < 0xD000) {
-                    byte = ctx->wram[src_addr - 0xC000];
-                } else {
-                    byte = ctx->wram[(ctx->wram_bank * 0x1000) + (src_addr - 0xD000)];
-                }
-            } else {
-                byte = 0xFF;
-            }
+            uint16_t src_addr =
+                ((uint16_t)ctx->dma.active_source_high << 8) | ctx->dma.progress;
+            /* DMA owns the source bus, so bypass CPU conflict checks while
+             * retaining mapper/bank/bounds behavior. */
+            uint8_t byte = gb_direct_read_oam_dma_source(ctx, src_addr);
             ctx->oam[ctx->dma.progress] = byte;
             ctx->dma.progress++;
         }
@@ -3207,6 +4960,41 @@ static void gb_dma_tick(GBContext* ctx, uint32_t cycles) {
         if (ctx->dma.progress >= 160 || ctx->dma.cycles_remaining == 0) {
             ctx->dma.active = 0;
         }
+    }
+}
+
+/**
+ * Process OAM DMA transfer.
+ * DMA takes 160 M-cycles (640 T-cycles), copying 1 byte per M-cycle. A fresh
+ * FF46 write occurs in M=0, leaves M=1 accessible, and activates the new
+ * transfer at M=2. During a restart, the old transfer retains the bus through
+ * that startup interval.
+ */
+static void gb_dma_tick(GBContext* ctx, uint32_t cycles) {
+    if (ctx->dma.pending && ctx->dma.startup_delay > 0) {
+        const uint32_t startup_cycles =
+            cycles < ctx->dma.startup_delay ? cycles : ctx->dma.startup_delay;
+
+        if (ctx->dma.active) {
+            gb_dma_advance_active(ctx, startup_cycles);
+        }
+        ctx->dma.startup_delay =
+            (uint8_t)(ctx->dma.startup_delay - startup_cycles);
+        cycles -= startup_cycles;
+
+        if (ctx->dma.startup_delay > 0) {
+            return;
+        }
+
+        ctx->dma.pending = 0;
+        ctx->dma.active = 1;
+        ctx->dma.active_source_high = ctx->dma.source_high;
+        ctx->dma.progress = 0;
+        ctx->dma.cycles_remaining = 640;
+    }
+
+    if (cycles > 0 && ctx->dma.active) {
+        gb_dma_advance_active(ctx, cycles);
     }
 }
 
@@ -3244,10 +5032,207 @@ static bool gb_stop_should_resume(GBContext* ctx) {
     return (gb_read8(ctx, 0xFF00) & 0x0F) != 0x0F;
 }
 
+static uint32_t gb_halt_fast_forward_cycles(GBContext* ctx, uint32_t run_start, uint32_t max_cycles) {
+    uint32_t cycles = 4;
+
+    if (!ctx || !ctx->ppu || !(ctx->io[0x40] & LCDC_LCD_ENABLE)) {
+        return cycles;
+    }
+
+    if (ctx->config.model != GB_MODEL_DMG) {
+        return cycles;
+    }
+
+    if ((ctx->io[0x07] & 0x04) ||
+        ctx->tima_reload_pending > 0 ||
+        ctx->dma.pending ||
+        ctx->dma.active ||
+        ctx->serial_transfer.active) {
+        return cycles;
+    }
+
+    const GBPPU* ppu = (const GBPPU*)ctx->ppu;
+    if (gbrt_benchmark_fast_tick_enabled &&
+        (ctx->io[0x80] & 0x1F) == 0x01 &&
+        (ctx->io[0x0F] & 0x01) == 0) {
+        uint32_t line_progress = 0;
+        switch (ppu->mode) {
+            case PPU_MODE_OAM:
+                line_progress = ppu->mode_cycles;
+                break;
+            case PPU_MODE_DRAW:
+                line_progress = CYCLES_OAM_SCAN + ppu->mode_cycles;
+                break;
+            case PPU_MODE_HBLANK:
+                line_progress = CYCLES_OAM_SCAN + ppu->mode3_length + ppu->mode_cycles;
+                break;
+            case PPU_MODE_VBLANK:
+                line_progress = ppu->mode_cycles;
+                break;
+            default:
+                line_progress = 0;
+                break;
+        }
+        if (line_progress < CYCLES_SCANLINE && ppu->scanline < TOTAL_SCANLINES) {
+            const uint32_t frame_cycles = TOTAL_SCANLINES * CYCLES_SCANLINE;
+            const uint32_t vblank_start = VISIBLE_SCANLINES * CYCLES_SCANLINE;
+            uint32_t frame_pos =
+                ((uint32_t)ppu->scanline * CYCLES_SCANLINE) + line_progress;
+            uint32_t cycles_until_vblank =
+                (frame_pos < vblank_start) ?
+                    (vblank_start - frame_pos) :
+                    (frame_cycles - frame_pos + vblank_start);
+            if (cycles_until_vblank > 0) {
+                cycles = cycles_until_vblank & ~3u;
+                if (cycles == 0) {
+                    cycles = 4;
+                }
+                if (max_cycles > 0 && max_cycles != UINT32_MAX) {
+                    uint32_t elapsed = ctx->cycles - run_start;
+                    if (elapsed >= max_cycles) {
+                        return 4;
+                    }
+                    uint32_t remaining = max_cycles - elapsed;
+                    if (cycles > remaining) {
+                        cycles = remaining & ~3u;
+                        if (cycles == 0) {
+                            cycles = remaining;
+                        }
+                    }
+                }
+                return cycles;
+            }
+        }
+    }
+
+    uint32_t target = 0;
+    switch (ppu->mode) {
+        case PPU_MODE_OAM: target = CYCLES_OAM_SCAN; break;
+        /* Mode 3 ends on a dynamic FIFO event; advance only one CPU M-cycle. */
+        case PPU_MODE_DRAW: target = ppu->mode_cycles + 4u; break;
+        case PPU_MODE_HBLANK: target = ppu->hblank_length; break;
+        case PPU_MODE_VBLANK:
+            target = (ppu->scanline == 153 && ppu->mode_cycles < 4)
+                ? 4u
+                : CYCLES_SCANLINE;
+            break;
+        default: break;
+    }
+
+    if (target > ppu->mode_cycles) {
+        cycles = target - ppu->mode_cycles;
+        cycles &= ~3u;
+        if (cycles == 0) {
+            cycles = 4;
+        }
+    }
+
+    if (max_cycles > 0 && max_cycles != UINT32_MAX) {
+        uint32_t elapsed = ctx->cycles - run_start;
+        if (elapsed >= max_cycles) {
+            return 4;
+        }
+        uint32_t remaining = max_cycles - elapsed;
+        if (cycles > remaining) {
+            cycles = remaining & ~3u;
+            if (cycles == 0) {
+                cycles = remaining;
+            }
+        }
+    }
+
+    return cycles;
+}
+
 void gb_tick(GBContext* ctx, uint32_t cycles) {
     static uint32_t last_log = 0;
+#ifdef GBRT_ENABLE_PERFORMANCE_COUNTERS
+    gbrt_profile_note_tick(ctx, cycles);
+#endif
     uint32_t cpu_cycles = cycles;
-    uint32_t system_cycles = ctx->cgb_double_speed ? (cycles / 2) : cycles;
+    uint32_t system_cycles = cycles;
+    const uint8_t previous_system_cycle_remainder = ctx->cgb_system_cycle_remainder & 1u;
+    if (ctx->cgb_double_speed) {
+        const uint8_t previous_remainder = previous_system_cycle_remainder;
+        system_cycles = (cycles >> 1) +
+                        ((cycles & 1u) && previous_remainder ? 1u : 0u);
+        ctx->cgb_system_cycle_remainder =
+            (uint8_t)(previous_remainder ^ (uint8_t)(cycles & 1u));
+    } else {
+        ctx->cgb_system_cycle_remainder = 0;
+    }
+
+    if (gbrt_benchmark_fast_tick_enabled &&
+        cycles == 4 &&
+        !ctx->cgb_double_speed &&
+        !ctx->dma.pending &&
+        !ctx->dma.active &&
+        !ctx->serial_transfer.active &&
+        !(ctx->io[0x07] & 0x04) &&
+        !ctx->tima_reload_pending &&
+        (((ctx->cycles + 4u) & 0x3FFu) >= 4u) &&
+        !(ctx->ime && (ctx->io[0x0F] & ctx->io[0x80] & 0x1F))) {
+        ctx->cycles += 4;
+        ctx->total_cycles += 4;
+        ctx->frame_cycles += 4;
+        if (ctx->run_cycle_budget > 0 &&
+            (ctx->cycles - ctx->run_cycle_budget_start) >= ctx->run_cycle_budget) {
+            ctx->stopped = 1;
+        }
+        if (ctx->lcd_off_active) {
+            ctx->frame_lcd_off_cycles += 4;
+            ctx->total_lcd_off_cycles += 4;
+        }
+#ifdef GBRT_ENABLE_PERFORMANCE_COUNTERS
+        ctx->performance_counters.timer_tick_calls++;
+        ctx->performance_counters.timer_tick_cycles += 4u;
+        ctx->performance_counters.interrupt_checks++;
+#endif
+        ctx->div_counter = (uint16_t)(ctx->div_counter + 4);
+        ctx->io[0x04] = (uint8_t)(ctx->div_counter >> 8);
+        if (ctx->ime_pending) { ctx->ime = 1; ctx->ime_pending = 0; }
+        return;
+    }
+
+    if (gbrt_benchmark_fast_tick_enabled && !ctx->cgb_double_speed) {
+        gb_add_cycles(ctx, cycles);
+
+        if (ctx->dma.pending || ctx->dma.active) {
+#ifdef GBRT_ENABLE_PERFORMANCE_COUNTERS
+            ctx->performance_counters.dma_tick_calls++;
+            ctx->performance_counters.dma_tick_cycles += cpu_cycles;
+#endif
+            gb_dma_tick(ctx, cpu_cycles);
+        }
+        if (ctx->serial_transfer.active) {
+#ifdef GBRT_ENABLE_PERFORMANCE_COUNTERS
+            ctx->performance_counters.serial_tick_calls++;
+            ctx->performance_counters.serial_tick_cycles += cpu_cycles;
+#endif
+            gb_serial_tick(ctx, cpu_cycles);
+        }
+
+#ifdef GBRT_ENABLE_PERFORMANCE_COUNTERS
+        ctx->performance_counters.timer_tick_calls++;
+        ctx->performance_counters.timer_tick_cycles += cpu_cycles;
+#endif
+        gb_timer_tick(ctx, cpu_cycles);
+
+        if ((ctx->cycles & 0x3FF) < cycles ||
+            (ctx->ime && (ctx->io[0x0F] & ctx->io[0x80] & 0x1F))) {
+            gb_sync(ctx);
+            const bool interrupt_pending =
+                ctx->ime && (ctx->io[0x0F] & ctx->io[0x80] & 0x1F);
+#ifdef GBRT_ENABLE_PERFORMANCE_COUNTERS
+            ctx->performance_counters.interrupt_checks++;
+            if (ctx->frame_done) ctx->performance_counters.frame_stops++;
+            if (interrupt_pending) ctx->performance_counters.interrupt_stops++;
+#endif
+            if (ctx->frame_done || interrupt_pending) ctx->stopped = 1;
+        }
+        if (ctx->ime_pending) { ctx->ime = 1; ctx->ime_pending = 0; }
+        return;
+    }
     
     // Check limit
     if (gbrt_instruction_limit > 0) {
@@ -3266,89 +5251,72 @@ void gb_tick(GBContext* ctx, uint32_t cycles) {
         fprintf(stderr, "[TICK] Cycles: %u, PC: 0x%04X, IME: %d, IF: 0x%02X, IE: 0x%02X\n", 
                 ctx->cycles, ctx->pc, ctx->ime, ctx->io[0x0F], ctx->io[0x80]);
     }
+
     gb_add_cycles(ctx, system_cycles);
     
     /* RTC Tick */
-    gb_rtc_tick(ctx, system_cycles);
+    if (ctx->rtc.active && ctx->rom && ctx->rom_size > 0x147 && gb_cart_type_has_rtc(ctx->rom[0x147])) {
+#ifdef GBRT_ENABLE_PERFORMANCE_COUNTERS
+        ctx->performance_counters.rtc_tick_calls++;
+        ctx->performance_counters.rtc_tick_cycles += system_cycles;
+#endif
+        gb_rtc_tick(ctx, system_cycles);
+    }
     
     /* OAM DMA Tick */
-    gb_dma_tick(ctx, cpu_cycles);
+    if (ctx->dma.pending || ctx->dma.active) {
+#ifdef GBRT_ENABLE_PERFORMANCE_COUNTERS
+        ctx->performance_counters.dma_tick_calls++;
+        ctx->performance_counters.dma_tick_cycles += cpu_cycles;
+#endif
+        gb_dma_tick(ctx, cpu_cycles);
+    }
 
     /* Serial Tick */
-    gb_serial_tick(ctx, cpu_cycles);
+    if (ctx->serial_transfer.active) {
+#ifdef GBRT_ENABLE_PERFORMANCE_COUNTERS
+        ctx->performance_counters.serial_tick_calls++;
+        ctx->performance_counters.serial_tick_cycles += cpu_cycles;
+#endif
+        gb_serial_tick(ctx, cpu_cycles);
+    }
 
     /* Update DIV and TIMA */
     uint16_t old_div = ctx->div_counter;
-    ctx->div_counter += (uint16_t)cpu_cycles;
-    ctx->io[0x04] = (uint8_t)(ctx->div_counter >> 8);
-    if (ctx->apu) gb_audio_div_tick(ctx->apu, old_div, ctx->div_counter, ctx->cgb_double_speed != 0);
+#ifdef GBRT_ENABLE_PERFORMANCE_COUNTERS
+    ctx->performance_counters.timer_tick_calls++;
+    ctx->performance_counters.timer_tick_cycles += cpu_cycles;
+#endif
+    gb_timer_tick(ctx, cpu_cycles);
     
-    uint8_t tac = ctx->io[0x07];
-    if (tac & 0x04) { /* Timer Enabled */
-        uint16_t mask;
-        switch (tac & 0x03) {
-            case 0: mask = 1 << 9; break; /* 4096 Hz (1024 cycles) -> bit 9 */
-            case 1: mask = 1 << 3; break; /* 262144 Hz (16 cycles) -> bit 3 */
-            case 2: mask = 1 << 5; break; /* 65536 Hz (64 cycles) -> bit 5 */
-            case 3: mask = 1 << 7; break; /* 16384 Hz (256 cycles) -> bit 7 */
-            default: mask = 0; break;
-        }
-        
-        /* Check for falling edges.
-           We detect how many times the bit flipped from 1 to 0.
-           The bit flips every 'mask' cycles (period is 2*mask).
-           We iterate to find all falling edges in the range. 
-        */
-        uint16_t current = old_div;
-        uint32_t cycles_left = cpu_cycles;
-        
-        /* Optimization: if cycles are small (common case), doing a loop is fine. */
-        while (cycles_left > 0) {
-            /* Next falling edge is at next multiple of (2*mask) */
-            uint16_t next_fall = (current | (mask * 2 - 1)) + 1;
-            
-            /* Distance to next fall */
-            uint32_t dist = (uint16_t)(next_fall - current);
-            if (dist == 0) dist = mask * 2; /* Should happen if current is exactly on edge? */
-            
-            /* Check if we reach the fall */
-            if (cycles_left >= dist) {
-                /* Hardware behavior: increment TIMA.
-                 * If TIMA was 0xFF, it wraps to 0x00. After 4 T-cycles,
-                 * TIMA gets reloaded from TMA and timer interrupt fires.
-                 * During those 4 cycles, TIMA reads as 0x00.
-                 */
-                if (ctx->io[0x05] == 0xFF) {
-                    ctx->io[0x05] = 0x00;         /* Overflow: TIMA=0 for 4 cycles */
-                    ctx->tima_reload_pending = 4;  /* Schedule TMA reload after 4 T-cycles */
-                } else {
-                    ctx->io[0x05]++;
-                }
-                current += (uint16_t)dist;
-                cycles_left -= dist;
-            } else {
-                break;
-            }
-        }
-    }
-    
-    /* Handle pending TIMA reload (4-cycle delay after overflow) */
-    if (ctx->tima_reload_pending > 0) {
-        if (ctx->tima_reload_pending <= cpu_cycles) {
-            ctx->tima_reload_pending = 0;
-            ctx->io[0x05] = ctx->io[0x06]; /* Reload TMA */
-            ctx->io[0x0F] |= 0x04;         /* Request Timer Interrupt */
-        } else {
-            ctx->tima_reload_pending -= (uint8_t)cpu_cycles;
-        }
-    }
-    
-    if ((system_cycles > 0 && (ctx->cycles & 0xFF) < system_cycles) ||
-        (ctx->ime && (ctx->io[0x0F] & ctx->io[0x80] & 0x1F))) {
+    /* The reference execution path must publish PPU mode/LY/STAT events at
+     * every CPU instruction boundary.  Deferring this to a 256-cycle bucket
+     * makes HALT-based STAT waits resume on the wrong scanline even though the
+     * PPU itself models the correct dot.  Benchmark mode retains its explicit
+     * coarse-sync path above; normal and headless execution stay accurate. */
+    if (system_cycles > 0) {
         gb_sync(ctx);
-        if (ctx->frame_done || (ctx->ime && (ctx->io[0x0F] & ctx->io[0x80] & 0x1F))) ctx->stopped = 1;
     }
-    if (ctx->apu) gb_audio_step(ctx, system_cycles);
+    /* Interrupt acceptance is a CPU instruction-boundary concern. In CGB
+     * double-speed mode a final one-T bus phase can carry no complete system
+     * cycle, but it must still stop compiled execution so the pending IRQ is
+     * serviced before the next instruction. */
+    const bool interrupt_pending =
+        ctx->ime && (ctx->io[0x0F] & ctx->io[0x80] & 0x1F);
+#ifdef GBRT_ENABLE_PERFORMANCE_COUNTERS
+    ctx->performance_counters.interrupt_checks++;
+    if (ctx->frame_done) ctx->performance_counters.frame_stops++;
+    if (interrupt_pending) ctx->performance_counters.interrupt_stops++;
+#endif
+    if (ctx->frame_done || interrupt_pending) {
+        ctx->stopped = 1;
+    }
+    gbrt_audio_schedule(ctx,
+                        old_div,
+                        cpu_cycles,
+                        system_cycles,
+                        ctx->cgb_double_speed != 0,
+                        previous_system_cycle_remainder);
     if (ctx->ime_pending) { ctx->ime = 1; ctx->ime_pending = 0; }
 }
 
@@ -3359,37 +5327,49 @@ void gb_handle_interrupts(GBContext* ctx) {
     uint8_t pending = if_reg & ie_reg & 0x1F;
     if (pending) {
         ctx->ime = 0; ctx->halted = 0; ctx->stop_mode_active = 0;
-        uint16_t vec = 0; uint8_t bit = 0;
-        const char* name = NULL;
-        if (pending & 0x01) { vec = 0x0040; bit = 0x01; }
-        else if (pending & 0x02) { vec = 0x0048; bit = 0x02; }
-        else if (pending & 0x04) { vec = 0x0050; bit = 0x04; }
-        else if (pending & 0x08) { vec = 0x0058; bit = 0x08; }
-        else if (pending & 0x10) { vec = 0x0060; bit = 0x10; }
-        if (vec) {
-            switch (bit) {
-                case 0x01: name = "VBLANK"; break;
-                case 0x02: name = "STAT"; break;
-                case 0x04: name = "TIMER"; break;
-                case 0x08: name = "SERIAL"; break;
-                case 0x10: name = "JOYPAD"; break;
-                default: name = "UNKNOWN"; break;
-            }
-            gbrt_log_interrupt_service(ctx, name, vec, if_reg, ie_reg, bit, ctx->pc, ctx->sp);
-            ctx->io[0x0F] &= ~bit;
-            
-            /* ISR takes 5 M-cycles (20 T-cycles) as per Pan Docs:
-             * - 2 M-cycles: Wait states (NOPs)
-             * - 2 M-cycles: Push PC to stack (SP decremented twice, PC written)
-             * - 1 M-cycle: Set PC to interrupt vector
-             */
-            gb_tick(ctx, 8);  /* 2 wait M-cycles */
-            gb_push16(ctx, ctx->pc);
-            gb_tick(ctx, 8);  /* 2 push M-cycles */
-            ctx->pc = vec;
-            gb_tick(ctx, 4);  /* 1 jump M-cycle */
-            ctx->stopped = 1;
+        const uint16_t return_pc = ctx->pc;
+
+        /* ISR entry is re-evaluated around the two stack writes. This matters
+         * when SP aliases IE or IF: an upper-byte write to IE can cancel or
+         * reprioritize the dispatch, while a lower-byte write to IE is too
+         * late. The IF write conflict uses the value from before the write. */
+        gb_tick(ctx, 11);
+        ctx->sp--;
+        gb_write8(ctx, ctx->sp, (uint8_t)(return_pc >> 8));
+        gb_tick(ctx, 1);
+        pending = ctx->io[0x80] & 0x1F;
+
+        gb_tick(ctx, 3);
+        ctx->sp--;
+        const uint8_t if_before_low_write = ctx->io[0x0F] & 0x1F;
+        gb_write8(ctx, ctx->sp, (uint8_t)return_pc);
+        pending &= ctx->sp == 0xFF0F
+            ? if_before_low_write
+            : (ctx->io[0x0F] & 0x1F);
+        gb_tick(ctx, 1);
+
+        uint16_t vec = 0;
+        uint8_t bit = 0;
+        const char* name = "CANCELLED";
+        if (pending & 0x01) { vec = 0x0040; bit = 0x01; name = "VBLANK"; }
+        else if (pending & 0x02) { vec = 0x0048; bit = 0x02; name = "STAT"; }
+        else if (pending & 0x04) { vec = 0x0050; bit = 0x04; name = "TIMER"; }
+        else if (pending & 0x08) { vec = 0x0058; bit = 0x08; name = "SERIAL"; }
+        else if (pending & 0x10) { vec = 0x0060; bit = 0x10; name = "JOYPAD"; }
+
+        gbrt_log_interrupt_service(ctx,
+                                   name,
+                                   vec,
+                                   if_reg,
+                                   ie_reg,
+                                   bit,
+                                   return_pc,
+                                   (uint16_t)(ctx->sp + 2));
+        if (bit) {
+            ctx->io[0x0F] &= (uint8_t)~bit;
         }
+        gbrt_timed_jump(ctx, vec, 4);
+        ctx->stopped = 1;
     }
 }
 
@@ -3414,11 +5394,18 @@ uint32_t gb_run_cycles(GBContext* ctx, uint32_t max_cycles) {
     }
 
     while (!ctx->frame_done) {
+#ifdef GBRT_ENABLE_NATIVE_PATCHES
+        if (gb_native_patch_failed(ctx)) {
+            break;
+        }
+#endif
         if (max_cycles > 0 && (ctx->cycles - start) >= max_cycles) {
             break;
         }
 
-        gb_handle_interrupts(ctx);
+        if (ctx->ime && (ctx->io[0x0F] & ctx->io[0x80] & 0x1F)) {
+            gb_handle_interrupts(ctx);
+        }
         
         /* Check for HALT exit condition (even if IME=0) */
         if (ctx->halted) {
@@ -3437,9 +5424,11 @@ uint32_t gb_run_cycles(GBContext* ctx, uint32_t max_cycles) {
                 continue;
             }
         }
-        if (ctx->halted) gb_tick(ctx, 4);
-        else gb_step(ctx);
-        gb_sync(ctx);
+        if (ctx->halted) {
+            gb_tick(ctx, gb_halt_fast_forward_cycles(ctx, start, max_cycles));
+            continue;
+        }
+        gb_step(ctx);
     }
 
     if (bounded_run) {
@@ -3535,12 +5524,27 @@ const uint32_t* gb_get_framebuffer(GBContext* ctx) {
 }
 
 void gb_halt(GBContext* ctx) { ctx->halted = 1; }
+
+void gbrt_execute_halt(GBContext* ctx, uint16_t next_pc, uint32_t cycles) {
+    ctx->pc = next_pc;
+    if (!ctx->ime &&
+        (gb_read8(ctx, 0xFFFF) & gb_read8(ctx, 0xFF0F) & 0x1F)) {
+        ctx->halted = 0;
+        ctx->halt_bug = 1;
+    } else {
+        ctx->halt_bug = 0;
+        gb_halt(ctx);
+    }
+    gb_tick(ctx, cycles);
+}
+
 void gb_stop(GBContext* ctx) {
     if (!ctx) {
         return;
     }
 
     if (gb_is_cgb_mode(ctx) && (ctx->io[0x4D] & 0x01)) {
+        gbrt_audio_sync(ctx);
         ctx->io[0x4D] &= (uint8_t)~0x01;
         ctx->cgb_double_speed ^= 1;
         ctx->stopped = 1;

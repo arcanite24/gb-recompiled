@@ -7,11 +7,21 @@
 
 namespace gbrecomp {
 
-void BankTracker::record_bank_switch(uint32_t addr, uint8_t bank, bool dynamic) {
+void BankTracker::record_bank_switch(uint32_t addr, BankId bank, bool dynamic) {
+    for (auto& existing : switches_) {
+        if (existing.addr != addr) {
+            continue;
+        }
+        if (existing.is_dynamic || dynamic || existing.target_bank != bank) {
+            existing.target_bank = UNKNOWN_BANK;
+            existing.is_dynamic = true;
+        }
+        return;
+    }
     switches_.push_back({addr, bank, dynamic});
 }
 
-void BankTracker::record_cross_bank_call(uint32_t from, uint32_t to, uint8_t from_bank, uint8_t to_bank) {
+void BankTracker::record_cross_bank_call(uint32_t from, uint32_t to, BankId from_bank, BankId to_bank) {
     calls_.push_back({from, to, from_bank, to_bank});
 }
 

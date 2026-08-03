@@ -3,6 +3,12 @@
 
 add_library(gbrt STATIC
     src/gbrt.c
+    src/gbrt_data_mod.c
+    src/gbrt_hash.c
+    src/gbrt_host_configuration.c
+    src/gbrt_port.c
+    src/gbrt_presentation.c
+    src/gbrt_semantic.c
     src/differential.c
     src/interpreter.c
     src/ppu.c
@@ -10,6 +16,16 @@ add_library(gbrt STATIC
     src/audio_stats.c
     src/platform_sdl.cpp
 )
+
+option(GBRECOMP_ENABLE_NATIVE_PATCHES
+    "Compile the native replacement SDK runtime" ${BUILD_TESTS})
+if(GBRECOMP_ENABLE_NATIVE_PATCHES)
+    target_sources(gbrt PRIVATE
+        src/gbrt_gameplay_mutation.c
+        src/gbrt_native_patch.c
+    )
+    target_compile_definitions(gbrt PUBLIC GBRT_ENABLE_NATIVE_PATCHES)
+endif()
 
 # Dear ImGui sources (if using SDL2)
 find_package(SDL2 QUIET)
@@ -32,6 +48,18 @@ target_include_directories(gbrt PUBLIC
 )
 
 target_compile_features(gbrt PUBLIC c_std_11 cxx_std_17)
+
+option(GBRECOMP_ENABLE_PERFORMANCE_COUNTERS
+    "Compile low-overhead generated/runtime performance counters" OFF)
+if(GBRECOMP_ENABLE_PERFORMANCE_COUNTERS)
+    target_compile_definitions(gbrt PUBLIC GBRT_ENABLE_PERFORMANCE_COUNTERS)
+endif()
+
+if(BUILD_TESTS AND SDL2_FOUND)
+    find_package(Threads REQUIRED)
+    target_link_libraries(gbrt PRIVATE Threads::Threads)
+    target_compile_definitions(gbrt PUBLIC GBRT_ENABLE_TEST_HOOKS)
+endif()
 
 # Debug mode option
 option(GB_DEBUG "Enable debug logging" OFF)

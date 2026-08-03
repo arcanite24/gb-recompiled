@@ -1,283 +1,230 @@
-# Recompiler Correctness Audit Plan
+# Recompiler correctness roadmap
+
+Updated: 2026-07-13
 
 ## Goal
 
-Find and eliminate semantic mismatches between:
+Keep these layers semantically aligned:
 
-1. The decoded SM83 instruction stream
-2. The IR/lowering pipeline
-3. The generated C output
-4. The runtime/interpreter behavior
+1. ROM decoding
+2. analyzer state and bank resolution
+3. IR and generated C
+4. interpreter fallback
+5. mapper and device timing
 
-The recent `(HL)` ALU bug in Pokemon Blue and Tetris was not an isolated audio issue. It exposed a broader problem: the project currently proves *coverage* much better than it proves *correctness*.
+Coverage is necessary but insufficient. A compiled address can still use the wrong operand, bank, cycle phase, flag behavior, or hardware side effect.
 
-## What The Audit Found
+## Current foundation
 
-### 1. The current "ground truth" workflow only checks coverage
+The original correctness audit led to several completed safeguards:
 
-`tools/compare_ground_truth.py` verifies that traced instruction addresses appear in generated C comments. It does **not** compare:
+- generated-vs-interpreter differential execution with CPU, memory, mapper, and device-state comparison
+- fail-closed external-ROM testing with deterministic final-state dumps
+- repository-owned mapper, analyzer, bus-phase, PPU, DMA, test-policy, and release fixtures
+- 16-bit bank identities through analysis, metadata, generation, runtime mapping, and fallback
+- mapper-specific analyzer state and conservative control-flow joins/call clobbering
+- shared mapper-aware ROM resolution for runtime and generated reads
+- final-M-cycle placement for generated and runtime memory operations covered by focused tests
+- shared bus-phase primitives for stack and control-flow operations across generated, interpreted, and copied-RAM execution
+- shared M1 immediate reads and idle M-cycles for `ADD SP,e` and `LD HL,SP+e` across generated, interpreted, and copied-RAM execution
+- explicit final-read and read-modify-write bus phases for generated and interpreted `(HL)` operations, including generated ALU reads and start-of-final-M-cycle RMW stores
+- ordered TIMA overflow/reload and DIV/TAC edge behavior
+- phased interrupt entry with IE/IF write conflicts, source reselection, and CGB double-speed half-cycle preservation
+- one shared generated/interpreted HALT transition contract, with canonical one-fetch PC suppression for the pending-interrupt HALT bug
+- DMG-only OAM corruption with exact read/write patterns, PPU-row phase, unusable-range accesses, and shared 16-bit/stack/`HL+/-` bus primitives
+- dot/event-aware PPU phases and model/source-aware OAM DMA
 
-- register state
-- flags
-- PC/SP behavior
-- bank state
-- memory writes
-- timing side effects
+Fresh validation on 2026-07-13 produced:
 
-That is why a bug like:
+- 31/31 repository-owned CTest cases passing
+- 71/75 configured external ROM tests passing
+- 13/13 configured PPU cases passing
+- 6/6 configured OAM DMA cases passing
+- 14/14 affected control/stack/SP-relative timing cases and 13/13 configured timer cases passing
+- Blargg CPU/instruction/interrupt/memory/OAM behavior at 8/8
 
-- decoded instruction: `AND (HL)`
-- generated code: `gb_and8(ctx, ctx->b);`
+See `ACCURACY.md` for the external-ROM breakdown and `docs/CODE_IMPROVEMENT_AUDIT_2026-07-12.md` for P0 implementation evidence.
 
-could pass the existing workflow.
+## Remaining correctness risks
 
-### 2. Operand handling is still structurally fragile
+### 1. CGB boot and I/O edges
 
-The active emitter path in `recompiler/src/codegen/c_emitter.cpp` still relies on raw register indices plus special cases like:
+Timer reload/write interactions, IE/IF masking, phased interrupt entry, and double-speed interrupt acceptance now have focused regressions and pass their configured external cases. The remaining nearby failures are boot-state and undocumented-I/O cases.
 
-- `6 == (HL)` for 8-bit operands
-- `4 == AF` for 16-bit stack operations
+Next work:
 
-The current fix patched the ALU family, but the design is still easy to break because:
+- distinguish configured post-boot state from actual boot-ROM execution for `boot_div-cgb0` and `boot_div-cgbABCDE`
+- complete model-specific masks/readback for `unused_hwio-GS` and `unused_hwio-C`
+- validate KEY0/KEY1 and speed-switch phase behavior against Pan Docs and SameBoy
 
-- `recompiler/src/ir/ir_builder.cpp` uses magic values like `Operand::reg8(6)`
-- the emitter still has multiple generic `reg8_names[...]` sites
-- special operand behavior is encoded by convention instead of type
+### 2. Bank-aware direct targets
 
-This is the same bug class that caused the Pokemon Blue audio failure.
+Unknown targets currently force safe dispatch in several places. That is slower but safer than persisting an unsound bank.
 
-### 3. There is stale duplicate code in the core pipeline
+Next work:
 
-The active generator path is `generate_output()` in `recompiler/src/codegen/c_emitter.cpp`.
+- fix physical-ROM reads used by banked indirect-jump table analysis
+- persist direct CALL/JP target banks only when mapper state proves them
+- add same-address/different-bank table fixtures
+- require zero new external-test failures before enabling faster direct paths
 
-But the same file also contains a large older `CEmitter` class with obsolete semantics and obsolete identifiers, including references like:
+### 3. Operand representation and duplicate semantics
 
-- `ctx->A`
-- `FLAG_Z(ctx)`
-- `ctx->ime_scheduled`
-- many `gbrt_*` helpers that are no longer the canonical runtime API
+Magic operand indices and obsolete emitter/lowering paths still make it easy to fix the wrong implementation or mishandle `(HL)`-style operands.
 
-Likewise, `recompiler/src/ir/ir_builder.cpp` still declares and defines unused lowering helpers:
+Next work:
 
-- `lower_jump`
-- `lower_call`
-- `lower_ret`
-- `lower_io`
+- replace magic register values with typed operand variants
+- add an IR verifier with exhaustive instruction/operand validation
+- delete or isolate unused emitter, generator, and lowering paths
+- remove declared analyzer/optimizer options that are not implemented
 
-This is dangerous because it creates multiple versions of "how instruction X works", and only one of them is actually live.
+### 4. Validation independence and cost
 
-### 4. The generated timing model is intentionally approximate
+Differential execution is valuable but compares two paths that share mapper and device code, and full mutable-memory comparison is expensive.
 
-The active emitter batches `gb_tick()` at basic-block boundaries instead of ticking per instruction.
+Next work:
 
-This matters because `gb_tick()` drives:
+- use region hashes or dirty ranges as a fast mismatch gate
+- retain an explicit strict full-memory mode
+- add injected-mismatch tests that prove first-divergence localization
+- compare selected state and frame hashes against independent hardware tests or SameBoy
+- retain the scheduler-chunk-invariant PCM hashes as a runtime regression oracle
 
-- timer/DIV updates
-- interrupt synchronization
-- DMA progress
-- PPU sync
-- APU stepping
-- `ime_pending -> ime` transition
+### 5. Trace-assisted discovery quality
 
-Concrete example:
+The current PyBoy “ground truth” tool samples one PC per frame, while the comparison tool checks only whether those addresses appear in generated comments.
 
-- `EI` emits `ctx->ime_pending = 1`
-- `ime_pending` is only applied in `gb_tick()` in `runtime/src/gbrt.c`
-- if `gb_tick()` is delayed until the end of a basic block, IME may become active after several instructions instead of after exactly one
+Next work:
 
-So the current codegen can be functionally wrong even when every opcode lowers to the "right" helper call.
+- replace frame sampling with instruction-level trace capture where the reference API permits it
+- record mapper bank and input provenance with every trace
+- rename output and reporting so sampled coverage is not presented as semantic ground truth
+- prefer trusted symbol/annotation boundaries over heuristic trace seeding when available
 
-### 5. Control-flow analysis loses some bank/context precision
+## Required validation ladder
 
-`recompiler/include/recompiler/analyzer.h` stores basic block successors as `std::vector<uint16_t>`, which drops bank information.
+Every correctness change should use the smallest relevant layers and finish with an independent signal:
 
-Later, `recompiler/src/analyzer.cpp` reconstructs successor addresses using the current block's bank. That is acceptable for many same-bank edges, but it is not a sound representation for cross-bank control flow discovered earlier in analysis.
+| Layer | Required evidence |
+| --- | --- |
+| Unit/synthetic | Exact state, mapper, bus-phase, or metadata assertions |
+| Generated smoke | Fresh generate, configure, build, and bounded headless run |
+| Differential | First-divergence-free bounded run with unexpected fallback rejected |
+| External ROM | Relevant Mooneye/Blargg case reaches its real pass protocol |
+| Game-specific | Cycle-anchored replay plus state/frame/audio artifact where applicable |
 
-This is more of a CFG quality problem than the immediate `(HL)` bug, but it increases the chance of:
+Do not use a coverage percentage, successful compilation, or interpreter agreement alone as a hardware-accuracy claim.
 
-- wrong function grouping
-- missed compiled targets
-- overuse of dispatcher/interpreter fallback
-- hidden bank-sensitive bugs
+## Completed slice: SP-relative timing
 
-### 6. Debugging counters and trace behavior are not fully trustworthy
+The SP-relative pair now samples its signed immediate late in M1 and retires the documented idle cycles through shared runtime primitives. Focused tests cover both sides of an OAM-DMA completion boundary, interpreter execution at `FDFF/FE00`, copied-HRAM execution, and generated calls without duplicate aggregate ticks.
 
-Instruction counting currently happens in multiple places:
+Measured separately from correctness on the regenerated Tetris project:
 
-- generated dispatch loop
-- interpreter loop
-- `gb_step()`
-- `gb_tick()`
+| Metric | Before | After | Change |
+| --- | ---: | ---: | ---: |
+| Optimized benchmark FPS, 1,800 frames, 5 trials | 3,808.4 | 3,820.3 | +0.31%, within run variance |
+| Default generated executable | 2,078,360 B | 2,078,376 B | +16 B |
+| Optimized benchmark executable | 3,173,160 B | 3,173,176 B | +16 B |
+| Generated Tetris C sources | 10,546,784 B | 10,545,772 B | -1,012 B |
+| Peak benchmark RSS | 8.41 MiB | 8.45 MiB | +48 KiB, within process noise |
 
-That makes instruction limits and some trace-driven debugging less reliable than they appear, especially when comparing interpreter and generated execution.
+Raw benchmark artifacts are `logs/sp_relative_before.json` and `logs/sp_relative_after.json`; the fallback-rejecting 100,000-step comparison is `logs/sp_relative_differential.log`.
 
-## Root Causes
+## Completed slice: memory bus timing
 
-1. No differential semantic validation against the interpreter
-2. Operand semantics encoded with magic indices instead of operand kinds
-3. Stale duplicate implementations left beside the live code path
-4. Timing accuracy traded away in codegen without validation barriers
-5. Audit tooling focused on discovery/coverage instead of correctness
+Blargg `mem_timing-1` exposed two distinct omissions: `BIT b,(HL)` sampled memory eagerly, and all `(HL)` read-modify-write operations collapsed their read and write into one host-side action. Generated code and interpreter fallback now place the read in its documented machine cycle and commit the RMW store at the start of the final M-cycle. Focused tests cover `BIT`, `INC`, and CB-prefixed RMW behavior across a live PPU access boundary, plus the exact LCD-enable retirement edge that previously regressed `intr_2_mode0_timing_sprites`.
 
-## Fix Plan
+A later mapper-heavy differential gate exposed the same eager-read class in generated `ADD/ADC/SUB/SBC/AND/OR/XOR/CP A,(HL)`. Link's Awakening diverged while reading `LY` at ROM `0:27F7`: generated code sampled before its timing commit, while the interpreter read on the final M-cycle. All eight generated ALU forms now emit `tick 7 / read / tick 1`, the focused code-generation test covers each form, and the corrected game matches strict differential execution for 500,000 steps with zero fallback.
 
-### Phase 1: Build a semantic oracle
+`mem_timing-2` does not emit a serial verdict, so the fail-closed runner now verifies its stable completed-frame hash (`9E0E8400`) at frame 299. A complete rebuild produced 69/75 configured external passes: both memory-timing ROMs pass, the 14/14 control/stack/SP-relative, 13/13 PPU, 6/6 OAM DMA, and 13/13 timer preservation sets remain green, and the six unrelated known failures are unchanged.
 
-Priority: highest
+Measured separately from correctness on a freshly regenerated Tetris project:
 
-Add a differential test harness that runs:
+| Metric | Before | After | Observed change |
+| --- | ---: | ---: | ---: |
+| Reduced-workload benchmark FPS, 1,800 frames, 5 trials | 3,404.5 | 3,489.1 | +2.48%; an observed run result, not an interactive-runtime claim |
+| Measured generated executable | 2,078,376 B | 2,078,376 B | 0 B |
+| Generated Tetris C/H sources | 10,680,966 B | 10,716,208 B | +35,242 B (+0.33%) |
+| Peak benchmark RSS | 8,650,752 B | 8,699,904 B | +49,152 B |
 
-- the interpreter
-- the generated dispatch path
+Raw benchmark artifacts are `logs/mem_timing_tetris_before.json` and `logs/mem_timing_tetris_after_final.json`. The fresh generated-project state is `logs/mem_timing_smoke_final.state.json`, the fallback-rejecting 100,000-step comparison is `logs/mem_timing_differential_final.log`, and the complete catalogue run is `logs/mem_timing_full_accuracy_final.stdout`.
 
-from the same ROM and initial CPU state for a bounded instruction window, then compares after each instruction:
+## Completed slice: HALT bug verification and fetch contract
 
-- `pc`, `sp`
-- `af`, `bc`, `de`, `hl`
-- unpacked flags
-- `ime`, `ime_pending`, `halted`, `stopped`, `halt_bug`
-- `rom_bank`, `ram_bank`, `mbc_mode`, other banking state as needed
-- selected IO/timer state at minimum
-- optionally memory writes via a write log
+Blargg `halt_bug` was a test-protocol false negative: a baseline frame capture already rendered all nine result rows followed by `Passed`, but the ROM publishes no serial verdict. The fail-closed runner now verifies its stable completed frame 299 (`28BBA01F`), and its policy test pins that name/frame/hash mapping so an empty serial stream cannot silently become either a false pass or a false failure.
 
-This harness should be able to stop on the first divergence and print:
+The implementation pass still found a real uncovered edge. A pending HALT bug could enter the copied-WRAM/HRAM fast path before the interpreter's special opcode fetch, allowing a supported RAM instruction to skip PC suppression and leave `halt_bug` armed. HALT-bug execution now bypasses copied-code fast paths for exactly one opcode fetch. Generated HALT and interpreter HALT also call the same `gbrt_execute_halt` transition, which owns post-fetch PC, `IME`/`IE`/`IF` evaluation, halted/bug state, and retirement cycles.
 
-- bank:pc
-- decoded instruction
-- generated function/block if available
-- before/after state for both paths
+The focused regression covers opcode-as-immediate duplication, repeated HALT re-arming, IME-clear wake without interrupt service, RST pushing the RST address, IME-set interrupt entry from the post-HALT PC, and generated use of the shared contract. A full rebuild produced 70/75 configured external passes: Blargg improves from 6/8 to 7/8, all four Mooneye HALT cases remain green, and the 14/14 control/stack/SP-relative, 13/13 PPU, 6/6 OAM DMA, 13/13 timer, and both memory-timing preservation sets remain green.
 
-Deliverables:
+Measured separately from correctness on a freshly regenerated Tetris project:
 
-- a new local differential tool under `tools/`
-- a small deterministic ROM set for repeatable checks
-- at least one headless regression case for Pokemon Blue and Tetris
+| Metric | Before | After | Observed change |
+| --- | ---: | ---: | ---: |
+| Reduced-workload benchmark FPS, 1,800 frames, 5 trials | 3,879.2 | 3,864.7 | -0.37%, within run variance |
+| Default generated executable | 2,078,376 B | 2,078,392 B | +16 B |
+| Optimized benchmark executable | 3,173,176 B | 3,173,240 B | +64 B |
+| Generated Tetris C/H sources | 10,716,208 B | 10,708,741 B | -7,467 B (-0.07%) |
+| Peak benchmark RSS | 8,880,128 B | 8,798,208 B | -81,920 B, within process noise |
 
-### Phase 2: Remove stale code paths and collapse to one canonical lowering/emission path
+Raw benchmark artifacts are `logs/halt_bug_tetris_before.json` and `logs/halt_bug_tetris_after.json`. The fresh generated-project state is `logs/halt_bug_tetris_smoke_final.state.json`, the fallback-rejecting 500,000-step comparison is `logs/halt_bug_tetris_differential_final.log`, the focused external run is `logs/halt_family_after_shared_contract.json`, and the complete catalogue run is `logs/halt_bug_full_accuracy_final.stdout`.
 
-Priority: highest
+## Completed slice: DMG OAM corruption
 
-Clean up the pipeline so there is exactly one live implementation for each stage.
+The runtime now models the DMG-family OAM corruption bus behavior described by Pan Docs, using SameBoy for the revision-specific combined-read formulas and phase details. Direct reads and writes across `$FE00-$FEFF`, 16-bit `INC`/`DEC`, stack reads/writes, and `LD A,(HL+/-)` / `LD (HL+/-),A` trigger the correct read, write, or combined pattern for the PPU's active eight-byte row. The first row, LCD startup scan, end-of-scan boundary, and CGB no-corruption behavior are explicitly gated.
 
-Required work:
+Generated code, interpreter fallback, and copied-RAM execution share timed primitives for the operations whose bus sequencing is genuinely identical. Dedicated auto-index IR operations preserve the `HL` address/update phase instead of lowering it into an eager memory access plus an unrelated zero-cycle increment. Direct accesses to the unusable `$FEA0-$FEFF` range now retain their documented corruption side effect while still returning `$FF` or discarding the write.
 
-- remove or quarantine the unused legacy `CEmitter` path
-- remove or rewire unused `IRBuilder` helper methods
-- remove dead code that references obsolete runtime APIs
-- make the active lowering/emission path obvious from the source tree
+The accuracy runner forces the CGB-compatible `oam_bug` ROM to DMG hardware and decodes Blargg's signed `$A000-$A003` external-RAM verdict from the state dump. The aggregate ROM now reports `00 DE B0 61` and `Passed`. Seven finite individual ROMs also report their signed pass verdict; the verbose timing sweep's first 2,646 protocol bytes match SameBoy exactly, providing an independent bounded oracle before its individual text buffer wraps.
 
-Success criteria:
+Fresh preservation evidence:
 
-- no parallel "old" and "new" emitter logic in the same file
-- no unused lowering helpers that encode instruction semantics differently
+- 27/27 repository-owned CTest cases
+- 8/8 Blargg, including both memory-timing ROMs and `oam_bug`
+- 5/5 HALT, 14/14 control/stack/SP-relative, 13/13 PPU, 6/6 OAM DMA, and 13/13 timer cases
+- 71/75 complete configured external catalogue; only the excluded CGB boot-DIV and DMG/CGB unused-I/O cases fail
+- fresh 120-frame generated Tetris smoke with zero dispatch fallbacks
+- 500,000 generated-vs-interpreter steps matched across 57 frames with fallback rejection enabled
 
-### Phase 3: Replace magic operand indices with explicit operand kinds
+Measured separately from correctness on freshly regenerated Tetris output:
 
-Priority: highest
+| Metric | Previous slice | OAM slice | Observed change |
+| --- | ---: | ---: | ---: |
+| Reduced-workload benchmark FPS, 1,800 frames, 5 trials | 3,864.7 | 3,804.2 | -1.57%; the unchanged previous binary rechecked at 3,752.7 FPS, so this is within observed cross-run variance |
+| Default generated executable | 2,078,392 B | 2,029,096 B | -49,296 B (-2.37%) |
+| Optimized benchmark executable | 3,173,240 B | 3,053,960 B | -119,280 B (-3.76%) |
+| Generated Tetris C/H sources | 10,708,741 B | 10,669,184 B | -39,557 B (-0.37%) |
+| Peak benchmark RSS | 8,798,208 B | 8,896,512 B | +98,304 B; within process noise |
 
-Refactor operand handling so `(HL)` and similar special cases are represented as typed operands, not integer conventions.
+Raw benchmark artifacts are `logs/halt_bug_tetris_after.json`, `logs/oam_bug_tetris_before_recheck.json`, and `logs/oam_bug_tetris_after.json`. Generated smoke and differential evidence are `logs/oam_bug_tetris_smoke.state.json` and `logs/oam_bug_tetris_differential.log`. The independent timing prefix proof is `logs/oam_bug_timing_effect_prefix_sha256.txt`; the complete catalogue is `logs/oam_bug_full_accuracy_final.stdout` and `ACCURACY.md`.
 
-Recommended direction:
+## Completed slice: runtime audio scheduling and callback boundary
 
-- stop encoding `(HL)` as `Operand::reg8(6)`
-- use `OperandType::MEM_REG16` or a dedicated operand/helper for indirect 8-bit operands
-- centralize emission helpers for:
-  - reg8 register read
-  - reg8 register write
-  - `(HL)` read
-  - `(HL)` write
-  - AF push/pop masking
+The APU now processes channel advancement, sample deadlines, and DIV-driven frame-sequencer edges in chronological order. CPU cycles are converted to CGB system cycles while preserving the speed-switch remainder, and an exact rational sample accumulator emits 44,100 samples per 4,194,304 system cycles. DIV reset clocks at most the one falling edge documented by Pan Docs. Repository-owned regression coverage compares coarse and fine direct stepping, HALT-sized runtime batches, and CGB double-speed batches with exact PCM hashes and serialized final APU state.
 
-Add static audits that fail generation if the active emitter tries to stringify:
+The SDL producer/callback boundary now uses atomic mute and volume controls, callback-local underrun aggregation, and main-thread stats publication. The callback copies contiguous ring spans, while the producer publishes its write position once per 32 audio frames. Device reset and reopen continue to use SDL's audio lock/close lifecycle.
 
-- `reg8 == 6` through the generic register-name path
-- `AF` through a generic reg16 path where masking is required
+Fresh preservation and runtime evidence:
 
-### Phase 4: Restore instruction-accurate timing first, then optimize safely
+- repository-owned CTest covers deterministic PCM hashes, exact one-second sample count, DIV reset, HALT-heavy stepping, CGB double speed, PCM block integrity, and producer/callback concurrency
+- a two-million-frame callback stress completed under ThreadSanitizer without a diagnostic
+- a freshly generated Tetris project completed 120 headless frames with zero dispatch fallbacks and matched 500,000 generated-vs-interpreter steps across 57 frames with fallback rejection enabled
+- two non-silent 10-second generated-runtime captures were byte-identical with SHA-256 `b684c7a8a5c18196e05514fc5bb28506dd44879a9ecdc1cf7aa6b5ffba013754`
+- the complete external catalogue remains 71/75 with the same `unused_hwio-GS`, `boot_div-cgb0`, `boot_div-cgbABCDE`, and `unused_hwio-C` failures
 
-Priority: highest
+Measured separately from correctness:
 
-The current basic-block cycle batching is too risky to keep as the default while correctness is still being established.
+| Metric | Before | After | Observed change |
+| --- | ---: | ---: | ---: |
+| Producer write-position publications, 20 million-frame stress | about 19.9 million | about 0.62 million | about 32x fewer |
+| Synthetic pipeline warm-run user CPU | 0.22-0.24 s | 0.10-0.11 s | about 55% lower |
+| Synthetic pipeline warm-run wall time | 0.12-0.13 s | about 0.06 s | about 54% lower |
+| Reduced-workload core benchmark FPS, 1,800 frames, 5 trials | 3,804.2 | 3,922.3 | no observed regression; this profile disables audio |
 
-Short-term:
+The batching profile isolates the in-process producer/callback pipeline and must not be presented as full interactive-runtime performance. Generated smoke and differential artifacts are under `logs/audio_runtime_20260713/`; the core benchmark is `logs/audio-runtime-core-benchmark-20260713.json`.
 
-- switch generated code back to per-instruction `gb_tick()`
-- keep branch/call/return timing exact
-- preserve `EI`, `DI`, `HALT`, `STOP`, interrupt, timer, DMA, PPU, and APU ordering relative to instruction execution
+## Next contained slice
 
-Only after differential tests are green should we reintroduce any batching, and then only behind proofs/tests showing the batched region is timing-safe.
-
-A practical compromise is:
-
-- correctness mode: always per-instruction
-- optimized mode: optional safe coalescing for blocks proven not to touch timing-sensitive state
-
-### Phase 5: Harden bank-aware control-flow analysis
-
-Priority: medium
-
-Refactor analysis structures so CFG edges preserve bank context explicitly.
-
-Required work:
-
-- store successors as full `(bank, addr)` values
-- propagate bank-aware edges through function grouping
-- add focused tests for:
-  - banked `JP nn`
-  - banked `CALL nn`
-  - `JP HL`
-  - RST 28 jump table patterns
-  - short thunk functions
-
-This will not fix the recent bug directly, but it will reduce silent fallback and analysis drift.
-
-### Phase 6: Add regression gates for known fragile classes
-
-Priority: medium
-
-Add targeted checks for the bug classes already proven risky:
-
-- `(HL)` ALU read operands
-- `(HL)` read-modify-write instructions
-- AF push/pop masking
-- EI/DI/interrupt delay behavior
-- HALT bug path
-- banked jump/call targets
-
-Recommended layers:
-
-- unit tests for decoder/lowering metadata
-- emitter golden tests for representative IR instructions
-- differential execution smoke tests for small ROM snippets
-- representative ROM smoke suite
-
-### Phase 7: Fix debug/accounting drift
-
-Priority: low, but worth doing early if it blocks validation
-
-Clean up:
-
-- instruction counting
-- trace entry logging
-- debug-only counters that currently overcount or disagree between paths
-
-The semantic harness from Phase 1 needs trustworthy step accounting.
-
-## Recommended Execution Order
-
-1. Differential semantic harness
-2. Remove stale emitter/lowering paths
-3. Refactor operand representation away from magic indices
-4. Re-enable per-instruction timing in generated code
-5. Harden bank-aware CFG
-6. Add permanent regression tests
-
-## Immediate Next Slice
-
-The next implementation slice should be:
-
-1. Add a differential interpreter-vs-generated harness
-2. Disable block-level tick batching in generated code
-3. Add a small static audit that rejects active emitter sites which use generic reg8 formatting for `(HL)`
-
-That combination will catch the next bug class faster than continuing to fix ROM-specific symptoms one at a time.
+Resolve `unused_hwio-GS` and `unused_hwio-C` as one model-specific I/O readback goal. Inventory each failing register/bit against Pan Docs first and SameBoy second, add DMG/CGB intermediate read/write regressions, and preserve the 8/8 Blargg and existing timing/device sets. Keep CGB boot DIV initialization and bank-analysis work outside that goal.

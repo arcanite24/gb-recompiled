@@ -1,0 +1,15 @@
+{
+  "schema": "crystal-recompiled.procedural-asset",
+  "version": 1,
+  "id": "crystal.battle.aura-v1",
+  "kind": "radial-burst",
+  "license": "CC0-1.0",
+  "palette": {
+    "background": "#17243a",
+    "player": "#66c7a5",
+    "enemy": "#ef718d",
+    "spark": "#f6d66e"
+  },
+  "ray_count": 24,
+  "pulse_period_frames": 90
+}

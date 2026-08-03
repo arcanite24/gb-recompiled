@@ -1,0 +1,198 @@
+{
+  "schema": "gbrecompiled.semantic-package",
+  "schema_version": 1,
+  "package": {
+    "id": "crystal-recompiled",
+    "version": 4
+  },
+  "runtime_abi": {
+    "name": "gbrecomp.semantic",
+    "version": 1
+  },
+  "rom": {
+    "size": 2097152,
+    "sha256": "fdcc3c8c43813cf8731fc037d2a6d191bac75439c34b24ba1c27526e6acdc8a2"
+  },
+  "views": [
+    {
+      "id": "player.identity",
+      "type": "bytes",
+      "access": "read_only",
+      "memory": {"space": "banked_wram", "bank": 1, "address": "0xd47d", "width": 11},
+      "save_memory": {"space": "external_ram", "bank": 1, "address": "0xa00b", "width": 11},
+      "backup_memory": {"space": "external_ram", "bank": 0, "address": "0xb20b", "width": 11},
+      "fields": [{"name": "name", "offset": 0, "type": "bytes"}],
+      "provenance": {"kind": "pinned-disassembly", "source": "ram/wram.asm wPlayerName"}
+    },
+    {
+      "id": "player.location",
+      "type": "record",
+      "access": "read_only",
+      "memory": {"space": "banked_wram", "bank": 1, "address": "0xdcb5", "width": 4},
+      "save_memory": {"space": "external_ram", "bank": 1, "address": "0xa843", "width": 4},
+      "backup_memory": {"space": "external_ram", "bank": 0, "address": "0xba43", "width": 4},
+      "fields": [
+        {"name": "map_group", "offset": 0, "type": "u8"},
+        {"name": "map_number", "offset": 1, "type": "u8"},
+        {"name": "y", "offset": 2, "type": "u8"},
+        {"name": "x", "offset": 3, "type": "u8"}
+      ],
+      "provenance": {"kind": "pinned-disassembly", "source": "ram/wram.asm wMapGroup"}
+    },
+    {
+      "id": "player.badges",
+      "type": "bitset",
+      "access": "read_only",
+      "memory": {"space": "banked_wram", "bank": 1, "address": "0xd857", "width": 2},
+      "save_memory": {"space": "external_ram", "bank": 1, "address": "0xa3e5", "width": 2},
+      "backup_memory": {"space": "external_ram", "bank": 0, "address": "0xb5e5", "width": 2},
+      "fields": [
+        {"name": "johto", "offset": 0, "type": "bitset"},
+        {"name": "kanto", "offset": 1, "type": "bitset"}
+      ],
+      "provenance": {"kind": "pinned-disassembly", "source": "ram/wram.asm wJohtoBadges"}
+    },
+    {
+      "id": "player.pokedex",
+      "type": "record",
+      "access": "read_only",
+      "memory": {"space": "banked_wram", "bank": 1, "address": "0xde99", "width": 64},
+      "save_memory": {"space": "external_ram", "bank": 1, "address": "0xaa27", "width": 64},
+      "backup_memory": {"space": "external_ram", "bank": 0, "address": "0xbc27", "width": 64},
+      "fields": [
+        {"name": "caught", "offset": 0, "type": "bitset"},
+        {"name": "seen", "offset": 32, "type": "bitset"}
+      ],
+      "provenance": {"kind": "pinned-disassembly", "source": "ram/wram.asm wPokedexCaught"}
+    },
+    {
+      "id": "player.party",
+      "type": "record",
+      "access": "transactional_write",
+      "memory": {"space": "banked_wram", "bank": 1, "address": "0xdcd7", "width": 428},
+      "save_memory": {"space": "external_ram", "bank": 1, "address": "0xa865", "width": 428},
+      "backup_memory": {"space": "external_ram", "bank": 0, "address": "0xba65", "width": 428},
+      "fields": [
+        {"name": "count", "offset": 0, "type": "u8"},
+        {"name": "species", "offset": 1, "type": "bytes"},
+        {"name": "mons", "offset": 8, "type": "table"},
+        {"name": "ot_names", "offset": 296, "type": "table"},
+        {"name": "nicknames", "offset": 362, "type": "table"}
+      ],
+      "provenance": {"kind": "pinned-disassembly", "source": "ram/wram.asm wPartyCount"}
+    },
+    {
+      "id": "storage.active_box",
+      "type": "record",
+      "access": "transactional_write",
+      "memory": {"space": "external_ram", "bank": 1, "address": "0xad10", "width": 1102},
+      "canonical_memory": {
+        "space": "external_ram",
+        "first_bank": 2,
+        "bank_count": 2,
+        "address": "0xa000",
+        "stride": 1102,
+        "items_per_bank": 7,
+        "width": 1102,
+        "selector_memory": {
+          "space": "external_ram",
+          "bank": 1,
+          "address": "0xa700",
+          "width": 1
+        },
+        "selector_max": 13
+      },
+      "fields": [
+        {"name": "count", "offset": 0, "type": "u8"},
+        {"name": "species", "offset": 1, "type": "bytes"},
+        {"name": "mons", "offset": 22, "type": "table"},
+        {"name": "ot_names", "offset": 662, "type": "table"},
+        {"name": "nicknames", "offset": 882, "type": "table"}
+      ],
+      "provenance": {"kind": "pinned-disassembly", "source": "ram/sram.asm sBoxCount"}
+    },
+    {
+      "id": "world.map_connections",
+      "type": "table",
+      "access": "read_only",
+      "memory": {"space": "physical_rom", "bank": 37, "address": "0x4000", "width": 52},
+      "fields": [{"name": "group_pointers", "offset": 0, "type": "table"}],
+      "provenance": {"kind": "pinned-disassembly", "source": "data/maps/maps.asm MapGroupPointers"}
+    },
+    {
+      "id": "battle.player",
+      "type": "record",
+      "access": "read_only",
+      "memory": {"space": "wram", "bank": 0, "address": "0xc62c", "width": 14},
+      "fields": [
+        {"name": "species", "offset": 0, "type": "u8"},
+        {"name": "level", "offset": 13, "type": "u8"}
+      ],
+      "provenance": {"kind": "pinned-disassembly", "source": "ram/wram.asm wBattleMon"}
+    },
+    {
+      "id": "battle.active_slot",
+      "type": "record",
+      "access": "read_only",
+      "memory": {"space": "banked_wram", "bank": 1, "address": "0xd0d4", "width": 1},
+      "fields": [
+        {"name": "party_index", "offset": 0, "type": "u8"}
+      ],
+      "provenance": {"kind": "pinned-disassembly", "source": "ram/wram.asm wCurBattleMon"}
+    },
+    {
+      "id": "battle.enemy",
+      "type": "record",
+      "access": "read_only",
+      "memory": {"space": "banked_wram", "bank": 1, "address": "0xd206", "width": 14},
+      "fields": [
+        {"name": "species", "offset": 0, "type": "u8"},
+        {"name": "level", "offset": 13, "type": "u8"}
+      ],
+      "provenance": {"kind": "pinned-disassembly", "source": "ram/wram.asm wEnemyMon"}
+    },
+    {
+      "id": "battle.context",
+      "type": "record",
+      "access": "read_only",
+      "memory": {"space": "banked_wram", "bank": 1, "address": "0xd22d", "width": 4},
+      "fields": [
+        {"name": "mode", "offset": 0, "type": "u8"},
+        {"name": "temp_wild_species", "offset": 1, "type": "u8"},
+        {"name": "trainer_class", "offset": 2, "type": "u8"},
+        {"name": "battle_type", "offset": 3, "type": "u8"}
+      ],
+      "provenance": {"kind": "pinned-disassembly", "source": "ram/wram.asm wBattleMode"}
+    },
+    {
+      "id": "clock.rtc",
+      "type": "rtc",
+      "access": "read_only",
+      "memory": {"space": "rtc", "width": 5, "selectors": [8, 9, 10, 11, 12]},
+      "fields": [
+        {"name": "seconds", "offset": 0, "type": "u8"},
+        {"name": "minutes", "offset": 1, "type": "u8"},
+        {"name": "hours", "offset": 2, "type": "u8"},
+        {"name": "day_low", "offset": 3, "type": "u8"},
+        {"name": "day_high", "offset": 4, "type": "u8"}
+      ],
+      "provenance": {"kind": "hardware-reference", "source": "tech_docs/pan_docs.md MBC3 timer"}
+    },
+    {
+      "id": "species.base_data",
+      "type": "table",
+      "access": "read_only",
+      "memory": {"space": "physical_rom", "bank": 20, "address": "0x5424", "width": 8032},
+      "fields": [{"name": "records", "offset": 0, "type": "table"}],
+      "provenance": {"kind": "pinned-disassembly", "source": "data/pokemon/base_stats.asm BaseData"}
+    },
+    {
+      "id": "species.evolutions_and_moves",
+      "type": "table",
+      "access": "read_only",
+      "memory": {"space": "physical_rom", "bank": 16, "address": "0x65b1", "width": 502},
+      "fields": [{"name": "pointers", "offset": 0, "type": "table"}],
+      "provenance": {"kind": "pinned-disassembly", "source": "data/pokemon/evos_attacks_pointers.asm"}
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "schema": "gbrecompiled.presentation-assets",
+  "version": 1,
+  "package": {
+    "id": "crystal-recompiled.native-presentation",
+    "version": "1.0.0",
+    "license": "CC0-1.0"
+  },
+  "rom": {
+    "size": 2097152,
+    "sha256": "fdcc3c8c43813cf8731fc037d2a6d191bac75439c34b24ba1c27526e6acdc8a2"
+  },
+  "configuration": {
+    "mode": "native",
+    "width": 1280,
+    "height": 720,
+    "effect_seed": 1129466195
+  },
+  "assets": [
+    {
+      "id": "crystal.ui.panel-v1",
+      "path": "ui-panel-v1.json",
+      "sha256": "f85b19de942583bac61bc7c318ae16e91c978bc6c4c3ec8aa3234bbb93127678",
+      "license": "CC0-1.0",
+      "source": "Crystal Recompiled project"
+    },
+    {
+      "id": "crystal.battle.aura-v1",
+      "path": "battle-aura-v1.json",
+      "sha256": "0b1353d19cf40c81ab399426aef76c1a8a8bf962fddbc25d8f58c612b9bd84c3",
+      "license": "CC0-1.0",
+      "source": "Crystal Recompiled project"
+    }
+  ]
+}

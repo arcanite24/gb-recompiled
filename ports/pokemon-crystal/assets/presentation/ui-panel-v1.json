@@ -1,0 +1,15 @@
+{
+  "schema": "crystal-recompiled.procedural-asset",
+  "version": 1,
+  "id": "crystal.ui.panel-v1",
+  "kind": "nine-slice-panel",
+  "license": "CC0-1.0",
+  "palette": {
+    "border": "#f4e7c5",
+    "shadow": "#273650",
+    "fill": "#41627d",
+    "accent": "#f0b35a"
+  },
+  "corner_radius": 18,
+  "border_width": 6
+}

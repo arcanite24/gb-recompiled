@@ -9,6 +9,7 @@
 #ifndef RECOMPILER_IR_H
 #define RECOMPILER_IR_H
 
+#include "../rom.h"
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -30,10 +31,12 @@ enum class Opcode : uint16_t {
     MOV_REG_IMM16,      // dst16 = imm16
     LD_HL_SP_N,         // HL = SP + signed_imm8, set H/C flags (for LD HL,SP+n)
     LOAD8,              // dst = mem[addr]
+    LOAD8_HL_AUTO,      // dst = mem[HL]; HL += signed delta in the data M-cycle
     LOAD8_REG,          // dst = mem[reg16]
     LOAD16,             // dst16 = mem16[addr]
     LOAD16_REG,         // dst16 = mem16[reg16]
     STORE8,             // mem[addr] = src
+    STORE8_HL_AUTO,     // mem[HL] = src; HL += signed delta in the data M-cycle
     STORE8_REG,         // mem[reg16] = src
     STORE16,            // mem16[addr] = src16
     STORE16_REG,        // mem16[reg16] = src16
@@ -140,7 +143,7 @@ enum class OperandType : uint8_t {
 
 struct Operand {
     OperandType type = OperandType::NONE;
-    uint8_t bank = 0; // ROM bank context for this operand (0 for fixed, 1-N for switched)
+    BankId bank = 0; // ROM bank context for this operand (0 for fixed, 1-N for switched)
     
     union {
         uint8_t reg8;           // Register index (0=A, 1=B, 2=C, 3=D, 4=E, 5=H, 6=L)
@@ -149,7 +152,7 @@ struct Operand {
         uint16_t imm16;
         int8_t offset;
         uint8_t bit_idx;
-        uint8_t bank;
+        BankId bank;
         uint8_t condition;      // 0=NZ, 1=Z, 2=NC, 3=C
         uint8_t io_offset;
         uint8_t rst_vec;
@@ -213,7 +216,7 @@ struct IRInstruction {
     Operand extra;          // For 3-operand ops (e.g., BIT n, r)
     
     // Source location tracking
-    uint8_t source_bank = 0;
+    BankId source_bank = 0;
     uint16_t source_address = 0;
     bool has_source_location = false;
     
@@ -228,15 +231,15 @@ struct IRInstruction {
     std::string comment;
     
     // Factory methods
-    static IRInstruction make_nop(uint8_t bank, uint16_t addr);
-    static IRInstruction make_mov_reg_reg(uint8_t dst, uint8_t src, uint8_t bank, uint16_t addr);
-    static IRInstruction make_load8(uint8_t dst_reg, uint16_t addr, uint8_t bank, uint16_t src_addr);
-    static IRInstruction make_store8(uint16_t addr, uint8_t src_reg, uint8_t bank, uint16_t src_addr);
-    static IRInstruction make_add8(uint8_t src, uint8_t bank, uint16_t addr);
-    static IRInstruction make_jump(uint32_t label_id, uint8_t bank, uint16_t addr);
-    static IRInstruction make_jump_cc(uint8_t cond, uint32_t label_id, uint8_t bank, uint16_t addr);
-    static IRInstruction make_call(uint32_t label_id, uint8_t bank, uint16_t addr);
-    static IRInstruction make_ret(uint8_t bank, uint16_t addr);
+    static IRInstruction make_nop(BankId bank, uint16_t addr);
+    static IRInstruction make_mov_reg_reg(uint8_t dst, uint8_t src, BankId bank, uint16_t addr);
+    static IRInstruction make_load8(uint8_t dst_reg, uint16_t addr, BankId bank, uint16_t src_addr);
+    static IRInstruction make_store8(uint16_t addr, uint8_t src_reg, BankId bank, uint16_t src_addr);
+    static IRInstruction make_add8(uint8_t src, BankId bank, uint16_t addr);
+    static IRInstruction make_jump(uint32_t label_id, BankId bank, uint16_t addr);
+    static IRInstruction make_jump_cc(uint8_t cond, uint32_t label_id, BankId bank, uint16_t addr);
+    static IRInstruction make_call(uint32_t label_id, BankId bank, uint16_t addr);
+    static IRInstruction make_ret(BankId bank, uint16_t addr);
     static IRInstruction make_label(uint32_t label_id);
     static IRInstruction make_comment(const std::string& text);
 };
@@ -255,7 +258,7 @@ struct BasicBlock {
     std::vector<uint32_t> predecessors;
     
     // Bank info
-    uint8_t bank = 0;
+    BankId bank = 0;
     uint16_t start_address = 0;
     uint16_t end_address = 0;
     
@@ -271,7 +274,7 @@ struct BasicBlock {
 
 struct Function {
     std::string name;
-    uint8_t bank = 0;
+    BankId bank = 0;
     uint16_t entry_address = 0;
     
     std::vector<uint32_t> block_ids;
@@ -283,13 +286,40 @@ struct Function {
 };
 
 struct AddressSymbol {
-    uint8_t bank = 0;
+    BankId bank = 0;
     uint16_t address = 0;
     std::string source_name;
+    std::vector<std::string> source_names;
     std::string emitted_name;
     std::string kind;
     std::string provenance;
+    std::string memory_space;
+    uint32_t width = 1;
     std::string comment;
+};
+
+struct ConstantSymbol {
+    std::string name;
+    uint32_t value = 0;
+    std::string memory_space;
+    std::string provenance;
+    std::string comment;
+};
+
+struct AnalysisDiagnostic {
+    std::string id;
+    std::string kind;
+    BankId bank = 0;
+    uint16_t address = 0;
+    std::string memory_space;
+    std::string status;
+    std::string evidence;
+    std::string suggested_annotation;
+    std::string relationship;
+    bool has_related_address = false;
+    BankId related_bank = 0;
+    uint16_t related_address = 0;
+    std::string related_memory_space;
 };
 
 /* ============================================================================
@@ -298,6 +328,7 @@ struct AddressSymbol {
 
 struct Program {
     std::string rom_name;
+    std::map<std::string, ConstantSymbol> constants;
     
     // All basic blocks
     std::map<uint32_t, BasicBlock> blocks;
@@ -308,6 +339,9 @@ struct Program {
 
     // Address-level symbol metadata carried through to code generation
     std::map<uint32_t, AddressSymbol> address_symbols;
+
+    // Actionable analyzer decisions carried through to generated metadata.
+    std::map<std::string, AnalysisDiagnostic> analysis_diagnostics;
     
     // Labels (for cross-referencing)
     std::map<uint32_t, std::string> labels;         // id -> name
@@ -323,7 +357,7 @@ struct Program {
     std::vector<uint16_t> interrupt_vectors;
     
     // Create a new block
-    uint32_t create_block(uint8_t bank, uint16_t addr);
+    uint32_t create_block(BankId bank, uint16_t addr);
     
     // Create/lookup labels
     uint32_t create_label(const std::string& name);
@@ -331,8 +365,8 @@ struct Program {
     std::string get_label_name(uint32_t id) const;
     
     // Generate unique label for address
-    std::string make_address_label(uint8_t bank, uint16_t addr) const;
-    std::string make_function_name(uint8_t bank, uint16_t addr) const;
+    std::string make_address_label(BankId bank, uint16_t addr) const;
+    std::string make_function_name(BankId bank, uint16_t addr) const;
 };
 
 /* ============================================================================

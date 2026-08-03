@@ -1,0 +1,23 @@
+{
+  "schema": "crystal-recompiled.gbrecomp-contract",
+  "version": 1,
+  "tool_version": "0.1.0",
+  "abis": {
+    "data_mod": 1,
+    "gameplay_mutation": 1,
+    "native_patch": 1,
+    "port_extension": 1,
+    "port_module": 3,
+    "presentation": 1,
+    "semantic": 1
+  },
+  "required_features": [
+    "annotations",
+    "bounded-gameplay-mutations",
+    "exact-rom-native-patches",
+    "external-runtime-snapshot",
+    "machine-readable-generation-progress",
+    "source-built-port-extensions"
+  ],
+  "runtime_tree_sha256": "23121a2c5969ab4062a436d7156b8999784fe68600501e4263a9de80e5ae526d"
+}

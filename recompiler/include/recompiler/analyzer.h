@@ -26,7 +26,7 @@ namespace gbrecomp {
 struct BasicBlock {
     uint16_t start_address;
     uint16_t end_address;
-    uint8_t bank;                       // ROM bank this block belongs to
+    BankId bank;                        // ROM bank this block belongs to
     
     std::vector<size_t> instruction_indices;
     
@@ -60,7 +60,7 @@ struct BasicBlock {
 struct Function {
     std::string name;
     uint16_t entry_address;
-    uint8_t bank;
+    BankId bank;
     
     std::vector<uint16_t> block_addresses;
     
@@ -75,8 +75,18 @@ struct Function {
  */
 struct AddressSymbolMetadata {
     std::string source_name;
+    std::vector<std::string> source_names;
     std::string emitted_name;
     std::string kind;
+    std::string provenance;
+    std::string memory_space;
+    uint32_t width = 1;
+    std::string comment;
+};
+
+struct ConstantSymbolMetadata {
+    uint32_t value = 0;
+    std::string memory_space = "constant";
     std::string provenance;
     std::string comment;
 };
@@ -91,6 +101,25 @@ struct AnalysisAnnotation {
     uint32_t addr = 0;
     uint32_t size = 1;
     AnalysisAnnotationKind kind = AnalysisAnnotationKind::LABEL;
+};
+
+/**
+ * @brief Stable, actionable record for a conservative analyzer decision
+ */
+struct AnalysisDiagnostic {
+    std::string id;
+    std::string kind;
+    BankId bank = 0;
+    uint16_t address = 0;
+    std::string memory_space;
+    std::string status;
+    std::string evidence;
+    std::string suggested_annotation;
+    std::string relationship;
+    bool has_related_address = false;
+    BankId related_bank = 0;
+    uint16_t related_address = 0;
+    std::string related_memory_space;
 };
 
 /* ============================================================================
@@ -118,6 +147,10 @@ struct AnalysisResult {
 
     // Imported symbol metadata indexed by (bank << 16 | addr)
     std::map<uint32_t, AddressSymbolMetadata> symbol_metadata;
+    std::map<std::string, ConstantSymbolMetadata> constant_metadata;
+
+    // Conservative analysis choices and unresolved sites, keyed by stable ID.
+    std::map<std::string, AnalysisDiagnostic> analysis_diagnostics;
     
     // Labels needed (jump targets)
     std::set<uint32_t> label_addresses;  // (bank << 16 | addr)
@@ -166,18 +199,18 @@ struct AnalysisResult {
     BankTracker bank_tracker;
     
     // Helper to create combined address
-    static uint32_t make_addr(uint8_t bank, uint16_t addr) {
+    static uint32_t make_addr(BankId bank, uint16_t addr) {
         return (static_cast<uint32_t>(bank) << 16) | addr;
     }
     
     // Get instruction at bank:addr
-    const Instruction* get_instruction(uint8_t bank, uint16_t addr) const;
+    const Instruction* get_instruction(BankId bank, uint16_t addr) const;
     
     // Get block at bank:addr
-    const BasicBlock* get_block(uint8_t bank, uint16_t addr) const;
+    const BasicBlock* get_block(BankId bank, uint16_t addr) const;
     
     // Get function at bank:addr
-    const Function* get_function(uint8_t bank, uint16_t addr) const;
+    const Function* get_function(BankId bank, uint16_t addr) const;
 };
 
 /* ============================================================================
@@ -235,7 +268,7 @@ AnalysisResult analyze(const ROM& rom, const AnalyzerOptions& options = {});
  * @param options Analysis options
  * @return Partial analysis for that bank
  */
-AnalysisResult analyze_bank(const ROM& rom, uint8_t bank,
+AnalysisResult analyze_bank(const ROM& rom, BankId bank,
                             const AnalyzerOptions& options = {});
 
 /* ============================================================================
@@ -245,12 +278,12 @@ AnalysisResult analyze_bank(const ROM& rom, uint8_t bank,
 /**
  * @brief Generate function name for an address
  */
-std::string generate_function_name(uint8_t bank, uint16_t address);
+std::string generate_function_name(BankId bank, uint16_t address);
 
 /**
  * @brief Generate label name for an address
  */
-std::string generate_label_name(uint8_t bank, uint16_t address);
+std::string generate_label_name(BankId bank, uint16_t address);
 
 /**
  * @brief Print analysis summary
@@ -260,7 +293,7 @@ void print_analysis_summary(const AnalysisResult& result);
 /**
  * @brief Check if address is likely data (not code)
  */
-bool is_likely_data(const AnalysisResult& result, uint8_t bank, uint16_t address);
+bool is_likely_data(const AnalysisResult& result, BankId bank, uint16_t address);
 
 } // namespace gbrecomp
 

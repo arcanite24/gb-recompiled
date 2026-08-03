@@ -1,0 +1,55 @@
+{
+  "schema": "crystal.encounters",
+  "version": 1,
+  "changes": [
+    {
+      "map": "ROUTE_29",
+      "time": "all",
+      "slot": 0,
+      "level": 5,
+      "species": "HOPPIP"
+    },
+    {
+      "map": "ROUTE_29",
+      "time": "all",
+      "slot": 1,
+      "level": 5,
+      "species": "HOPPIP"
+    },
+    {
+      "map": "ROUTE_29",
+      "time": "all",
+      "slot": 2,
+      "level": 5,
+      "species": "HOPPIP"
+    },
+    {
+      "map": "ROUTE_29",
+      "time": "all",
+      "slot": 3,
+      "level": 5,
+      "species": "HOPPIP"
+    },
+    {
+      "map": "ROUTE_29",
+      "time": "all",
+      "slot": 4,
+      "level": 5,
+      "species": "HOPPIP"
+    },
+    {
+      "map": "ROUTE_29",
+      "time": "all",
+      "slot": 5,
+      "level": 5,
+      "species": "HOPPIP"
+    },
+    {
+      "map": "ROUTE_29",
+      "time": "all",
+      "slot": 6,
+      "level": 5,
+      "species": "HOPPIP"
+    }
+  ]
+}

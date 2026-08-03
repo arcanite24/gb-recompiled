@@ -1,0 +1,20 @@
+{
+  "schema": "gbrecomp.native-patch",
+  "version": 1,
+  "patch_id": "org.gbrecompiled.nl5.synthetic",
+  "rom": {
+    "sha256": "d86b164e5012feba5511abe480fbae2502187c8a2b3077b1f8a84f64d4381f17",
+    "size": 32768
+  },
+  "sources": [
+    "patch.c"
+  ],
+  "bindings": [
+    {
+      "function": "gbfn:v1:0000:0160",
+      "pre": "nl5_pre",
+      "replace": "nl5_replace",
+      "post": "nl5_post"
+    }
+  ]
+}

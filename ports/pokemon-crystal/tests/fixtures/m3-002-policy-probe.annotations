@@ -1,0 +1,6 @@
+# CR-M3-002 policy fixture.
+#
+# This is not a production Crystal annotation set. It proves that a separately
+# authored, explicit annotation can add one boundary while the raw RGBDS
+# symbol file remains names-only.
+function 01:5b04 IntroMenu_DummyFunction

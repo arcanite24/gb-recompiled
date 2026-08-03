@@ -15,6 +15,8 @@
 /* #define AUDIO_DEBUG_LOGGING */
 #define DEBUG_AUDIO_MAX_SAMPLES (44100 * 10) /* 10 seconds */
 #define DEBUG_AUDIO_BUFFER_FRAMES 2048
+#define AUDIO_CLOCK_HZ UINT32_C(4194304)
+#define AUDIO_SAMPLE_RATE UINT32_C(44100)
 
 static bool g_audio_debug_enabled = false;
 static bool g_audio_debug_trace_enabled = false;
@@ -202,10 +204,9 @@ typedef struct GBAudio {
     uint32_t sample_timer;
     uint32_t sample_period; /* Cycles per sample */
     
-    /* Fixed-point sample timer for accurate 44100 Hz timing */
-    /* 4194304 Hz / 44100 Hz = 95.108... cycles per sample */
-    /* We use 16.16 fixed point: 95.108 * 65536 = 6233460 */
-    uint32_t sample_timer_fixed;
+    /* Exact rational sample phase: add 44100 per system cycle and emit at
+     * 4194304. This avoids long-run drift from a rounded fixed-point period. */
+    uint32_t sample_phase;
 
     /* Simple DC-blocker state for the final stereo mix */
     int32_t hp_prev_in_l;
@@ -349,7 +350,7 @@ static void audio_reset_timing_state(GBAudio* apu) {
     /* Store the previously executed step so the next clock runs step 0. */
     apu->fs_step = 7;
     apu->sample_timer = 0;
-    apu->sample_timer_fixed = 0;
+    apu->sample_phase = 0;
     apu->last_output_left = 0;
     apu->last_output_right = 0;
 }
@@ -482,6 +483,17 @@ void gb_audio_get_samples(void* audio, int16_t* left, int16_t* right) {
     if (right) {
         *right = (apu != NULL) ? apu->last_output_right : 0;
     }
+}
+
+uint32_t gb_audio_cycles_until_sample(const void* audio) {
+    const GBAudio* apu = (const GBAudio*)audio;
+    if (!apu || !(apu->nr52 & 0x80)) {
+        return UINT32_MAX;
+    }
+    const uint32_t phase_until_sample = AUDIO_CLOCK_HZ - apu->sample_phase;
+    const uint32_t cycles =
+        (phase_until_sample + AUDIO_SAMPLE_RATE - 1u) / AUDIO_SAMPLE_RATE;
+    return cycles > 0u ? cycles : 1u;
 }
 
 uint8_t gb_audio_read_pcm12(void* audio) {
@@ -754,15 +766,7 @@ void gb_audio_write(GBContext* ctx, uint16_t addr, uint8_t value) {
     }
 }
 
-void gb_audio_step(GBContext* ctx, uint32_t cycles) {
-    GBAudio* apu = (GBAudio*)ctx->apu;
-    if (!apu || !(apu->nr52 & 0x80)) return;
-    
-    /* Generate Samples? */
-    /* 4194304 Hz / 44100 Hz = 95.1 cycles/sample */
-    apu->sample_timer += cycles;
-    
-    /* Channel 1 Stepping */
+static void audio_step_channels(GBAudio* apu, uint32_t cycles) {
     if (apu->ch1.enabled) {
         uint16_t freq_raw = apu->ch1.nr13 | ((apu->ch1.nr14 & 0x07) << 8);
         uint32_t period = (2048 - freq_raw) * 4;
@@ -829,158 +833,211 @@ void gb_audio_step(GBContext* ctx, uint32_t cycles) {
             apu->ch4.lfsr = lfsr;
         }
     }
-    
-    /* Use fixed-point timing for accurate 44100 Hz sample generation */
-    /* 4194304 Hz / 44100 Hz = 95.1084... cycles per sample */
-    /* 16.16 fixed point: 95.1084 * 65536 = 6233460 */
-    #define SAMPLE_PERIOD_FIXED 6233460
-    
-    apu->sample_timer_fixed += (cycles << 16);
-    
-    while (apu->sample_timer_fixed >= SAMPLE_PERIOD_FIXED) {
-        apu->sample_timer_fixed -= SAMPLE_PERIOD_FIXED;
-        
-        /* Track sample generation for stats */
-        audio_stats_sample_generated();
-        
-        int16_t left = 0;
-        int16_t right = 0;
-        int ch1_mix = 0;
-        int ch2_mix = 0;
-        int ch3_mix = 0;
-        int ch4_mix = 0;
-        
-        /* Channel 1 Output */
-        if (apu->ch1.enabled && (apu->ch1.nr12 & 0xF0)) { // DAC ON
-             int duty = (apu->ch1.nr11 >> 6) & 3;
-             int output = DUTY_CYCLES[duty][apu->ch1.wave_pos] ? 1 : -1;
-             ch1_mix = apu->ch1.volume * output;
-             if (apu->nr51 & 0x01) right += ch1_mix;
-             if (apu->nr51 & 0x10) left += ch1_mix;
+}
+
+static void audio_emit_sample(GBContext* ctx, GBAudio* apu) {
+    audio_stats_sample_generated();
+    gbrt_note_audio_sample(ctx);
+
+    int16_t left = 0;
+    int16_t right = 0;
+    int ch1_mix = 0;
+    int ch2_mix = 0;
+    int ch3_mix = 0;
+    int ch4_mix = 0;
+
+    if (apu->ch1.enabled && (apu->ch1.nr12 & 0xF0)) {
+        int duty = (apu->ch1.nr11 >> 6) & 3;
+        int output = DUTY_CYCLES[duty][apu->ch1.wave_pos] ? 1 : -1;
+        ch1_mix = apu->ch1.volume * output;
+        if (apu->nr51 & 0x01) right += ch1_mix;
+        if (apu->nr51 & 0x10) left += ch1_mix;
+    }
+
+    if (apu->ch2.enabled && (apu->ch2.nr22 & 0xF0)) {
+        int duty = (apu->ch2.nr21 >> 6) & 3;
+        int output = DUTY_CYCLES[duty][apu->ch2.wave_pos] ? 1 : -1;
+        ch2_mix = apu->ch2.volume * output;
+        if (apu->nr51 & 0x02) right += ch2_mix;
+        if (apu->nr51 & 0x20) left += ch2_mix;
+    }
+
+    if (apu->ch3.enabled && (apu->ch3.nr30 & 0x80)) {
+        uint8_t byte = apu->ch3.wave_ram[apu->ch3.wave_pos / 2];
+        uint8_t sample = (apu->ch3.wave_pos & 1) ? (byte & 0x0F) : (byte >> 4);
+        switch ((apu->ch3.nr32 >> 5) & 3) {
+            case 0: sample = 8; break;
+            case 1: break;
+            case 2: sample >>= 1; break;
+            case 3: sample >>= 2; break;
         }
-        
-        /* Channel 2 Output */
-        if (apu->ch2.enabled && (apu->ch2.nr22 & 0xF0)) { // DAC ON
-             int duty = (apu->ch2.nr21 >> 6) & 3;
-             int output = DUTY_CYCLES[duty][apu->ch2.wave_pos] ? 1 : -1;
-             ch2_mix = apu->ch2.volume * output;
-             if (apu->nr51 & 0x02) right += ch2_mix;
-             if (apu->nr51 & 0x20) left += ch2_mix;
+        ch3_mix = (int)sample - 8;
+        if (apu->nr51 & 0x04) right += ch3_mix;
+        if (apu->nr51 & 0x40) left += ch3_mix;
+    }
+
+    if (apu->ch4.enabled && (apu->ch4.nr42 & 0xF0)) {
+        int output = !(apu->ch4.lfsr & 1) ? 1 : -1;
+        ch4_mix = apu->ch4.volume * output;
+        if (apu->nr51 & 0x08) right += ch4_mix;
+        if (apu->nr51 & 0x80) left += ch4_mix;
+    }
+
+    int vol_l = (apu->nr50 >> 4) & 7;
+    int vol_r = apu->nr50 & 7;
+    int32_t mixed_left = left * (vol_l + 1) * 64;
+    int32_t mixed_right = right * (vol_r + 1) * 64;
+    left = audio_apply_highpass(mixed_left, &apu->hp_prev_in_l, &apu->hp_prev_out_l);
+    right = audio_apply_highpass(mixed_right, &apu->hp_prev_in_r, &apu->hp_prev_out_r);
+    apu->last_output_left = left;
+    apu->last_output_right = right;
+
+    if (g_audio_debug_trace_enabled) {
+        bool nonzero = (left != 0) || (right != 0);
+        int32_t peak = abs((int)left);
+        if (abs((int)right) > peak) peak = abs((int)right);
+
+        g_debug_trace_total_samples++;
+        g_debug_trace_window_samples++;
+        if (nonzero) g_debug_trace_window_nonzero++;
+        if (ch1_mix != 0) g_debug_trace_window_channel_nonzero[0]++;
+        if (ch2_mix != 0) g_debug_trace_window_channel_nonzero[1]++;
+        if (ch3_mix != 0) g_debug_trace_window_channel_nonzero[2]++;
+        if (ch4_mix != 0) g_debug_trace_window_channel_nonzero[3]++;
+        if (peak > g_debug_trace_window_peak) g_debug_trace_window_peak = peak;
+
+        if (nonzero && !g_debug_trace_first_nonzero_logged) {
+            g_debug_trace_first_nonzero_logged = true;
+            audio_debug_trace_log(
+                "[FIRST-NONZERO] sample=%llu time_ms=%.2f cyc=%u left=%d right=%d "
+                "ch=[%d,%d,%d,%d]\n",
+                (unsigned long long)g_debug_trace_total_samples,
+                (double)g_debug_trace_total_samples * 1000.0 / 44100.0,
+                ctx ? ctx->cycles : 0,
+                left, right,
+                ch1_mix, ch2_mix, ch3_mix, ch4_mix);
+            audio_debug_dump_state(ctx, apu, "first-nonzero");
         }
 
-        /* Channel 3 Output */
-        if (apu->ch3.enabled && (apu->ch3.nr30 & 0x80)) { // DAC ON
-             /* Get wave sample (4-bit) */
-             uint8_t byte = apu->ch3.wave_ram[apu->ch3.wave_pos / 2];
-             uint8_t sample = (apu->ch3.wave_pos & 1) ? (byte & 0x0F) : (byte >> 4);
-             
-             /* Apply volume shift */
-             uint8_t vol_code = (apu->ch3.nr32 >> 5) & 3;
-             switch (vol_code) {
-                 case 0: sample = 8; break; /* Mute => centered silence */
-                 case 1: break; /* 100% */
-                 case 2: sample >>= 1; break; /* 50% */
-                 case 3: sample >>= 2; break; /* 25% */
-             }
-
-             ch3_mix = (int)sample - 8;
-             if (apu->nr51 & 0x04) right += ch3_mix;
-             if (apu->nr51 & 0x40) left += ch3_mix;
+        if (g_debug_trace_window_samples >= 44100) {
+            uint64_t second_index = g_debug_trace_total_samples / 44100;
+            audio_debug_trace_log(
+                "[SECOND %llu] cyc=%u nonzero=%u/%u peak=%d ch1=%u ch2=%u ch3=%u ch4=%u\n",
+                (unsigned long long)second_index,
+                ctx ? ctx->cycles : 0,
+                g_debug_trace_window_nonzero,
+                g_debug_trace_window_samples,
+                g_debug_trace_window_peak,
+                g_debug_trace_window_channel_nonzero[0],
+                g_debug_trace_window_channel_nonzero[1],
+                g_debug_trace_window_channel_nonzero[2],
+                g_debug_trace_window_channel_nonzero[3]);
+            audio_debug_dump_state(ctx, apu, "second-summary");
+            g_debug_trace_window_samples = 0;
+            g_debug_trace_window_nonzero = 0;
+            memset(g_debug_trace_window_channel_nonzero, 0, sizeof(g_debug_trace_window_channel_nonzero));
+            g_debug_trace_window_peak = 0;
         }
+    }
 
-        /* Channel 4 Output */
-        if (apu->ch4.enabled && (apu->ch4.nr42 & 0xF0)) { // DAC ON
-             int output = !(apu->ch4.lfsr & 1) ? 1 : -1;
-             ch4_mix = apu->ch4.volume * output;
-             if (apu->nr51 & 0x08) right += ch4_mix;
-             if (apu->nr51 & 0x80) left += ch4_mix;
-        }
-        
-        /* Master Volume / Scaling */
-        /* Currently values are 0-15 per channel, mixed. Max approx 60. */
-        /* Scale to int16 range */
-        /* Max possible value: 15 * 4 * 8 = 480. 
-           32767 / 480 = 68. 
-           Using 64 provides good volume without clipping. */
-        int vol_l = (apu->nr50 >> 4) & 7;
-        int vol_r = (apu->nr50 & 7);
-        
-        int32_t mixed_left = left * (vol_l + 1) * 64;
-        int32_t mixed_right = right * (vol_r + 1) * 64;
-        left = audio_apply_highpass(mixed_left, &apu->hp_prev_in_l, &apu->hp_prev_out_l);
-        right = audio_apply_highpass(mixed_right, &apu->hp_prev_in_r, &apu->hp_prev_out_r);
-        apu->last_output_left = left;
-        apu->last_output_right = right;
-
-        if (g_audio_debug_trace_enabled) {
-            bool nonzero = (left != 0) || (right != 0);
-            int32_t peak = abs((int)left);
-            if (abs((int)right) > peak) peak = abs((int)right);
-
-            g_debug_trace_total_samples++;
-            g_debug_trace_window_samples++;
-            if (nonzero) g_debug_trace_window_nonzero++;
-            if (ch1_mix != 0) g_debug_trace_window_channel_nonzero[0]++;
-            if (ch2_mix != 0) g_debug_trace_window_channel_nonzero[1]++;
-            if (ch3_mix != 0) g_debug_trace_window_channel_nonzero[2]++;
-            if (ch4_mix != 0) g_debug_trace_window_channel_nonzero[3]++;
-            if (peak > g_debug_trace_window_peak) g_debug_trace_window_peak = peak;
-
-            if (nonzero && !g_debug_trace_first_nonzero_logged) {
-                g_debug_trace_first_nonzero_logged = true;
-                audio_debug_trace_log(
-                    "[FIRST-NONZERO] sample=%llu time_ms=%.2f cyc=%u left=%d right=%d "
-                    "ch=[%d,%d,%d,%d]\n",
-                    (unsigned long long)g_debug_trace_total_samples,
-                    (double)g_debug_trace_total_samples * 1000.0 / 44100.0,
-                    ctx ? ctx->cycles : 0,
-                    left, right,
-                    ch1_mix, ch2_mix, ch3_mix, ch4_mix);
-                audio_debug_dump_state(ctx, apu, "first-nonzero");
+    if (g_audio_debug_enabled && g_debug_sample_count < g_debug_capture_limit_samples) {
+        if (!g_debug_audio_file) g_debug_audio_file = fopen("debug_audio.raw", "wb");
+        if (g_debug_audio_file) {
+            g_debug_audio_buffer[g_debug_audio_buffer_count * 2] = left;
+            g_debug_audio_buffer[g_debug_audio_buffer_count * 2 + 1] = right;
+            g_debug_audio_buffer_count++;
+            g_debug_sample_count++;
+            if (g_debug_audio_buffer_count >= DEBUG_AUDIO_BUFFER_FRAMES) {
+                audio_debug_capture_flush();
             }
-
-            if (g_debug_trace_window_samples >= 44100) {
-                uint64_t second_index = g_debug_trace_total_samples / 44100;
-                audio_debug_trace_log(
-                    "[SECOND %llu] cyc=%u nonzero=%u/%u peak=%d ch1=%u ch2=%u ch3=%u ch4=%u\n",
-                    (unsigned long long)second_index,
-                    ctx ? ctx->cycles : 0,
-                    g_debug_trace_window_nonzero,
-                    g_debug_trace_window_samples,
-                    g_debug_trace_window_peak,
-                    g_debug_trace_window_channel_nonzero[0],
-                    g_debug_trace_window_channel_nonzero[1],
-                    g_debug_trace_window_channel_nonzero[2],
-                    g_debug_trace_window_channel_nonzero[3]);
-                audio_debug_dump_state(ctx, apu, "second-summary");
-                g_debug_trace_window_samples = 0;
-                g_debug_trace_window_nonzero = 0;
-                memset(g_debug_trace_window_channel_nonzero, 0, sizeof(g_debug_trace_window_channel_nonzero));
-                g_debug_trace_window_peak = 0;
+            if (g_debug_sample_count >= g_debug_capture_limit_samples) {
+                audio_debug_capture_flush();
+                printf("[AUDIO] Debug capture complete. Wrote %d samples to debug_audio.raw\n", g_debug_sample_count);
+                fclose(g_debug_audio_file);
+                g_debug_audio_file = NULL;
+                g_debug_audio_buffer_count = 0;
             }
         }
+    }
+    gb_audio_callback(ctx, left, right);
+}
 
-        /* Debug Audio Logging - now controlled by runtime flag */
-        if (g_audio_debug_enabled && g_debug_sample_count < g_debug_capture_limit_samples) {
-            if (!g_debug_audio_file) g_debug_audio_file = fopen("debug_audio.raw", "wb");
-            if (g_debug_audio_file) {
-                g_debug_audio_buffer[g_debug_audio_buffer_count * 2] = (int16_t)left;
-                g_debug_audio_buffer[g_debug_audio_buffer_count * 2 + 1] = (int16_t)right;
-                g_debug_audio_buffer_count++;
-                g_debug_sample_count++;
-                if (g_debug_audio_buffer_count >= DEBUG_AUDIO_BUFFER_FRAMES) {
-                    audio_debug_capture_flush();
-                }
-                if (g_debug_sample_count >= g_debug_capture_limit_samples) {
-                    audio_debug_capture_flush();
-                    printf("[AUDIO] Debug capture complete. Wrote %d samples to debug_audio.raw\n", g_debug_sample_count);
-                    fclose(g_debug_audio_file);
-                    g_debug_audio_file = NULL;
-                    g_debug_audio_buffer_count = 0;
-                }
-            }
+static void audio_advance(GBContext* ctx, GBAudio* apu, uint32_t cycles) {
+    while (cycles > 0) {
+        const uint32_t phase_until_sample = AUDIO_CLOCK_HZ - apu->sample_phase;
+        uint32_t cycles_until_sample =
+            (phase_until_sample + AUDIO_SAMPLE_RATE - 1u) / AUDIO_SAMPLE_RATE;
+        if (cycles_until_sample == 0) cycles_until_sample = 1;
+        const uint32_t step = cycles < cycles_until_sample ? cycles : cycles_until_sample;
+
+        audio_step_channels(apu, step);
+        apu->sample_timer += step;
+        apu->sample_phase += step * AUDIO_SAMPLE_RATE;
+        cycles -= step;
+
+        if (apu->sample_phase >= AUDIO_CLOCK_HZ) {
+            apu->sample_phase -= AUDIO_CLOCK_HZ;
+            audio_emit_sample(ctx, apu);
         }
-        gb_audio_callback(ctx, left, right);
+    }
+}
+
+void gb_audio_step(GBContext* ctx, uint32_t cycles) {
+    GBAudio* apu = ctx ? (GBAudio*)ctx->apu : NULL;
+    if (!apu || !(apu->nr52 & 0x80) || cycles == 0) return;
+    audio_advance(ctx, apu, cycles);
+}
+
+static uint32_t audio_cpu_to_system_cycles(uint32_t cpu_cycles,
+                                           bool double_speed,
+                                           uint8_t* remainder) {
+    if (!double_speed) return cpu_cycles;
+    const uint32_t system_cycles = (cpu_cycles + (*remainder & 1u)) >> 1;
+    *remainder = (uint8_t)((*remainder + cpu_cycles) & 1u);
+    return system_cycles;
+}
+
+void gb_audio_step_timed(GBContext* ctx,
+                         uint16_t old_div,
+                         uint32_t cpu_cycles,
+                         bool double_speed,
+                         uint8_t system_cycle_remainder) {
+    GBAudio* apu = ctx ? (GBAudio*)ctx->apu : NULL;
+    if (!apu || !(apu->nr52 & 0x80) || cpu_cycles == 0) return;
+
+    const uint16_t fs_mask = (uint16_t)(1u << (double_speed ? 13 : 12));
+    uint16_t current_div = old_div;
+    uint32_t remaining = cpu_cycles;
+    uint8_t remainder = system_cycle_remainder & 1u;
+
+    while (remaining > 0) {
+        const uint16_t next_fall =
+            (uint16_t)((current_div | (uint16_t)((fs_mask * 2u) - 1u)) + 1u);
+        uint32_t distance = (uint16_t)(next_fall - current_div);
+        if (distance == 0) distance = (uint32_t)fs_mask * 2u;
+
+        if (distance > remaining) {
+            audio_advance(ctx,
+                          apu,
+                          audio_cpu_to_system_cycles(remaining, double_speed, &remainder));
+            break;
+        }
+
+        if (distance > 1) {
+            const uint32_t before_edge = distance - 1u;
+            audio_advance(ctx,
+                          apu,
+                          audio_cpu_to_system_cycles(before_edge, double_speed, &remainder));
+            current_div = (uint16_t)(current_div + before_edge);
+            remaining -= before_edge;
+        }
+
+        audio_clock_frame_sequencer(apu);
+        audio_advance(ctx,
+                      apu,
+                      audio_cpu_to_system_cycles(1u, double_speed, &remainder));
+        current_div++;
+        remaining--;
     }
 }
 
@@ -1009,5 +1066,11 @@ void gb_audio_div_tick(void* apu_ptr, uint16_t old_div, uint16_t new_div, bool d
 }
 
 void gb_audio_div_reset(void* apu_ptr, uint16_t old_div, bool double_speed) {
-    gb_audio_div_tick(apu_ptr, old_div, 0, double_speed);
+    if (!apu_ptr) return;
+    GBAudio* apu = (GBAudio*)apu_ptr;
+    if (!(apu->nr52 & 0x80)) return;
+    const uint16_t fs_mask = (uint16_t)(1u << (double_speed ? 13 : 12));
+    if (old_div & fs_mask) {
+        audio_clock_frame_sequencer(apu);
+    }
 }

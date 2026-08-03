@@ -1,0 +1,41 @@
+{
+  "schema": "gbrecompiled.port-extension",
+  "version": 1,
+  "extension": {
+    "id": "org.gbrecompiled.crystal.encounter-lens",
+    "version": "1.0.0",
+    "abi_version": 1,
+    "priority": 200
+  },
+  "host": {
+    "id": "crystal-workbench",
+    "version": 9,
+    "abi_version": 3
+  },
+  "rom": {
+    "size": 2097152,
+    "sha256": "fdcc3c8c43813cf8731fc037d2a6d191bac75439c34b24ba1c27526e6acdc8a2"
+  },
+  "load": {
+    "dependencies": [],
+    "conflicts": []
+  },
+  "capabilities": [
+    "host-draw",
+    "host-input",
+    "semantic-read"
+  ],
+  "provenance": {
+    "license": "MIT",
+    "authors": ["GB Recompiled contributors"],
+    "source": "https://github.com/gb-recompiled/gb-recompiled",
+    "content_origin": "project-original"
+  },
+  "entry_symbol": "crystal_encounter_lens_extension_get",
+  "sources": [
+    {
+      "path": "encounter_lens.c",
+      "sha256": "0d99b9d47718b8f6b8260968dc7448b8fa74b6625584b292c4a2032456aa9943"
+    }
+  ]
+}

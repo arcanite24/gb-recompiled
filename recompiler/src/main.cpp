@@ -10,6 +10,7 @@
 #include "recompiler/ir/ir.h"
 #include "recompiler/ir/ir_builder.h"
 #include "recompiler/codegen/c_emitter.h"
+#include "recompiler/native_patch.h"
 
 #include <iostream>
 #include <string>
@@ -17,6 +18,7 @@
 #include <atomic>
 #include <mutex>
 #include <cctype>
+#include <cstdlib>
 #include <fstream>
 #include <sstream>
 #include <vector>
@@ -25,6 +27,83 @@
 #include <filesystem>
 
 namespace fs = std::filesystem;
+
+#ifndef GBRECOMP_VERSION
+#define GBRECOMP_VERSION "0.0.0"
+#endif
+
+static void print_version_json() {
+    std::cout
+        << "{\"schema\":\"gbrecomp.version\",\"schema_version\":1,"
+        << "\"version\":\"" << GBRECOMP_VERSION << "\","
+        << "\"abis\":{"
+        << "\"data_mod\":1,"
+        << "\"gameplay_mutation\":1,"
+        << "\"native_patch\":1,"
+        << "\"port_extension\":1,"
+        << "\"port_module\":3,"
+        << "\"presentation\":1,"
+        << "\"semantic\":1"
+        << "},"
+        << "\"features\":["
+        << "\"annotations\","
+        << "\"bounded-gameplay-mutations\","
+        << "\"exact-rom-native-patches\","
+        << "\"external-runtime-snapshot\","
+        << "\"machine-readable-generation-progress\","
+        << "\"source-built-port-extensions\""
+        << "]}\n";
+}
+
+class ProgressReporter {
+public:
+    bool open(const fs::path& path) {
+        stream_.open(path, std::ios::out | std::ios::trunc);
+        return stream_.is_open();
+    }
+
+    bool enabled() const {
+        return stream_.is_open();
+    }
+
+    void stage(const char* stage_name, unsigned completed) {
+        emit("stage", stage_name, completed, nullptr);
+    }
+
+    void failure(const char* stage_name, const char* code) {
+        emit("failure", stage_name, completed_, code);
+    }
+
+    void complete() {
+        emit("complete", "complete", kTotalStages, nullptr);
+    }
+
+private:
+    static constexpr unsigned kTotalStages = 6;
+    std::ofstream stream_;
+    unsigned completed_ = 0;
+
+    void emit(const char* event,
+              const char* stage_name,
+              unsigned completed,
+              const char* code) {
+        if (!stream_.is_open()) {
+            return;
+        }
+        completed_ = completed;
+        stream_
+            << "{\"schema\":\"gbrecomp.progress\",\"schema_version\":1,"
+            << "\"event\":\"" << event << "\","
+            << "\"stage\":\"" << stage_name << "\","
+            << "\"completed\":" << completed << ","
+            << "\"total\":" << kTotalStages;
+        if (code != nullptr) {
+            stream_ << ",\"code\":\"" << code << "\"";
+        }
+        stream_ << "}\n";
+        stream_.flush();
+    }
+};
 
 void print_banner() {
     std::cout << R"(
@@ -35,7 +114,7 @@ void print_banner() {
   \____|\__,_|_| |_| |_|\___|____/ \___/ \__, |_| \_\___|\___\___/|_| |_| |_| .__/|_|_|\___|\__,_|
                                          |___/                              |_|                   
 )" << '\n';
-    std::cout << "  GameBoy Static Recompiler v0.0.2\n";
+    std::cout << "  GameBoy Static Recompiler v" << GBRECOMP_VERSION << "\n";
     std::cout << "  https://github.com/arcanite24/gb-recompiled\n\n";
 }
 
@@ -45,6 +124,10 @@ void print_usage(const char* program) {
     std::cout << "emits one module per ROM, and generates a launcher to choose the game.\n\n";
     std::cout << "Options:\n";
     std::cout << "  -o, --output <dir>    Output directory (default: <rom>_output)\n";
+    std::cout << "  --runtime-dir <dir>   Runtime snapshot to embed (normally auto-detected)\n";
+    std::cout << "  --native-patch <json> Apply an exact-ROM native replacement manifest\n";
+    std::cout << "  --output-prefix <id>  Stable generated target/file prefix (single-ROM only)\n";
+    std::cout << "  --progress-json <file> Write privacy-safe JSON Lines generation progress\n";
     std::cout << "  -d, --disasm          Disassemble only (don't generate code)\n";
     std::cout << "  -a, --analyze         Analyze control flow only\n";
     std::cout << "  -v, --verbose         Verbose output\n";
@@ -59,9 +142,13 @@ void print_usage(const char* program) {
     std::cout << "  --bank <n>            Only process bank n\n";
     std::cout << "  --add-entry-point b:a Add manual entry point (e.g. 1:4000)\n";
     std::cout << "  --no-scan             Disable aggressive code scanning (enabled by default)\n";
+    std::cout << "  --reachable-only      Analyze only reachable and explicitly annotated entry points\n";
     std::cout << "  --symbols <file>      Load a .sym symbol file and use names for generated functions and labels\n";
+    std::cout << "  --symbol-policy <p>   Symbol analyzer policy: infer-boundaries (default) or names-only\n";
     std::cout << "  --annotations <file>  Load analyzer guidance (function/label/data ranges) from a text file\n";
     std::cout << "  --use-trace <file>    Use runtime trace to find entry points\n";
+    std::cout << "  --version             Print the GB Recompiled version\n";
+    std::cout << "  --version-json        Print machine-readable version and ABI identity\n";
     std::cout << "  -h, --help            Show this help\n";
 }
 
@@ -123,7 +210,7 @@ static std::vector<gbrecomp::AnalyzerOptions::RamOverlay> detect_oam_dma_overlay
         overlay_size += 2;
     }
 
-    uint8_t bank = static_cast<uint8_t>(overlay_start / 0x4000);
+    gbrecomp::BankId bank = static_cast<gbrecomp::BankId>(overlay_start / 0x4000);
     uint16_t offset = static_cast<uint16_t>(overlay_start % 0x4000);
     if (bank > 0) {
         offset = static_cast<uint16_t>(offset + 0x4000);
@@ -151,7 +238,7 @@ static void append_codegen_ram_overlays(
     gbrecomp::codegen::GeneratorOptions& gen_opts) {
     const uint8_t* rom_bytes = rom.data();
     for (const auto& overlay : overlays) {
-        uint8_t bank = static_cast<uint8_t>(overlay.rom_addr >> 16);
+        gbrecomp::BankId bank = static_cast<gbrecomp::BankId>(overlay.rom_addr >> 16);
         uint16_t offset = static_cast<uint16_t>(overlay.rom_addr & 0xFFFF);
         size_t rom_idx = (offset < 0x4000)
             ? offset
@@ -193,14 +280,119 @@ struct GenerationOptions {
     bool single_function = false;
     bool emit_comments = true;
     bool aggressive_scan = true;
+    bool analyze_all_banks = true;
     std::vector<uint32_t> manual_entry_points;
     std::string trace_file_path;
     std::string symbol_file_path;
+    gbrecomp::SymbolAnalysisPolicy symbol_analysis_policy =
+        gbrecomp::SymbolAnalysisPolicy::INFER_BOUNDARIES;
     std::string annotation_file_path;
     bool emit_android_project = false;
     std::string android_package;
     std::string android_app_name;
+    fs::path runtime_dir;
 };
+
+static fs::path resolve_runtime_dir(const char* argv0,
+                                    const fs::path& explicit_dir) {
+    std::vector<fs::path> candidates;
+    if (!explicit_dir.empty()) {
+        candidates.push_back(explicit_dir);
+    }
+    if (const char* environment_dir = std::getenv("GBRECOMP_RUNTIME_DIR")) {
+        if (*environment_dir) {
+            candidates.emplace_back(environment_dir);
+        }
+    }
+
+    std::error_code error;
+    const fs::path executable = fs::absolute(argv0, error);
+    if (!error) {
+        candidates.push_back(executable.parent_path() / "runtime");
+        candidates.push_back(executable.parent_path().parent_path().parent_path() / "runtime");
+    }
+    candidates.push_back(fs::current_path() / "runtime");
+#ifdef GBRECOMP_DEFAULT_RUNTIME_DIR
+    candidates.emplace_back(GBRECOMP_DEFAULT_RUNTIME_DIR);
+#endif
+
+    for (const fs::path& candidate : candidates) {
+        error.clear();
+        if (fs::is_regular_file(candidate / "include" / "gbrt.h", error) &&
+            fs::is_regular_file(candidate / "src" / "gbrt.c", error) &&
+            fs::is_regular_file(candidate / "vendor" / "imgui" / "imgui.cpp", error)) {
+            const fs::path canonical = fs::weakly_canonical(candidate, error);
+            if (!error) {
+                return canonical;
+            }
+        }
+    }
+    return {};
+}
+
+static bool copy_runtime_snapshot(const fs::path& runtime_dir,
+                                  const fs::path& output_dir) {
+    if (runtime_dir.empty()) {
+        return false;
+    }
+    std::error_code error;
+    const fs::path destination = output_dir / "runtime";
+    fs::create_directories(destination, error);
+    if (error) {
+        return false;
+    }
+
+    for (fs::recursive_directory_iterator it(runtime_dir, error), end;
+         !error && it != end;
+         it.increment(error)) {
+        const fs::path relative = fs::relative(it->path(), runtime_dir, error);
+        if (error) {
+            return false;
+        }
+        const auto first_component = relative.begin();
+        const std::string root_name = first_component == relative.end()
+                                          ? std::string()
+                                          : first_component->string();
+        const bool included_root = root_name == "include" ||
+                                   root_name == "src" ||
+                                   root_name == "vendor" ||
+                                   root_name == "third_party" ||
+                                   root_name == "CMakeLists.txt" ||
+                                   root_name == "README.md" ||
+                                   root_name == "LICENSE";
+        if (!included_root) {
+            if (it->is_directory()) {
+                it.disable_recursion_pending();
+            }
+            continue;
+        }
+        const fs::path target = destination / relative;
+        if (it->is_directory()) {
+            fs::create_directories(target, error);
+        } else if (it->is_regular_file()) {
+            fs::create_directories(target.parent_path(), error);
+            if (!error) {
+                fs::copy_file(it->path(), target,
+                              fs::copy_options::overwrite_existing,
+                              error);
+            }
+        }
+        if (error) {
+            return false;
+        }
+    }
+
+    const fs::path project_license = runtime_dir.parent_path() / "LICENSE";
+    if (fs::is_regular_file(project_license, error)) {
+        fs::copy_file(project_license,
+                      destination / "LICENSE",
+                      fs::copy_options::overwrite_existing,
+                      error);
+    } else {
+        error.clear();
+    }
+    return !error;
+}
 
 struct MultiRomModule {
     std::string output_prefix;
@@ -344,31 +536,8 @@ static std::string make_unique_prefix(const std::string& base, std::set<std::str
 }
 
 static std::string build_runtime_relative_path(const fs::path& output_dir) {
-    fs::path relative_out;
-    try {
-        relative_out = fs::relative(output_dir);
-    } catch (...) {
-        relative_out = output_dir;
-    }
-
-    int depth = 0;
-    for (const auto& part : relative_out) {
-        const std::string text = part.string();
-        if (text == "." || text == "/" || text.empty()) {
-            continue;
-        }
-        depth++;
-    }
-    if (depth == 0) {
-        depth = 1;
-    }
-
-    std::ostringstream ss;
-    for (int i = 0; i < depth; i++) {
-        ss << "../";
-    }
-    ss << "runtime";
-    return ss.str();
+    (void)output_dir;
+    return "runtime";
 }
 
 static bool write_text_file(const fs::path& path, const std::string& content) {
@@ -700,8 +869,9 @@ static std::string make_android_jni_src_cmake(const fs::path& output_dir,
     ss << "project(" << output_prefix << "_android_runtime C CXX)\n\n";
     ss << "set(CMAKE_C_STANDARD 11)\n";
     ss << "set(CMAKE_C_STANDARD_REQUIRED ON)\n";
-    ss << "set(CMAKE_CXX_STANDARD 17)\n";
+    ss << "set(CMAKE_CXX_STANDARD 20)\n";
     ss << "set(CMAKE_CXX_STANDARD_REQUIRED ON)\n\n";
+    ss << "set(GBRECOMP_GENERATED_COMPILE_JOBS \"8\" CACHE STRING \"Maximum concurrent generated-source compiles under Ninja; 0 disables the pool\")\n\n";
     ss << "set(GBRECOMP_OUT_DIR \"${CMAKE_CURRENT_LIST_DIR}/" << output_rel << "\")\n";
     ss << "set(GBRT_DIR \"${CMAKE_CURRENT_LIST_DIR}/" << runtime_rel << "\")\n\n";
     ss << "if(TARGET SDL2::SDL2)\n";
@@ -728,6 +898,9 @@ static std::string make_android_jni_src_cmake(const fs::path& output_dir,
     ss << "    ${GBRT_DIR}/src/audio_stats.c\n";
     ss << "    ${GBRT_DIR}/src/interpreter.c\n";
     ss << "    ${GBRT_DIR}/src/platform_sdl.cpp\n";
+    if (output.has_native_patch) {
+        ss << "    ${GBRT_DIR}/src/gbrt_native_patch.c\n";
+    }
     ss << ")\n\n";
     ss << "target_sources(gbrt PRIVATE\n";
     ss << "    ${GBRT_DIR}/vendor/imgui/imgui.cpp\n";
@@ -741,14 +914,22 @@ static std::string make_android_jni_src_cmake(const fs::path& output_dir,
     ss << "    ${GBRT_DIR}/include\n";
     ss << "    ${GBRT_DIR}/vendor/imgui\n";
     ss << ")\n";
-    ss << "target_compile_definitions(gbrt PUBLIC GB_HAS_SDL2)\n";
-    ss << "target_compile_features(gbrt PUBLIC c_std_11 cxx_std_17)\n";
+    ss << "target_compile_definitions(gbrt PUBLIC GB_HAS_SDL2";
+    if (output.has_native_patch) {
+        ss << " GBRT_ENABLE_NATIVE_PATCHES";
+    }
+    ss << ")\n";
+    ss << "target_compile_features(gbrt PUBLIC c_std_11 cxx_std_20)\n";
     ss << "target_link_libraries(gbrt PUBLIC ${GBRECOMP_SDL_TARGET})\n\n";
     ss << "add_library(main SHARED\n";
     for (const auto& filename : generated_source_files) {
         ss << "    ${GBRECOMP_OUT_DIR}/" << filename << "\n";
     }
     ss << ")\n\n";
+    ss << "if(CMAKE_GENERATOR MATCHES \"Ninja\" AND GBRECOMP_GENERATED_COMPILE_JOBS MATCHES \"^[1-9][0-9]*$\")\n";
+    ss << "    set_property(GLOBAL APPEND PROPERTY JOB_POOLS \"gbrecomp_generated_compile_pool=${GBRECOMP_GENERATED_COMPILE_JOBS}\")\n";
+    ss << "    set_property(TARGET main PROPERTY JOB_POOL_COMPILE gbrecomp_generated_compile_pool)\n";
+    ss << "endif()\n\n";
     ss << "target_include_directories(main PRIVATE\n";
     ss << "    ${GBRECOMP_OUT_DIR}\n";
     ss << "    ${GBRT_DIR}/include\n";
@@ -1318,8 +1499,9 @@ static std::string make_multi_rom_cmake(const std::string& project_name,
     ss << "include(CheckIPOSupported)\n\n";
     ss << "set(CMAKE_C_STANDARD 11)\n";
     ss << "set(CMAKE_C_STANDARD_REQUIRED ON)\n\n";
-    ss << "set(CMAKE_CXX_STANDARD 17)\n";
+    ss << "set(CMAKE_CXX_STANDARD 20)\n";
     ss << "set(CMAKE_CXX_STANDARD_REQUIRED ON)\n\n";
+    ss << "set(GBRECOMP_GENERATED_COMPILE_JOBS \"8\" CACHE STRING \"Maximum concurrent generated-source compiles under Ninja; 0 disables the pool\")\n\n";
     ss << "if(NOT CMAKE_BUILD_TYPE)\n";
     ss << "    set(CMAKE_BUILD_TYPE Release)\n";
     ss << "endif()\n";
@@ -1360,6 +1542,10 @@ static std::string make_multi_rom_cmake(const std::string& project_name,
         ss << "    " << filename << "\n";
     }
     ss << ")\n\n";
+    ss << "if(CMAKE_GENERATOR MATCHES \"Ninja\" AND GBRECOMP_GENERATED_COMPILE_JOBS MATCHES \"^[1-9][0-9]*$\")\n";
+    ss << "    set_property(GLOBAL APPEND PROPERTY JOB_POOLS \"gbrecomp_generated_compile_pool=${GBRECOMP_GENERATED_COMPILE_JOBS}\")\n";
+    ss << "    set_property(TARGET " << project_name << " PROPERTY JOB_POOL_COMPILE gbrecomp_generated_compile_pool)\n";
+    ss << "endif()\n\n";
     ss << "set(GBRECOMP_GENERATED_OPT_LEVEL \"3\" CACHE STRING \"Optimization level for generated ROM source files\")\n";
     ss << "set_property(CACHE GBRECOMP_GENERATED_OPT_LEVEL PROPERTY STRINGS 0 1 2 3)\n";
     ss << "option(GBRECOMP_ENABLE_IPO \"Enable interprocedural optimization/LTO for non-Debug builds\" ON)\n";
@@ -1368,7 +1554,20 @@ static std::string make_multi_rom_cmake(const std::string& project_name,
         ss << "    " << filename << "\n";
     }
     ss << ")\n";
-    ss << "set_source_files_properties(${GBRECOMP_GENERATED_SOURCES} PROPERTIES COMPILE_OPTIONS \"-O${GBRECOMP_GENERATED_OPT_LEVEL}\")\n\n";
+    ss << "if(NOT CMAKE_BUILD_TYPE STREQUAL \"Debug\")\n";
+    ss << "    if(MSVC)\n";
+    ss << "        if(GBRECOMP_GENERATED_OPT_LEVEL STREQUAL \"0\")\n";
+    ss << "            set(GBRECOMP_GENERATED_OPT_FLAG \"/Od\")\n";
+    ss << "        elseif(GBRECOMP_GENERATED_OPT_LEVEL STREQUAL \"1\")\n";
+    ss << "            set(GBRECOMP_GENERATED_OPT_FLAG \"/O1\")\n";
+    ss << "        else()\n";
+    ss << "            set(GBRECOMP_GENERATED_OPT_FLAG \"/O2\")\n";
+    ss << "        endif()\n";
+    ss << "        set_source_files_properties(${GBRECOMP_GENERATED_SOURCES} PROPERTIES COMPILE_OPTIONS \"${GBRECOMP_GENERATED_OPT_FLAG}\")\n";
+    ss << "    else()\n";
+    ss << "        set_source_files_properties(${GBRECOMP_GENERATED_SOURCES} PROPERTIES COMPILE_OPTIONS \"-O${GBRECOMP_GENERATED_OPT_LEVEL}\")\n";
+    ss << "    endif()\n";
+    ss << "endif()\n\n";
     ss << "if(GBRECOMP_ENABLE_IPO AND NOT CMAKE_BUILD_TYPE STREQUAL \"Debug\")\n";
     ss << "    check_ipo_supported(RESULT GBRECOMP_IPO_SUPPORTED OUTPUT GBRECOMP_IPO_ERROR)\n";
     ss << "    if(GBRECOMP_IPO_SUPPORTED)\n";
@@ -1379,6 +1578,11 @@ static std::string make_multi_rom_cmake(const std::string& project_name,
     ss << "    endif()\n";
     ss << "endif()\n\n";
     ss << "target_link_libraries(" << project_name << " gbrt)\n";
+    ss << "if(TARGET SDL2::SDL2main)\n";
+    ss << "    target_link_libraries(" << project_name << " SDL2::SDL2main)\n";
+    ss << "elseif(TARGET SDL2main)\n";
+    ss << "    target_link_libraries(" << project_name << " SDL2main)\n";
+    ss << "endif()\n";
     return ss.str();
 }
 
@@ -1436,14 +1640,16 @@ static bool generate_multi_rom_module(const fs::path& rom_path,
     analyze_opts.verbose = options.verbose;
     analyze_opts.max_instructions = options.limit_instructions;
     analyze_opts.entry_points = options.manual_entry_points;
+    analyze_opts.analyze_all_banks = options.analyze_all_banks;
     analyze_opts.aggressive_scan = options.aggressive_scan;
     analyze_opts.trace_file_path = options.trace_file_path;
-    analyze_opts.annotations = gbrecomp::build_analysis_annotations(symbol_table);
+    analyze_opts.annotations = gbrecomp::build_analysis_annotations(
+        symbol_table, options.symbol_analysis_policy);
 
     const std::vector<gbrecomp::AnalyzerOptions::RamOverlay> dma_overlays =
         detect_oam_dma_overlays(rom);
     for (const auto& overlay : dma_overlays) {
-        uint8_t bank = static_cast<uint8_t>(overlay.rom_addr >> 16);
+        gbrecomp::BankId bank = static_cast<gbrecomp::BankId>(overlay.rom_addr >> 16);
         uint16_t offset = static_cast<uint16_t>(overlay.rom_addr & 0xFFFF);
         size_t rom_idx = (offset < 0x4000)
             ? offset
@@ -1477,7 +1683,8 @@ static bool generate_multi_rom_module(const fs::path& rom_path,
     ir_opts.emit_comments = options.emit_comments;
 
     gbrecomp::ir::IRBuilder builder(ir_opts);
-    auto ir_program = builder.build(analysis, rom.name());
+    auto ir_program = builder.build(
+        analysis, output_prefix.empty() ? rom.name() : output_prefix);
 
     gbrecomp::codegen::GeneratorOptions gen_opts;
     gen_opts.output_prefix = output_prefix;
@@ -1512,9 +1719,21 @@ int main(int argc, char* argv[]) {
         print_usage(argv[0]);
         return 1;
     }
+    if (argc == 2 && std::string(argv[1]) == "--version") {
+        std::cout << GBRECOMP_VERSION << "\n";
+        return 0;
+    }
+    if (argc == 2 && std::string(argv[1]) == "--version-json") {
+        print_version_json();
+        return 0;
+    }
     
     std::string rom_path;
     std::string output_dir;
+    std::string native_patch_manifest_path;
+    std::string output_prefix;
+    fs::path progress_json_path;
+    fs::path explicit_runtime_dir;
     bool disasm_only = false;
     bool analyze_only = false;
     bool verbose = false;
@@ -1524,10 +1743,13 @@ int main(int argc, char* argv[]) {
     bool single_function = false;
     bool emit_comments = true;
     bool aggressive_scan = true;
+    bool analyze_all_banks = true;
     int specific_bank = -1;
     std::vector<uint32_t> manual_entry_points;
     std::string trace_file_path;
     std::string symbol_file_path;
+    gbrecomp::SymbolAnalysisPolicy symbol_analysis_policy =
+        gbrecomp::SymbolAnalysisPolicy::INFER_BOUNDARIES;
     std::string annotation_file_path;
     bool emit_android_project = false;
     std::string android_package;
@@ -1542,6 +1764,22 @@ int main(int argc, char* argv[]) {
         } else if (arg == "-o" || arg == "--output") {
             if (i + 1 < argc) {
                 output_dir = argv[++i];
+            }
+        } else if (arg == "--runtime-dir") {
+            if (i + 1 < argc) {
+                explicit_runtime_dir = argv[++i];
+            }
+        } else if (arg == "--native-patch") {
+            if (i + 1 < argc) {
+                native_patch_manifest_path = argv[++i];
+            }
+        } else if (arg == "--output-prefix") {
+            if (i + 1 < argc) {
+                output_prefix = argv[++i];
+            }
+        } else if (arg == "--progress-json") {
+            if (i + 1 < argc) {
+                progress_json_path = argv[++i];
             }
         } else if (arg == "-d" || arg == "--disasm") {
             disasm_only = true;
@@ -1596,6 +1834,8 @@ int main(int argc, char* argv[]) {
             }
         } else if (arg == "--no-scan") {
             aggressive_scan = false;
+        } else if (arg == "--reachable-only") {
+            analyze_all_banks = false;
         } else if (arg == "--use-trace") {
             if (i + 1 < argc) {
                 trace_file_path = argv[++i];
@@ -1603,6 +1843,23 @@ int main(int argc, char* argv[]) {
         } else if (arg == "--symbols") {
             if (i + 1 < argc) {
                 symbol_file_path = argv[++i];
+            }
+        } else if (arg == "--symbol-policy") {
+            if (i + 1 >= argc) {
+                std::cerr << "Error: --symbol-policy requires a value\n";
+                return 1;
+            }
+            const std::string policy = argv[++i];
+            if (policy == "names-only") {
+                symbol_analysis_policy =
+                    gbrecomp::SymbolAnalysisPolicy::NAMES_ONLY;
+            } else if (policy == "infer-boundaries") {
+                symbol_analysis_policy =
+                    gbrecomp::SymbolAnalysisPolicy::INFER_BOUNDARIES;
+            } else {
+                std::cerr << "Error: unknown symbol policy '" << policy
+                          << "' (expected infer-boundaries or names-only)\n";
+                return 1;
             }
         } else if (arg == "--annotations") {
             if (i + 1 < argc) {
@@ -1629,6 +1886,14 @@ int main(int argc, char* argv[]) {
         std::cerr << "Error: --android is only supported when generating code\n";
         return 1;
     }
+    if (!native_patch_manifest_path.empty() && (disasm_only || analyze_only)) {
+        std::cerr << "Error: --native-patch is only supported when generating code\n";
+        return 1;
+    }
+    if (!output_prefix.empty() && sanitize_prefix(output_prefix) != output_prefix) {
+        std::cerr << "Error: --output-prefix must be a non-empty C identifier\n";
+        return 1;
+    }
 
     GenerationOptions generation_opts;
     generation_opts.verbose = verbose;
@@ -1638,24 +1903,43 @@ int main(int argc, char* argv[]) {
     generation_opts.single_function = single_function;
     generation_opts.emit_comments = emit_comments;
     generation_opts.aggressive_scan = aggressive_scan;
+    generation_opts.analyze_all_banks = analyze_all_banks;
     generation_opts.manual_entry_points = manual_entry_points;
     generation_opts.trace_file_path = trace_file_path;
     generation_opts.symbol_file_path = symbol_file_path;
+    generation_opts.symbol_analysis_policy = symbol_analysis_policy;
     generation_opts.annotation_file_path = annotation_file_path;
     generation_opts.emit_android_project = emit_android_project;
     generation_opts.android_package = android_package;
     generation_opts.android_app_name = android_app_name;
+    if (!disasm_only && !analyze_only) {
+        generation_opts.runtime_dir =
+            resolve_runtime_dir(argv[0], explicit_runtime_dir);
+        if (generation_opts.runtime_dir.empty()) {
+            std::cerr << "Error: Could not locate the runtime snapshot. "
+                         "Use --runtime-dir or GBRECOMP_RUNTIME_DIR.\n";
+            return 1;
+        }
+    }
     
     print_banner();
 
     fs::path input_path = rom_path;
     if (fs::exists(input_path) && fs::is_directory(input_path)) {
+        if (!progress_json_path.empty() || !output_prefix.empty()) {
+            std::cerr << "Error: --progress-json and --output-prefix are single-ROM only\n";
+            return 1;
+        }
         if (disasm_only || analyze_only) {
             std::cerr << "Error: Directory mode does not support --disasm or --analyze\n";
             return 1;
         }
         if (emit_android_project) {
             std::cerr << "Error: Android project generation is only supported for single-ROM output in v1\n";
+            return 1;
+        }
+        if (!native_patch_manifest_path.empty()) {
+            std::cerr << "Error: Native patch manifests are single-ROM only in v1\n";
             return 1;
         }
         if (specific_bank >= 0 || !manual_entry_points.empty()) {
@@ -1771,6 +2055,11 @@ int main(int argc, char* argv[]) {
             std::cerr << "Error: Failed to write " << launcher_cmake_path << "\n";
             return 1;
         }
+        if (!copy_runtime_snapshot(generation_opts.runtime_dir, out_path)) {
+            std::cerr << "Error: Failed to embed runtime snapshot from "
+                      << generation_opts.runtime_dir << "\n";
+            return 1;
+        }
 
         std::cout << "\nGenerated multi-ROM launcher files:\n";
         std::cout << "  " << launcher_source_path << "\n";
@@ -1786,12 +2075,19 @@ int main(int argc, char* argv[]) {
         std::cout << "  " << ((out_path / "build") / launcher_name) << "\n";
         return 0;
     }
+
+    ProgressReporter progress;
+    if (!progress_json_path.empty() && !progress.open(progress_json_path)) {
+        std::cerr << "Error: Failed to open generation progress destination\n";
+        return 1;
+    }
     
     // Load ROM
     std::cout << "Loading ROM: " << rom_path << "\n";
     
     auto rom_opt = gbrecomp::ROM::load(rom_path);
     if (!rom_opt) {
+        progress.failure("rom-validation", "rom-unreadable");
         std::cerr << "Error: Failed to load ROM\n";
         return 1;
     }
@@ -1799,9 +2095,11 @@ int main(int argc, char* argv[]) {
     auto& rom = *rom_opt;
     
     if (!rom.is_valid()) {
+        progress.failure("rom-validation", "rom-invalid");
         std::cerr << "Error: " << rom.error() << "\n";
         return 1;
     }
+    progress.stage("rom-validated", 1);
     
     // Print ROM info
     gbrecomp::print_rom_info(rom);
@@ -1810,15 +2108,30 @@ int main(int argc, char* argv[]) {
     if (!symbol_file_path.empty()) {
         std::string error;
         if (!symbol_table.load_sym_file(symbol_file_path, &rom, &error)) {
+            progress.failure("analysis-inputs", "symbols-invalid");
             std::cerr << "Error: " << error << "\n";
             return 1;
         }
-        std::cout << "Loaded " << symbol_table.size() << " symbols from " << symbol_file_path << "\n";
+        const auto& symbol_stats = symbol_table.load_stats();
+        std::cout << "Loaded " << symbol_table.size() << " unique address symbols from "
+                  << symbol_file_path << " ("
+                  << symbol_stats.address_records << " address records, "
+                  << symbol_stats.duplicate_address_records
+                  << " duplicate-address aliases, "
+                  << symbol_stats.constant_records << " constant records, "
+                  << symbol_stats.unique_constants << " unique constants)\n";
+        std::cout << "Symbol analysis policy: "
+                  << (symbol_analysis_policy ==
+                              gbrecomp::SymbolAnalysisPolicy::NAMES_ONLY
+                          ? "names-only"
+                          : "infer-boundaries")
+                  << "\n";
     }
     if (!annotation_file_path.empty()) {
         const size_t previous_annotation_count = symbol_table.annotation_count();
         std::string error;
         if (!symbol_table.load_annotation_file(annotation_file_path, &error)) {
+            progress.failure("analysis-inputs", "annotations-invalid");
             std::cerr << "Error: " << error << "\n";
             return 1;
         }
@@ -1837,7 +2150,9 @@ int main(int argc, char* argv[]) {
         std::cout << "\nDisassembly:\n";
         std::cout << "============\n";
         
-        uint8_t bank = (specific_bank >= 0) ? specific_bank : 0;
+        gbrecomp::BankId bank = (specific_bank >= 0)
+            ? static_cast<gbrecomp::BankId>(specific_bank)
+            : 0;
         auto instructions = gbrecomp::decode_bank(rom, bank);
         
         for (const auto& instr : instructions) {
@@ -1856,14 +2171,27 @@ int main(int argc, char* argv[]) {
     analyze_opts.verbose = verbose;
     analyze_opts.max_instructions = limit_instructions;
     analyze_opts.entry_points = manual_entry_points;
+    analyze_opts.analyze_all_banks = analyze_all_banks;
     analyze_opts.aggressive_scan = aggressive_scan;
     analyze_opts.trace_file_path = trace_file_path;
-    analyze_opts.annotations = gbrecomp::build_analysis_annotations(symbol_table);
+    analyze_opts.annotations = gbrecomp::build_analysis_annotations(
+        symbol_table, symbol_analysis_policy);
+    if (!symbol_file_path.empty() || !annotation_file_path.empty()) {
+        const size_t explicit_boundaries = symbol_table.annotation_count();
+        const size_t inferred_boundaries =
+            analyze_opts.annotations.size() >= explicit_boundaries
+                ? analyze_opts.annotations.size() - explicit_boundaries
+                : 0;
+        std::cout << "Analyzer boundary inputs: "
+                  << analyze_opts.annotations.size() << " ("
+                  << explicit_boundaries << " explicit annotations, "
+                  << inferred_boundaries << " inferred from address symbols)\n";
+    }
 
     const std::vector<gbrecomp::AnalyzerOptions::RamOverlay> dma_overlays =
         detect_oam_dma_overlays(rom);
     for (const auto& overlay : dma_overlays) {
-            uint8_t bank = static_cast<uint8_t>(overlay.rom_addr >> 16);
+            gbrecomp::BankId bank = static_cast<gbrecomp::BankId>(overlay.rom_addr >> 16);
             uint16_t offset = static_cast<uint16_t>(overlay.rom_addr & 0xFFFF);
             size_t rom_idx = (offset < 0x4000)
                 ? offset
@@ -1882,6 +2210,7 @@ int main(int argc, char* argv[]) {
     if (symbol_table.size() > 0) {
         gbrecomp::apply_symbols_to_analysis(symbol_table, analysis);
     }
+    progress.stage("analysis-complete", 2);
     
     std::cout << "  Found " << analysis.stats.total_functions << " functions\n";
     std::cout << "  Found " << analysis.stats.total_blocks << " basic blocks\n";
@@ -1902,24 +2231,54 @@ int main(int argc, char* argv[]) {
     ir_opts.emit_comments = emit_comments;
     
     gbrecomp::ir::IRBuilder builder(ir_opts);
-    auto ir_program = builder.build(analysis, rom.name());
+    auto ir_program = builder.build(
+        analysis, output_prefix.empty() ? rom.name() : output_prefix);
+    progress.stage("ir-complete", 3);
     
     std::cout << "  " << ir_program.blocks.size() << " IR blocks\n";
     std::cout << "  " << ir_program.functions.size() << " IR functions\n";
+
+    gbrecomp::NativePatchPackage native_patch;
+    if (!native_patch_manifest_path.empty()) {
+        std::string native_patch_error;
+        if (!gbrecomp::load_native_patch_manifest(native_patch_manifest_path,
+                                                  rom.data(),
+                                                  rom.size(),
+                                                  native_patch,
+                                                  native_patch_error)) {
+            progress.failure("native-patch", "native-patch-invalid");
+            std::cerr << "Error: Native patch manifest: " << native_patch_error << "\n";
+            return 1;
+        }
+        if (!gbrecomp::validate_native_patch_bindings(native_patch,
+                                                      ir_program,
+                                                      native_patch_error)) {
+            progress.failure("native-patch", "native-patch-unresolved");
+            std::cerr << "Error: Native patch manifest: " << native_patch_error << "\n";
+            return 1;
+        }
+        std::cout << "  Native patch " << native_patch.patch_id << ": "
+                  << native_patch.bindings.size() << " binding(s), exact ROM "
+                  << native_patch.rom_sha256.substr(0, 12) << "...\n";
+    }
     
     // Generate code
     std::cout << "\nGenerating C code...\n";
     
     gbrecomp::codegen::GeneratorOptions gen_opts;
-    gen_opts.output_prefix = sanitize_prefix(fs::path(rom_path).stem().string());
+    gen_opts.output_prefix = output_prefix.empty()
+        ? sanitize_prefix(fs::path(rom_path).stem().string())
+        : output_prefix;
     gen_opts.output_dir = output_dir;
     gen_opts.emit_comments = emit_comments;
     gen_opts.single_function_mode = single_function;
     gen_opts.parallel_codegen_jobs = requested_jobs;
+    gen_opts.native_patch = std::move(native_patch);
     append_codegen_ram_overlays(rom, analyze_opts.ram_overlays, gen_opts);
     
     auto output = gbrecomp::codegen::generate_output(
         ir_program, rom.data(), rom.size(), gen_opts);
+    progress.stage("code-generation-complete", 4);
     
     // Create output directory
     fs::path out_path = output_dir;
@@ -1930,7 +2289,14 @@ int main(int argc, char* argv[]) {
     
     // Write output files
     if (!gbrecomp::codegen::write_output(output, output_dir)) {
+        progress.failure("output-write", "output-write-failed");
         std::cerr << "Error: Failed to write output files\n";
+        return 1;
+    }
+    if (!copy_runtime_snapshot(generation_opts.runtime_dir, out_path)) {
+        progress.failure("runtime-snapshot", "runtime-copy-failed");
+        std::cerr << "Error: Failed to embed runtime snapshot from "
+                  << generation_opts.runtime_dir << "\n";
         return 1;
     }
 
@@ -1941,6 +2307,7 @@ int main(int argc, char* argv[]) {
             ? make_default_android_package(gen_opts.output_prefix)
             : android_package;
         if (!is_valid_java_package(resolved_android_package)) {
+            progress.failure("android-project", "android-package-invalid");
             std::cerr << "Error: Invalid Android package name '" << resolved_android_package << "'\n";
             return 1;
         }
@@ -1952,10 +2319,12 @@ int main(int argc, char* argv[]) {
         }
         if (!write_android_project(out_path, gen_opts.output_prefix, output,
                                    resolved_android_package, resolved_android_app_name)) {
+            progress.failure("android-project", "android-write-failed");
             std::cerr << "Error: Failed to write Android project scaffold\n";
             return 1;
         }
     }
+    progress.stage("output-complete", 5);
     
     std::cout << "\nGenerated files:\n";
     std::cout << "  " << (out_path / output.header_file) << "\n";
@@ -1982,6 +2351,7 @@ int main(int argc, char* argv[]) {
         std::cout << "  Package: " << resolved_android_package << "\n";
         std::cout << "  App name: " << resolved_android_app_name << "\n";
     }
+    progress.complete();
     
     return 0;
 }

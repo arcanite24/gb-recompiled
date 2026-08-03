@@ -1,216 +1,103 @@
-## General
-- [x] Rendering modes for runtime (how we scale the viewport, how do we handle aspect ratio and window resizing?)
-- [x] Audio output (how do we handle audio timing and buffering?)
-- [x] Save data handling (how do we read/write save data, and how do we handle save states?)
-- [ ] Script callbacks (how do we allow custom code to hook into gameplay events without modifying generated code directly?)
-- [x] Performance optimizations (what are the hotspots in the generated code, and how can we optimize them without sacrificing readability or modifiability?)
-- [ ] Consider if Imgui still the best scenario for UI
-- [x] Multi-rom support, they share the same runtime but have different generated code and metadata, we add a launcher to select which one to run
-- [x] Graphical launcher for multi-rom support
-- [ ] Per game configurations on multi-rom mode
-- [x] Benchmark performance and memory usage against emulators
-- [x] Improve interpreter fallback performance and coverage, and add a way to detect and report when it's being used. Gather feedback from interpreter hotspots to guide recompiler improvements.
-- [x] Add support for parallel recompilation on multi-core machines to speed up the initial generation process. Ideally for multi-rom batch generation as well.
-- [x] Remove mgbdis from repo
-- [x] Improve handling of imgui dependency, check if a submodule is the best approach or if we can vendor it in a cleaner way, document the selected approach on the readme
-- [ ] Benchmark performance on low-end hardware compared to emulators, and optimize for that use case (ESP32, Raspberry Pi, etc.)
-- [ ] Fix double-click to launch game on multi-rom launcher
-- [~] Guide the recompilation with annotation files, entrypoints, function names, data ranges, etc. to improve the generated code quality and stability
-- [ ] Fix "ghosting" on screen shake on pokemon blue when receiving damage, likely a timing issue with the current rendering approach
-- [ ] Improve asset handling, currently they're hardcoded as raw data blobs in the code
-- [x] Fix save not detected on pokemon blue
-- [x] Implement savestates
-- [x] Update AGENTS.md
-- [x] Python script to summarize interpreter .log files, showing which functions are hotspots for interpreter fallback and which instructions are causing it
-- [x] Revisit more aggressive compiler optimizations
-- [ ] Support shaders
-- [x] Input remapping for controllers and keyboard
-- [ ] Clean README and add a cool logo, more screenshots
+# Project backlog
 
-## GBC
-- [x] GBC modes is not loading the save file
-- [x] Improve binary size for GBC games (pokemon crystal is ~130mb)
-- [x] Symbol-guided recompilation for GBC
-- [x] Builds are taking too long, especially linking
+This is the live backlog. Completed P0 audit remediation and its verification evidence are recorded in [the July 2026 code improvement audit](docs/CODE_IMPROVEMENT_AUDIT_2026-07-12.md).
 
-## Android
-- [ ] Support remapping controller inputs on Android
-- [ ] Custom app icon
-- [ ] Multi-rom support with in-app launcher
-- [ ] Debug overlay and settings menu for performance monitoring and configuration
-  
-# Platforms
-- [x] Android support
-- [ ] WebAssembly support
+## P1 — Accuracy and semantic correctness
 
-# Modding / Porting Output Plan
+- [x] Model final-M-cycle bus timing for `CALL`, `JP`, `RET`, `RETI`, `RST`, `PUSH`, and `POP`; the 12 affected Mooneye control/stack timing cases now pass.
+- [x] Fix timer reload/write edges, including DIV/TAC glitches and the four-cycle TIMA overflow/reload window; the configured timer set is 13/13.
+- [x] Fix IE/IF masking, interrupt-entry stack phases/reselection, and CGB double-speed interrupt acceptance; `ie_push`, `if_ie_registers`, and Blargg `interrupt_time` now pass.
+- [x] Model `ADD SP,e` and `LD HL,SP+e` immediate-read and idle M-cycles across generated, interpreted, and copied-RAM execution; both configured Mooneye timing ROMs now pass.
+- [x] Split `(HL)` reads and read-modify-write stores into their real bus phases across generated and interpreted execution; Blargg `mem_timing-1` and `mem_timing-2` now pass.
+- [x] Verify Blargg `halt_bug` through its stable rendered verdict and unify generated/interpreted HALT entry; focused tests cover pending-IRQ fetch suppression, copied-RAM execution, repeated HALT, wake behavior, RST, and interrupt entry.
+- [x] Model DMG OAM corruption for direct reads/writes, 16-bit IDU operations, stack phases, and `HL+/-` accesses across generated, interpreted, and copied-RAM execution; Blargg is now 8/8.
+- [ ] Resolve `unused_hwio-GS` and `unused_hwio-C` with model-specific readback/masking tests.
+- [ ] Fix bank-aware direct-target persistence and banked `JP HL` table reads without turning conservative unknowns into wrong compiled calls.
+- [ ] Speed up differential comparison with hashes or dirty ranges while retaining an explicit strict/full-memory mode.
+- [ ] Add independent state/frame or trace oracles so shared runtime bugs cannot pass generated-vs-interpreter differential checks.
+- [x] Make APU output invariant to scheduler batch size, use an exact 44.1 kHz clock, and cover direct, HALT-heavy, and CGB double-speed execution with deterministic PCM hashes.
+- [x] Remove SDL audio callback data races, validate the callback/UI boundary under TSAN, and batch producer publication and callback copies.
+- [ ] Make battery, RTC, and savestate writes transactional; move savestates toward an explicit portable serialized format.
 
-## Goal
+## P1 — Product and build durability
 
-Make the generated output more useful for:
+- [ ] Generate projects through a staging directory and atomically replace the destination only after every write succeeds.
+- [ ] Produce precise errors for short writes, invalid paths, full disks, malformed numeric CLI values, and missing option arguments.
+- [ ] Replace unconditional GNU/Clang extensions in emitted/runtime code with portable compiler abstractions.
+- [ ] Run generation, generated-project build, execution, differential smoke, and release relocation on ordinary CI pushes and pull requests.
+- [ ] Unify single-ROM, multi-ROM, and Android runtime/CMake templates and make build-profile defaults consistent.
+- [ ] Add a tested Python dependency manifest for PyBoy, psutil, and Pillow.
+- [ ] Add git state, ROM/binary hashes, compiler/profile, runtime flags, and input hashes to benchmark and accuracy artifacts.
 
-- reverse engineering
-- gameplay modding
-- source-level patching
-- native ports
+## P1 — Game Boy Color
 
-The target is not just "faithful execution", but "faithful and understandable structure".
+- [ ] Fix CGB DIV initialization behavior (`boot_div-cgb0` and `boot_div-cgbABCDE`).
+- [ ] Fix `unused_hwio-C` I/O readback and masking.
+- [ ] Complete KEY0/PGB edge behavior and the remaining undocumented CGB I/O masks.
+- [ ] Replace the FF56 infrared stub with defined behavior or an explicit unsupported path.
+- [ ] Validate double-speed, HDMA, LCD/STAT, and DMG-on-CGB edge cases against Pan Docs and SameBoy.
+- [ ] Expand the curated CGB hardware-test and real-game smoke matrix.
 
-## Current Baseline
+## P2 — Recompiler performance and maintainability
 
-- [x] Import function names from `.sym` files with `--symbols`
-- [x] Sanitize imported names into safe generated identifiers (`sym_*`)
-- [x] Validate the flow with `pokeblue.sym`
+- [x] Complete NL-0 symbolized three-game profiles, dynamic device attribution, build/footprint capture, cycle-input provenance, and the conservative region estimator; see [the measured result](docs/NL0_POST_WIN_PERFORMANCE_TRUTH_2026-07-14.md).
+- [x] Retain the NL-1 arithmetic DIV/TIMA common path after 10.7% to 24.5% three-game full-headless wins with scalar-oracle, timer, state, frame, PCM, and differential evidence; see [the measured result](docs/NL1_ARITHMETIC_TIMER_RESULT_2026-07-14.md).
+- [x] Evaluate lazy PPU synchronization outside mode 3; reject and revert it after 61.8% fewer PPU calls produced only 9.7%, 1.9%, and 1.2% three-game gains, below the keep gate; see [the measured result](docs/NL2_LAZY_PPU_RESULT_2026-07-14.md).
+- [x] Retain APU event batching after 94.3% fewer APU advancements and 14.7% to 20.3% three-game full-headless wins with eager-oracle, PCM, state, frame, double-speed, observer, and differential evidence; see [the measured result](docs/APU_EVENT_BATCHING_RESULT_2026-07-14.md).
+- [x] Re-profile visibility-aware compiled regions after the retained scheduler wins; defer implementation because 37.5%, 17.0%, and 13.1% predicted commit removal clears the 20% gate on only one workload; see [the NL-3 result](docs/NL3_POST_SCHEDULER_REPROFILE_2026-07-14.md).
+- [x] Retain 1 MiB generated chunks and an eight-job Ninja compile pool after reducing mapper-heavy/CGB compiler peak RSS by 48.3%/56.7% with effectively neutral runtime; see [the NL-4 result](docs/NL4_GENERATED_BUILD_RESULT_2026-07-14.md).
+- [x] Retain the NL-5 exact-ROM native replacement SDK with stable IDs, fail-closed manifests, C/C++ source packages, safepoint-correct original/post composition, runtime identity checking, relocation, and a legal synthetic example; see [the NL-5 result](docs/NL5_NATIVE_PATCH_SDK_RESULT_2026-07-14.md).
+- [x] Execute the first event-scheduled/localized-state prototype and apply its keep gate; [the July 2026 result](docs/NR0_EVENT_SCHEDULING_PROTOTYPE_2026-07-13.md) retains counters and the event deadline but rejects the low-coverage transform.
+- [x] Complete the NR-0 generated memory/PPU/audio counters and use them to execute measured NR-2/NR-3 slices; [the July 2026 result](docs/NR123_DYNAMIC_OPTIMIZATION_RESULTS_2026-07-13.md) retains guarded WRAM/HRAM access and stable-span PPU rendering.
+- [x] Retain guarded generated fast paths for WRAM, banked WRAM, and HRAM after a 4.9% Tetris full-headless win with identical state and strict differential evidence.
+- [x] Retain conservative sprite-free background/window PPU spans after 18.5%, 15.3%, and 7.7% full-headless wins on small DMG, mapper-heavy DMG, and CGB workloads.
+- [ ] Extend NL-0 artifact identity and mismatched-profile rejection to refreshed core and interactive profiles, including separate frame-time and input-latency evidence.
+- [ ] Revisit CPU state localization only as an implementation detail of a visibility-aware region that passes the new coverage gate; do not retry the rejected register-only shape.
+- [ ] Replace linear annotation-range lookup with sorted/merged per-bank intervals.
+- [ ] Cache byte plausibility/decode results used by aggressive scans and avoid repeated whole-ROM passes.
+- [ ] Replace dense `map`/`set` analyzer state with indexed vectors/bitsets where measurements justify it.
+- [ ] Avoid repeated CFG traversals when building functions and ownership information.
+- [ ] Stream generated C chunks instead of retaining complete function bodies in memory.
+- [ ] Evaluate binary ROM embedding to reduce generated-source size and compiler memory.
+- [ ] Remove or quarantine obsolete emitter/generator/lowering paths and unimplemented public options.
+- [ ] Replace magic operand indices such as `(HL)` with typed, exhaustively validated operands.
+- [ ] Split platform-neutral emulation from SDL/ImGui integration for headless tests, fuzzing, WebAssembly, and profiling.
 
-## Guiding Principles
+## Product and platform work
 
-- Keep execution semantics correct first.
-- Prefer deterministic output over clever but unstable heuristics.
-- Add metadata before aggressive restructuring when possible.
-- Support two use cases:
-  - accurate low-level output
-  - more readable modding-friendly output
+- [ ] Add per-game configuration to the multi-ROM launcher.
+- [ ] Fix double-click launch in the graphical multi-ROM picker.
+- [ ] Add a custom Android app icon.
+- [ ] Add an optional touch gameplay overlay for Android.
+- [ ] Add multi-ROM Android output only after the single-ROM lifecycle is stable.
+- [ ] Add WebAssembly support after the runtime/platform split.
+- [ ] Add shader support without coupling core emulation to a renderer.
+- [ ] Benchmark representative low-end hardware with clearly labeled profiles.
 
-## Phase 1: Expand Symbol Support
+## Generated output for modding and ports
 
-### 1.1 Internal labels
+Already available:
 
-- [x] Apply `.sym` names to internal labels, not just function entrypoints
-- [x] Preserve address-based fallback labels when no symbol exists
-- [x] Resolve label-name collisions deterministically
+- [x] `.sym` function, internal-label, RAM/HRAM, and ROM-data naming
+- [x] trusted `function`, `label`, and `data` annotations
+- [x] deterministic sanitized names with provenance
+- [x] `*_metadata.json` sidecars for emitted symbols and addresses
+- [x] exact-ROM stable function IDs, patchability metadata, and generated native ID headers
+- [x] pre/replacement/post native bindings with deferred call-original support
 
-Success criteria:
+Next:
 
-- jumps and branch targets in generated code use named labels where symbols exist
-- repeated generation produces identical names
+- [ ] Export unresolved indirect jumps and detected RAM overlays in metadata.
+- [ ] Detect and name safe ROM pointer/byte tables without treating arbitrary data as code.
+- [ ] Add optional schemas for game-specific tables and enums.
+- [ ] Distinguish callable functions from local control-flow entry points.
+- [ ] Recover simple structured control flow only behind semantic-equivalence tests.
+- [ ] Extend the selected-function SDK only from a concrete port: narrow input, rendering, audio, or persistence services remain future versioned interfaces.
+- [ ] Make output ordering, chunking, and formatting stable enough for reviewable regeneration diffs.
 
-### 1.2 Data and RAM symbols
+## Documentation and usability
 
-- [x] Load symbol names for WRAM, HRAM, SRAM, and ROM data labels
-- [x] Use symbolic names in generated memory accesses where safe
-- [x] Add hardware/register aliasing on top of raw addresses
-
-Success criteria:
-
-- emitted code prefers `sym_wFoo` / `sym_DataTable` over raw `0xCxxx` / `0x4xxx` where possible
-
-### 1.3 Symbol provenance
-
-- [x] Track whether a name came from `.sym`, builtin hardware aliases, or autogenerated fallback
-- [x] Preserve the original source symbol alongside the emitted sanitized C name
-
-Success criteria:
-
-- tooling can tell where each emitted name came from
-
-## Phase 2: Emit Metadata Sidecars
-
-- [x] Emit JSON or YAML metadata next to generated code
-- [~] Include:
-  - bank/address to emitted function name
-  - bank/address to emitted label name
-  - bank/address to emitted data/address constant name
-  - imported symbol source name
-  - unresolved `JP HL` / `CALL HL` sites
-  - generated->interpreter fallback hotspots
-  - detected RAM overlays / copied code regions
-
-Success criteria:
-
-- external tools can consume the recompiler output without parsing C
-- metadata stays stable across rebuilds unless analysis meaningfully changes
-
-## Phase 3: Lift Data Out of Raw Byte Access
-
-### 3.1 ROM tables
-
-- [~] Detect common pointer tables and byte tables
-- [~] Emit them as named ROM data entrypoints where layout is trustworthy
-- [~] Replace raw ROM address literals with symbolized ROM data references where safe
-
-### 3.2 Typed data
-
-- [ ] Add optional schemas for known game data sets
-- [ ] Support enums for maps, items, species, scripts, tilesets, etc.
-- [ ] Allow per-game metadata files to describe known table layouts
-
-Success criteria:
-
-- generated code references named arrays and enums instead of anonymous ROM offsets for common tables
-
-## Phase 4: Improve Control-Flow Readability
-
-### 4.1 Reduce fragmentation
-
-- [ ] Distinguish true callable functions from internal control-flow entrypoints
-- [ ] Keep internal jump targets local to the containing function when possible
-
-### 4.2 Structured control flow
-
-- [ ] Recover simple `if/else`
-- [ ] Recover loops (`while`, `do/while`)
-- [ ] Recover simple `switch`-like jump-table structures
-
-Success criteria:
-
-- generated code becomes easier to read without changing runtime behavior
-- label count and goto count drop measurably on supported functions
-
-## Phase 5: Improve Variable and Register Lifting
-
-- [ ] Lift repeated register-temporary patterns into clearer locals
-- [ ] Name stack temporaries deterministically
-- [ ] Use typed helper wrappers for common CPU/runtime idioms
-
-Success criteria:
-
-- hot gameplay functions read more like maintained C and less like register shuffling
-
-## Phase 6: Add Modding / Porting Hooks
-
-- [ ] Add stable override points for input, rendering, audio, save I/O, and script callbacks
-- [ ] Allow selected generated functions to be replaced by handwritten implementations
-- [ ] Support "overlay" source files that survive regeneration
-
-Success criteria:
-
-- ports can replace subsystems without forking the entire generated output
-- mods can patch isolated gameplay functions without editing huge generated files directly
-
-## Phase 7: Deterministic and Diff-Friendly Output
-
-- [ ] Keep function ordering stable
-- [ ] Keep chunking stable
-- [ ] Keep formatting stable
-- [ ] Avoid noisy output churn from unrelated analysis changes
-
-Success criteria:
-
-- small source changes produce small diffs
-- regenerated output is practical to review in PRs
-
-## Output Modes
-
-- [ ] Keep the current low-level mode as the default correctness-first output
-- [ ] Add an optional readability-oriented mode later, once metadata and lifting are good enough
-
-Possible flag:
-
-- `--output-style lowlevel`
-- `--output-style modding`
-
-## Validation Requirements
-
-Every phase above should be validated with:
-
-- [ ] `ninja -C build`
-- [ ] regenerate and rebuild `tetris_test`
-- [ ] differential smoke test on `tetris_test`
-- [ ] at least one complex ROM smoke test, currently `pokeblue`
-- [ ] deterministic output spot-check across two identical runs
-
-## Immediate Next Steps
-
-1. Extend symbolized address lifting into more ROM data/table references where the target is known and safe.
-2. Export unresolved indirect-jump sites and RAM overlay regions into `*_metadata.json`.
-3. Decide whether builtin region bases (`GB_WRAM0_BASE`, `GB_HRAM_BASE`, etc.) also need explicit metadata entries for external tooling.
+- [ ] Add generated-runtime `--help` with strict unknown-option and missing-value errors.
+- [ ] Replace frame-sampled “ground truth” capture with instruction-level trace capture, or rename the tool and its output format to match its actual fidelity.
+- [ ] Keep compatibility claims tied to fresh hashes, commands, and artifacts instead of an unversioned game list.
+- [ ] Add a logo or new screenshots only when they represent the current runtime.

@@ -1,0 +1,125 @@
+{
+  "schema": "crystal-recompiled.references",
+  "version": 1,
+  "captured": "2026-07-28",
+  "sources": [
+    {
+      "name": "pokecrystal",
+      "url": "https://github.com/pret/pokecrystal.git",
+      "commit": "3438c7003a57fa2987fcb223d14b660761b33c64",
+      "license": "NO-LICENSE-FILE",
+      "purpose": "Byte-matching Crystal disassembly and game semantics",
+      "required_files": [
+        "README.md",
+        "Makefile",
+        "ram/wram.asm",
+        "ram/sram.asm",
+        "engine/menus/save.asm"
+      ]
+    },
+    {
+      "name": "pokecrystal-symbols",
+      "url": "https://github.com/pret/pokecrystal.git",
+      "commit": "0cc2d9450283fedfc43b02809884e77c76a9036c",
+      "license": "NO-LICENSE-FILE",
+      "purpose": "Prebuilt RGBDS symbols and maps",
+      "required_files": [
+        "pokecrystal11.sym"
+      ],
+      "sha256": {
+        "pokecrystal11.sym": "ca55588e83e4f4974e3872057eec12e8aac853bad1774e91486b5986cf6cb780"
+      }
+    },
+    {
+      "name": "pokecrystal-wiki",
+      "url": "https://github.com/pret/pokecrystal.wiki.git",
+      "commit": "d9d52b54c8ae9953771d8109e8af3a22fcaca3d6",
+      "license": "NO-LICENSE-FILE",
+      "purpose": "Crystal modding tutorials and technical notes",
+      "required_files": [
+        "Assembly-programming.md",
+        "How-to-find-ROM-offsets.md",
+        "Scripting-commands.md",
+        "Wild-Pokemon-Encounter-Data.md"
+      ]
+    },
+    {
+      "name": "polishedcrystal",
+      "url": "https://github.com/Rangi42/polishedcrystal.git",
+      "commit": "4f200bb1149a460b249b4db6a413aa328397d271",
+      "license": "NO-LICENSE-FILE",
+      "purpose": "Applied reference for large Crystal engine and UX extensions",
+      "required_files": [
+        "README.md",
+        "FEATURES.md",
+        "FAQ.md"
+      ]
+    },
+    {
+      "name": "tilemap-studio",
+      "url": "https://github.com/Rangi42/tilemap-studio.git",
+      "commit": "244378b5be0c6080e9c990e3e08cabdd0f959fe9",
+      "license": "LGPL-3.0",
+      "purpose": "External tilemap and map-authoring tool",
+      "required_files": [
+        "README.md",
+        "LICENSE.md"
+      ]
+    },
+    {
+      "name": "pkhex",
+      "url": "https://github.com/kwsch/PKHeX.git",
+      "commit": "b916b06c03d7dfc293e79fe6462f5fb7b732ae0f",
+      "license": "GPL-3.0",
+      "purpose": "External Gen II save and entity validation oracle",
+      "sparse_paths": [
+        "PKHeX.Core"
+      ],
+      "required_files": [
+        "LICENSE",
+        "PKHeX.Core/Saves/SAV2.cs",
+        "PKHeX.Core/Saves/Substructures/Gen12/SAV2Offsets.cs",
+        "PKHeX.Core/PKM/PK2.cs"
+      ]
+    },
+    {
+      "name": "gb-asm-tools",
+      "url": "https://github.com/pret/gb-asm-tools.git",
+      "commit": "5ff0fead255a093d33baddb46c77a4943bb929d7",
+      "license": "NO-LICENSE-FILE",
+      "purpose": "Disassembly, map, symbol, and graphics helper tools",
+      "required_files": [
+        "README.md",
+        "tools/mapreader.py",
+        "tools/sym_comments.py"
+      ]
+    },
+    {
+      "name": "pandocs",
+      "url": "https://github.com/gbdev/pandocs.git",
+      "commit": "fe246067b695b5404a4a6a47efb4fd6d921ececb",
+      "license": "CC0-1.0",
+      "purpose": "Primary Game Boy and Game Boy Color hardware reference",
+      "required_files": [
+        "LICENSE",
+        "src/MBC3.md",
+        "src/Memory_Map.md",
+        "src/STAT.md"
+      ]
+    },
+    {
+      "name": "sameboy",
+      "url": "https://github.com/LIJI32/SameBoy.git",
+      "commit": "213a12ce93d66b105a113debd9396306066a7cfc",
+      "license": "MIT",
+      "purpose": "Independent high-accuracy hardware implementation reference",
+      "required_files": [
+        "LICENSE",
+        "Core/mbc.c",
+        "Core/memory.c",
+        "Core/display.c",
+        "Core/timing.c"
+      ]
+    }
+  ]
+}

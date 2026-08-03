@@ -1,0 +1,3 @@
+# ID-stability control: names intentionally differ while addresses do not.
+function 04:65cd HookCandidate_StartMenu_Renamed
+function 10:4000 HookCandidate_Pokedex_Renamed

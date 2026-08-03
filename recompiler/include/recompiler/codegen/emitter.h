@@ -10,6 +10,7 @@
 #define RECOMPILER_CODEGEN_EMITTER_H
 
 #include "../ir/ir.h"
+#include "../native_patch.h"
 #include <cstddef>
 #include <cstdint>
 #include <ostream>
@@ -50,6 +51,10 @@ struct GeneratorOptions {
     // Known writable-memory overlays copied from ROM and safe to dispatch
     // when the live bytes still match the generated image.
     std::vector<RamOverlay> ram_overlays;
+
+    // Optional exact-ROM native replacement package. Empty by default, so
+    // generated execution keeps the ordinary direct wrapper-to-body path.
+    NativePatchPackage native_patch;
 };
 
 /**
@@ -66,7 +71,7 @@ public:
     virtual void begin_program(const std::string& name) = 0;
     virtual void end_program() = 0;
     
-    virtual void begin_function(const std::string& name, uint8_t bank, uint16_t addr) = 0;
+    virtual void begin_function(const std::string& name, BankId bank, uint16_t addr) = 0;
     virtual void end_function() = 0;
     
     virtual void emit_label(const std::string& label) = 0;
@@ -184,7 +189,7 @@ public:
     virtual void emit_reti() = 0;
     
     // Bank-aware calls
-    virtual void emit_bank_call(uint8_t target_bank, const std::string& func_name) = 0;
+    virtual void emit_bank_call(BankId target_bank, const std::string& func_name) = 0;
     virtual void emit_bank_dispatch(uint16_t addr) = 0;
     
     // ========== Special ==========
@@ -216,7 +221,7 @@ public:
     // ========== Debug/Comments ==========
     
     virtual void emit_comment(const std::string& comment) = 0;
-    virtual void emit_source_location(uint8_t bank, uint16_t addr) = 0;
+    virtual void emit_source_location(BankId bank, uint16_t addr) = 0;
     
     // ========== Cycle Counting ==========
     

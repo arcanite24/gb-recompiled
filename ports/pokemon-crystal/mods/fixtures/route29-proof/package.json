@@ -1,0 +1,47 @@
+{
+  "schema": "gbrecompiled.data-mod-package",
+  "schema_version": 1,
+  "package": {
+    "id": "org.gbrecompiled.crystal.route29-proof",
+    "version": "1.0.0"
+  },
+  "runtime_abi": {
+    "name": "gbrecomp.data-mod",
+    "version": 1
+  },
+  "compatibility": {
+    "port": {
+      "id": "crystal-recompiled",
+      "version": 1
+    },
+    "rom": {
+      "size": 2097152,
+      "sha256": "fdcc3c8c43813cf8731fc037d2a6d191bac75439c34b24ba1c27526e6acdc8a2"
+    },
+    "semantic": {
+      "package_id": "crystal-recompiled",
+      "package_version": 4,
+      "manifest_sha256": "2eb33327d10fecae903e79d18fad7c9b90f3535b27c9dceb2d2454fb3041c566",
+      "schema_sha256": "b1e8cb8a2c2bec9b221570238f9ff81edde9f81efb036ddb0d36c7a9905aade9"
+    }
+  },
+  "load": {
+    "order": 100,
+    "dependencies": [],
+    "conflicts": []
+  },
+  "provenance": {
+    "license": "MIT",
+    "authors": ["GB Recompiled contributors"],
+    "source": "https://github.com/gb-recompiled/gb-recompiled",
+    "content_origin": "project-original"
+  },
+  "content": [
+    {
+      "id": "route29-morning-proof",
+      "target": "crystal.encounters.v1",
+      "path": "encounters.json",
+      "sha256": "994a3adea5fd961c08d9f82606e29f23568d29209fe36b8f004ee9e8920551b7"
+    }
+  ]
+}

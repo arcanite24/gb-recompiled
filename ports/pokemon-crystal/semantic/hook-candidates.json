@@ -1,0 +1,87 @@
+{
+  "schema": "gbrecompiled.pokemon-crystal.hook-candidates",
+  "version": 1,
+  "rom_sha256": "fdcc3c8c43813cf8731fc037d2a6d191bac75439c34b24ba1c27526e6acdc8a2",
+  "candidates": [
+    {
+      "symbol": "StartMenu",
+      "function_id": "gbfn:v1:0004:65cd",
+      "bank": 4,
+      "address": "0x65cd",
+      "source": "engine/menus/start_menu.asm:13",
+      "known_caller": "StartMenuScript",
+      "caller_source": "engine/overworld/events.asm:844",
+      "replay_coverage": "CR-M2-003/acceptance-20260729/start-menu",
+      "binding_status": "observational",
+      "reason": "fragment-aware analysis now exposes a patchable body, but no native StartMenu binding is selected"
+    },
+    {
+      "symbol": "Pokedex",
+      "function_id": "gbfn:v1:0010:4000",
+      "bank": 16,
+      "address": "0x4000",
+      "source": "engine/pokedex/pokedex.asm:20",
+      "known_caller": "StartMenu_Pokedex",
+      "caller_source": "engine/menus/start_menu.asm:461",
+      "replay_coverage": "CR-M4-006/native-contract-final-20260729/result.json",
+      "binding_status": "bound",
+      "reason": "exact-ROM native manifest binds the route-proven generated original through the explicit return-stack entry contract"
+    },
+    {
+      "symbol": "LoadEnemyMon",
+      "function_id": "gbfn:v1:000f:68eb",
+      "bank": 15,
+      "address": "0x68eb",
+      "source": "engine/battle/core.asm:5963",
+      "known_caller": "InitEnemyWildmon",
+      "caller_source": "engine/battle/core.asm:8183",
+      "replay_coverage": "CR-M8-001/final-wild-proof-20260801/result.json",
+      "binding_status": "bound",
+      "reason": "exact-ROM Challenge Mode pre hook mutates one reviewed wild level before the generated original derives enemy stats"
+    },
+    {
+      "symbol": "TryAddMonToParty",
+      "function_id": "gbfn:v1:0003:588c",
+      "bank": 3,
+      "address": "0x588c",
+      "source": "engine/pokemon/move_mon.asm:3",
+      "known_caller": "TrainerType1",
+      "caller_source": "engine/battle/read_trainer_party.asm:90",
+      "replay_coverage": "CR-M8-002/final-trainer-only-proof4-20260801/result.json",
+      "binding_status": "bound",
+      "reason": "exact-ROM Challenge Mode pre hook uses the reviewed return-stack predef contract to mutate only opposing trainer-party levels before the generated original derives complete party records"
+    },
+    {
+      "symbol": "BillsPC",
+      "function_id": "gbfn:v1:0005:5668",
+      "bank": 5,
+      "address": "0x5668",
+      "binding_status": "observational",
+      "reason": "box and persistence semantics are not yet public contracts"
+    },
+    {
+      "symbol": "_SaveGameData",
+      "function_id": "gbfn:v1:0005:4c10",
+      "bank": 5,
+      "address": "0x4c10",
+      "binding_status": "observational",
+      "reason": "save replacement remains gated on persistence work"
+    },
+    {
+      "symbol": "SaveChecksum",
+      "function_id": "gbfn:v1:0005:4e13",
+      "bank": 5,
+      "address": "0x4e13",
+      "binding_status": "observational",
+      "reason": "save replacement remains gated on persistence work"
+    },
+    {
+      "symbol": "TryLoadSaveFile",
+      "function_id": "gbfn:v1:0005:4ea5",
+      "bank": 5,
+      "address": "0x4ea5",
+      "binding_status": "observational",
+      "reason": "save replacement remains gated on persistence work"
+    }
+  ]
+}
