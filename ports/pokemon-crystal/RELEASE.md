@@ -85,6 +85,8 @@ verified host while other hosts remain explicitly best-effort.
   persistence, vanilla recovery, and privacy gates pass.
 - [ ] `THIRD_PARTY_NOTICES.md`, the trademark disclaimer, and the distribution
   boundary have been reviewed for the intended source-only publication.
+- [ ] Documentation screenshots have been reviewed for copyright/trademark
+  scope and contain no private desktop, path, save, or account information.
 - [ ] Release notes link the current evidence and identify Linux, macOS Intel,
   Windows, and combined physical-controller acceptance as incomplete.
 

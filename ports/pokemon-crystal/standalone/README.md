@@ -1,43 +1,55 @@
 # Crystal Recompiled
 
-Crystal Recompiled is an exact-ROM Pokémon Crystal port project built with
-GB Recompiled. This source repository contains original code, manifests,
-schemas, tests, documentation, and CC0 presentation assets only. It contains
-no ROM, save, extracted game asset, prebuilt symbol dump, generated game
+Crystal Recompiled is a ROM-free, exact-ROM Pokémon Crystal port built with
+[GB Recompiled](https://github.com/arcanite24/gb-recompiled). It uses stable
+game semantics to add host-native features while keeping the original game and
+hardware state authoritative.
+
+<table>
+  <tr>
+    <td width="50%"><img src="../screenshots/crystal-runtime.png" alt="Pokémon Crystal running in a freshly generated Crystal Recompiled executable"></td>
+    <td width="50%"><img src="../screenshots/challenge-mode.png" alt="Crystal Recompiled controller-first Challenge Mode panel"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Freshly generated CGB runtime</sub></td>
+    <td align="center"><sub>Controller-first Challenge Mode</sub></td>
+  </tr>
+</table>
+
+The repository contains original code, manifests, schemas, tests,
+documentation, licensed replacement assets, and the two documentation captures
+above. It does not contain a ROM, save, extracted source asset, generated game
 source, or ROM-derived executable.
+
+## What this project demonstrates
+
+- Exact-ROM semantic views over party, boxes, battle state, maps, and saves.
+- Transactional native Pokédex and PC tools that preserve Crystal's checksums,
+  backup records, and original-function timing.
+- Deterministic Challenge Mode rules for reviewed wild and trainer boundaries.
+- Versioned ROM-free data mods and a source-built Encounter Lens extension.
+- Replay, persistence, fallback, privacy, and release-provenance gates.
+
+## Alpha boundary
+
+This is a source-only fan-project alpha. It accepts only an unmodified
+Pokémon Crystal US/Europe Rev 1 ROM, selected and verified locally. The checked
+vanilla and Challenge Mode routes pass on macOS arm64; Linux, macOS Intel, and
+Windows remain best-effort until the same exact-ROM package checks are completed
+on those hosts. The current evidence does not claim whole-game compatibility or
+combined physical-controller acceptance.
 
 Pokémon and related names and marks belong to their respective owners. This
 unofficial project is not affiliated with, sponsored by, or endorsed by
 Nintendo, The Pokémon Company, Game Freak, or Creatures.
 
-The user supplies an unmodified US/Europe Rev 1 ROM locally. Read
-[`ports/pokemon-crystal/LEGAL.md`](ports/pokemon-crystal/LEGAL.md) before
-distribution and
-[`ports/pokemon-crystal/README.md`](ports/pokemon-crystal/README.md) for the
-complete engineering workflow.
+## Build locally
 
-## Alpha status
+Install Python 3, CMake, Ninja, SDL2 development files, and a C/C++ compiler.
+Then download and extract the matching SDK from the
+[GB Recompiled 0.1.0 release](https://github.com/arcanite24/gb-recompiled/releases/tag/v0.1.0).
 
-This is an early fan-project release. The checked vanilla and Challenge Mode
-routes are deterministic and ROM-free package reconstruction has passed on
-macOS arm64. That is meaningful evidence, not a whole-game compatibility claim.
-Linux, macOS Intel, and Windows remain best-effort until contributors exercise
-the current alpha on those hosts.
-
-Current game-aware features include:
-
-- a native Pokégear Workbench, Pokédex replacement, and transactional PC tools;
-- deterministic Challenge Mode rules for reviewed wild and trainer battles;
-- versioned ROM-free data mods and a source-built Encounter Lens extension;
-- bounded widescreen and native battle-presentation experiments; and
-- exact-ROM, replay, persistence, privacy, and original-function fallback
-  contracts.
-
-## Bootstrap a compatible GB Recompiled SDK
-
-Download and extract the matching GB Recompiled 0.1.0 distribution from the
-[GB Recompiled releases](https://github.com/arcanite24/gb-recompiled/releases/tag/v0.1.0).
-Pass the extracted directory containing `gbrecomp-release.json` to:
+Bootstrap the SDK and pinned generation reference:
 
 ```bash
 python3 ports/pokemon-crystal/scripts/bootstrap.py \
@@ -45,52 +57,25 @@ python3 ports/pokemon-crystal/scripts/bootstrap.py \
   --fetch-references
 ```
 
-The bootstrap validates every distribution file, the exact tool version,
-required ABI versions/features, and the runtime source-tree hash before
-installing ignored local dependencies. `--fetch-references` acquires only the
-pinned symbol source required for generation. Developers can use
-`--fetch-all-references` to acquire the broader optional oracle/tool set.
-Every checkout is fetched from its owner at a pinned commit and remains
-ignored.
-
-## First run
+Select the supported ROM and build in the platform's private user cache:
 
 ```bash
 python3 ports/pokemon-crystal/scripts/first_run.py
 ```
 
-The native file picker accepts only the exact US/Europe Rev 1 ROM. For a
-headless setup, pass `--rom /path/to/your-rom.gbc`. Validation happens before
-the private cache is created. The script then generates and builds with all
-ordinary tool output discarded and only versioned, path-free progress events
-retained.
+For a headless setup, add `--rom /path/to/your-rom.gbc`. The selected path and
+ROM bytes are not written to source control, receipts, or progress logs. See the
+[packaging guide](../PACKAGING.md) for cache locations,
+relocation, saves, mods, and uninstall behavior.
 
-The default private cache is:
+## Read next
 
-- macOS: `~/Library/Application Support/Crystal Recompiled`;
-- Windows: `%LOCALAPPDATA%\Crystal Recompiled`; and
-- Linux: `$XDG_CACHE_HOME/crystal-recompiled` or
-  `~/.cache/crystal-recompiled`.
-
-The cache is refused if it is inside the source checkout. It contains the
-generated project, executable, receipts, and safe progress streams. Releases
-and source control contain none of those files. The selected source-ROM path
-is used only for generation and is not written to a receipt or progress
-record.
-
-Developers can still use `scripts/generate.py` with an ignored
-`output/pokemon-crystal-*` destination for engineering workflows.
-
-Platform release archives add an embedded, inventoried GB Recompiled SDK and
-root `launch-crystal` wrappers. See
-[`ports/pokemon-crystal/PACKAGING.md`](ports/pokemon-crystal/PACKAGING.md) for
-clean-machine prerequisites, relocation, mod selection, save preservation,
-and uninstall behavior.
-
-Before publishing an archive, complete
-[`ports/pokemon-crystal/RELEASE.md`](ports/pokemon-crystal/RELEASE.md) and
-retain the notices in
-[`ports/pokemon-crystal/THIRD_PARTY_NOTICES.md`](ports/pokemon-crystal/THIRD_PARTY_NOTICES.md).
+- [Engineering workflow](../README.md)
+- [Challenge Mode](../CHALLENGE_MODE.md)
+- [Data mods and Encounter Lens](../mods/README.md)
+- [Distribution boundary](../LEGAL.md)
+- [Release checklist](../RELEASE.md)
+- [Third-party notices](../THIRD_PARTY_NOTICES.md)
 
 ## Support boundary
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-GameBoy Recompiler Accuracy Test Runner
+GB Recompiled accuracy test runner
 
 Tests accuracy against Blargg and Mooneye test ROMs by:
   1. Recompiling each ROM with gbrecomp
@@ -591,7 +591,7 @@ def generate_accuracy_md(results: list, output_path: Path):
             lines.append(f"| {label} | {badge} | {preview} |")
         return "\n".join(lines)
 
-    md = f"""# GameBoy Recompiler — Accuracy Report
+    md = f"""# GB Recompiled accuracy report
 
 > Generated: {date_str}
 >

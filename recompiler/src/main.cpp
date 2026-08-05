@@ -1516,6 +1516,12 @@ static std::string make_multi_rom_cmake(const std::string& project_name,
     ss << "find_package(SDL2 REQUIRED)\n\n";
     ss << "add_library(gbrt STATIC\n";
     ss << "    ${GBRT_DIR}/src/gbrt.c\n";
+    ss << "    ${GBRT_DIR}/src/gbrt_data_mod.c\n";
+    ss << "    ${GBRT_DIR}/src/gbrt_hash.c\n";
+    ss << "    ${GBRT_DIR}/src/gbrt_host_configuration.c\n";
+    ss << "    ${GBRT_DIR}/src/gbrt_port.c\n";
+    ss << "    ${GBRT_DIR}/src/gbrt_presentation.c\n";
+    ss << "    ${GBRT_DIR}/src/gbrt_semantic.c\n";
     ss << "    ${GBRT_DIR}/src/differential.c\n";
     ss << "    ${GBRT_DIR}/src/ppu.c\n";
     ss << "    ${GBRT_DIR}/src/audio.c\n";

@@ -39,6 +39,7 @@ PUBLIC_DIRS = {
     "native-patches",
     "replay",
     "route",
+    "screenshots",
     "scripts",
     "semantic",
     "standalone",
@@ -107,6 +108,14 @@ def copy_file(source: Path, destination: Path) -> None:
     shutil.copy2(source, destination)
 
 
+def write_root_readme(source: Path, destination: Path) -> None:
+    """Render nested standalone links for the ejected repository root."""
+    content = source.read_text(encoding="utf-8")
+    content = content.replace('src="../', 'src="ports/pokemon-crystal/')
+    content = content.replace("](../", "](ports/pokemon-crystal/")
+    destination.write_text(content, encoding="utf-8")
+
+
 def source_inventory(root: Path) -> list[dict[str, object]]:
     items = []
     for path in sorted(candidate for candidate in root.rglob("*") if candidate.is_file()):
@@ -149,7 +158,7 @@ def main() -> int:
         PORT_DIR / "standalone" / "root.gitignore",
         output / ".gitignore",
     )
-    shutil.copy2(
+    write_root_readme(
         PORT_DIR / "standalone" / "README.md",
         output / "README.md",
     )
