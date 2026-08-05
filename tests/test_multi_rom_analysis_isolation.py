@@ -69,6 +69,34 @@ def main() -> int:
                 )
                 return 1
 
+            runtime_sources = {
+                "gbrt.c",
+                "gbrt_data_mod.c",
+                "gbrt_hash.c",
+                "gbrt_host_configuration.c",
+                "gbrt_port.c",
+                "gbrt_presentation.c",
+                "gbrt_semantic.c",
+                "differential.c",
+                "interpreter.c",
+                "ppu.c",
+                "audio.c",
+                "audio_stats.c",
+                "platform_sdl.cpp",
+            }
+            missing_runtime_sources = sorted(
+                source
+                for source in runtime_sources
+                if f"${{GBRT_DIR}}/src/{source}" not in cmake
+            )
+            if missing_runtime_sources:
+                print(
+                    "multi-ROM output omitted runtime sources: "
+                    + ", ".join(missing_runtime_sources),
+                    file=sys.stderr,
+                )
+                return 1
+
             function_sets: list[set[tuple[int, str]]] = []
             for name in ("alpha", "beta"):
                 metadata = json.loads(

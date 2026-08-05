@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -38,6 +39,8 @@ def eject(script: Path, output: Path) -> None:
         "ports/pokemon-crystal/native-patches/challenge-mode/manifest.json",
         "ports/pokemon-crystal/route/challenge-v1.json",
         "ports/pokemon-crystal/route/inputs/challenge-adventure-tail.input",
+        "ports/pokemon-crystal/screenshots/challenge-mode.png",
+        "ports/pokemon-crystal/screenshots/crystal-runtime.png",
     }
     if (
         manifest.get("schema") != "crystal-recompiled.source-tree"
@@ -57,6 +60,20 @@ def eject(script: Path, output: Path) -> None:
         or not required_challenge_files.issubset(paths)
     ):
         raise AssertionError("ejected source inventory is unsafe or malformed")
+
+    for readme in (
+        output / "README.md",
+        output / "ports/pokemon-crystal/standalone/README.md",
+    ):
+        content = readme.read_text(encoding="utf-8")
+        targets = re.findall(r"\]\(([^)]+)\)", content)
+        targets.extend(re.findall(r'<img\s+[^>]*src="([^"]+)"', content))
+        for target in targets:
+            if target.startswith(("http://", "https://", "mailto:", "#")):
+                continue
+            path = target.split("#", maxsplit=1)[0]
+            if path and not (readme.parent / path).is_file():
+                raise AssertionError(f"broken local README target: {readme}: {target}")
 
 
 def main() -> int:

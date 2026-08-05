@@ -1,4 +1,4 @@
-# GameBoy Recompiler — Accuracy Report
+# GB Recompiled accuracy report
 
 > Generated: 2026-07-13
 >

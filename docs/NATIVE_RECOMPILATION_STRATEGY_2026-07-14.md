@@ -2,7 +2,8 @@
 
 Date: 2026-07-14
 
-Status: active strategy; supersedes the execution order in the original native recompilation backlog, while retaining that document as the technical inventory
+Status: active strategy; open implementation work is tracked in the
+[project backlog](../TODO.md), with measured results linked below
 
 ## Decision
 

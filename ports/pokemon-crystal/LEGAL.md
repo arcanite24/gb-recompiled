@@ -31,6 +31,7 @@ substitute for qualified legal advice.
 - reproducible scripts that fetch third-party public references directly from
   their owners at pinned commits;
 - original replacement assets with explicit licenses and provenance;
+- reviewed documentation screenshots used to explain current runtime behavior;
 - documentation, acknowledgements, license notices, and disclaimers.
 
 ## Build and release model
