@@ -1845,6 +1845,15 @@ bool gb_context_load_state_file(GBContext* ctx, const char* path) {
     return true;
 }
 
+/* Cartridge RAM is addressed with however many bank/address lines the chip
+ * has; a smaller chip simply ignores the upper lines, so accesses past the
+ * end of the chip mirror instead of floating. MBC1 carts with 8 KiB RAM in
+ * mode 1 depend on this: every RAM "bank" is the same 8 KiB. */
+static uint32_t gb_eram_index(const GBContext* ctx, uint16_t addr) {
+    const uint32_t linear = ((uint32_t)ctx->ram_bank * 0x2000u) + (uint32_t)(addr - 0xA000u);
+    return linear % ctx->eram_size;
+}
+
 static uint8_t gb_direct_read_dma_source(GBContext* ctx, uint16_t addr) {
     if (addr < 0x8000) {
         size_t rom_offset = 0;
@@ -1860,11 +1869,10 @@ static uint8_t gb_direct_read_dma_source(GBContext* ctx, uint16_t addr) {
     }
 
     if (addr >= 0xA000 && addr < 0xC000) {
-        if (!ctx->eram || !ctx->ram_enabled) {
+        if (!ctx->eram || !ctx->eram_size || !ctx->ram_enabled) {
             return 0xFF;
         }
-        uint32_t eram_addr = ((uint32_t)ctx->ram_bank * 0x2000u) + (uint32_t)(addr - 0xA000);
-        return (eram_addr < ctx->eram_size) ? ctx->eram[eram_addr] : 0xFF;
+        return ctx->eram[gb_eram_index(ctx, addr)];
     }
 
     if (addr >= 0xC000 && addr < 0xD000) {
@@ -2037,6 +2045,12 @@ static bool gb_oam_dma_blocks_cpu_addr(const GBContext* ctx, uint16_t addr) {
         return false;
     }
     if (!gb_is_cgb_hardware(ctx)) {
+        /* I/O registers (FF00-FF7F) and IE (FFFF) are inside the CPU and stay
+         * reachable during DMA, like HRAM. OAM and the unusable area are
+         * on the external bus and conflict with the transfer. */
+        if (addr >= 0xFF00) {
+            return false;
+        }
         if (addr >= 0xFE00) {
             return true;
         }
@@ -2646,12 +2660,9 @@ static uint8_t gbrt_read8_impl(GBContext* ctx,
             return 0xFF;
         }
 
-        /* Standard external RAM */
-        if (ctx->eram) {
-            uint32_t eram_addr = ((uint32_t)ctx->ram_bank * 0x2000) + (addr - 0xA000);
-            if (eram_addr < ctx->eram_size) {
-                return ctx->eram[eram_addr];
-            }
+        /* Standard external RAM (mirrored to the chip size) */
+        if (ctx->eram && ctx->eram_size) {
+            return ctx->eram[gb_eram_index(ctx, addr)];
         }
         return 0xFF;
     }
@@ -2929,12 +2940,9 @@ static void gbrt_write8_impl(GBContext* ctx,
             return;
         }
         
-        /* Standard external RAM */
-        if (ctx->eram) {
-            uint32_t eram_addr = ((uint32_t)ctx->ram_bank * 0x2000) + (addr - 0xA000);
-            if (eram_addr < ctx->eram_size) {
-                ctx->eram[eram_addr] = value;
-            }
+        /* Standard external RAM (mirrored to the chip size) */
+        if (ctx->eram && ctx->eram_size) {
+            ctx->eram[gb_eram_index(ctx, addr)] = value;
         }
         return;
     }
