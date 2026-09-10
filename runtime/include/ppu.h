@@ -227,6 +227,9 @@ void ppu_clear_frame_ready(GBPPU* ppu);
  */
 const uint32_t* ppu_get_framebuffer(GBPPU* ppu);
 
+/** @brief Return the RGB color emitted for a DMG shade (0-3). */
+uint32_t ppu_get_dmg_shade_rgb(uint8_t shade);
+
 /**
  * @brief Render a scanline
  */

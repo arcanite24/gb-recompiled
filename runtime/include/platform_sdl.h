@@ -190,6 +190,10 @@ void gb_platform_set_smooth_lcd_transitions(bool enabled);
 void gb_platform_set_title(const char* title);
 
 #ifdef GBRT_ENABLE_TEST_HOOKS
+void gb_platform_test_copy_display_frame(void* pixels, int pitch,
+                                         const uint32_t* framebuffer,
+                                         int palette_idx, const GBContext* ctx);
+
 typedef struct GBAudioStressResult {
     uint64_t frames_enqueued;
     uint64_t write_publications;

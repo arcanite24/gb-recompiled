@@ -238,6 +238,12 @@ add_test(NAME generated_bank_guards_end_to_end
         --gbrecomp "$<TARGET_FILE:gbrecomp>")
 set_tests_properties(generated_bank_guards_end_to_end PROPERTIES TIMEOUT 240)
 
+add_test(NAME generated_dynamic_code_end_to_end
+    COMMAND "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_dynamic_code_e2e.py"
+        --gbrecomp "$<TARGET_FILE:gbrecomp>")
+set_tests_properties(generated_dynamic_code_end_to_end PROPERTIES TIMEOUT 240)
+
 add_executable(test_rgbds_symbol_parser test_rgbds_symbol_parser.cpp)
 target_link_libraries(test_rgbds_symbol_parser PRIVATE gbrecomp_core)
 add_test(NAME rgbds_symbol_parser_handles_constants_and_aliases
@@ -395,6 +401,10 @@ if(TARGET gbrt)
     add_test(NAME audio_pcm_is_invariant_to_scheduler_batch_size COMMAND test_audio_chunk_invariance)
 
     if(SDL2_FOUND)
+        add_executable(test_display_palette test_display_palette.cpp)
+        target_link_libraries(test_display_palette PRIVATE gbrt)
+        add_test(NAME display_palette_maps_completed_ppu_frames COMMAND test_display_palette)
+
         add_executable(test_audio_callback_concurrency test_audio_callback_concurrency.cpp)
         target_link_libraries(test_audio_callback_concurrency PRIVATE gbrt)
         add_test(NAME audio_callback_uses_race_free_batched_ring COMMAND test_audio_callback_concurrency)

@@ -9,6 +9,11 @@ and its linked result reports.
 
 ## P1 — Accuracy and semantic correctness
 
+- [ ] Reproduce German Zelda's post-first-dungeon enemy crash (#11) from a
+  nearby save and validate the original CachyOS Castlevania reports (#20).
+  Current bounded evidence and remaining gates are in the
+  [September issue triage](docs/ISSUE_TRIAGE_2026-09-09.md).
+
 - [ ] Resolve `unused_hwio-GS` and `unused_hwio-C` with model-specific readback
   and masking tests.
 - [ ] Fix bank-aware direct-target persistence and banked `JP HL` table reads

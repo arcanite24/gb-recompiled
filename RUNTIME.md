@@ -34,6 +34,8 @@ Controllers are enabled automatically. The default mapping uses the D-pad or lef
 
 The settings menu can remap keyboard and controller gameplay actions and shortcuts. It also exposes audio output, speed, savestate slots, display smoothing, and diagnostic controls. Preferences are stored in SDL's per-application preference directory.
 
+The Palette selector changes DMG display colors to green, black and white, or amber. It affects the displayed image; diagnostic frame dumps retain the PPU's original colors. CGB games and DMG games running in CGB compatibility mode keep their hardware color palettes, so the selector is disabled in those modes.
+
 ## Saves and savestates
 
 Battery-backed RAM and MBC3 RTC data are loaded and saved by the SDL platform layer. Savestates provide ten slots per game and are checked against the ROM and state-format version before loading.
@@ -187,7 +189,9 @@ Keep reproducible artifacts under `logs/`:
 
 ## Interpreter fallback diagnostics
 
-Generated execution falls back to the interpreter when the analyzer did not emit a compiled target. Instrument the fallback before assuming it is responsible for a slowdown:
+Writable WRAM/HRAM code executes from its current bytes through runtime helpers and interpreter fallback. It is not statically cached: changing an opcode or operand, including self-modification during a call, takes effect on the next fetch. ROM control flow can also target the middle of another instruction; each reachable entry is decoded separately. The synthetic `generated_dynamic_code_end_to_end` test covers both paths of `jr z` over `db $3E; xor a`, repeated RAM edits, and guest-written instruction operands. This is not a whole-game compatibility guarantee.
+
+Generated execution also falls back to the interpreter when the analyzer did not emit a compiled target. Instrument the fallback before assuming it is responsible for a slowdown:
 
 ```bash
 ./output/game/build/game \

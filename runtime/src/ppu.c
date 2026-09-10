@@ -2001,3 +2001,7 @@ void ppu_clear_frame_ready(GBPPU* ppu) {
 const uint32_t* ppu_get_framebuffer(GBPPU* ppu) {
     return ppu->rgb_framebuffer;
 }
+
+uint32_t ppu_get_dmg_shade_rgb(uint8_t shade) {
+    return rgb555_to_rgba(dmg_palette_rgb555[shade & 3u]);
+}
