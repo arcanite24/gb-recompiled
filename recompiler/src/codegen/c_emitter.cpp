@@ -1246,7 +1246,9 @@ static std::vector<EmittedBody> build_emitted_bodies(
 // with the runtime mapper state; when the guard fails the emitted `return;`
 // hands control to gb_dispatch(), which resolves the bank dynamically.
 static std::string bank_guard_prefix(BankId bank, uint16_t target) {
-    if (bank == UNKNOWN_BANK || (target < 0x4000 && bank == 0)) {
+    // MBC1 mode 1 can remap the lower window too, including a target that
+    // analysis resolved to bank zero while the mapper was in mode 0.
+    if (bank == UNKNOWN_BANK) {
         return std::string();
     }
     std::ostringstream guard;
@@ -1277,7 +1279,10 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
         for (int i = 0; i < indent; i++) out << "    ";
     };
     auto emit_native_call_marker = [&](BankId bank, uint16_t address, uint16_t return_pc) {
-        out << "gbrt_native_patch_mark_call(ctx, GB_NATIVE_FUNCTION_ID(0x"
+        // A rejected direct call goes back to the dispatcher. Do not leave a
+        // pending native frame for a binding in a bank that was not entered.
+        out << bank_guard_prefix(bank, address)
+            << "gbrt_native_patch_mark_call(ctx, GB_NATIVE_FUNCTION_ID(0x"
             << std::hex << static_cast<unsigned>(bank) << ", 0x" << address
             << "), 0x" << return_pc << std::dec << ");\n";
     };
