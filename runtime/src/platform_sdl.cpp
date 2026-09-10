@@ -2081,6 +2081,46 @@ static void ensure_lcd_off_framebuffer(void) {
     g_lcd_off_framebuffer_initialized = true;
 }
 
+// Keep texture layout and host palette conversion in the same tested path.
+static void copy_display_frame(void* pixels, int pitch, const uint32_t* framebuffer,
+                               int palette_idx, const GBContext* ctx) {
+    const bool recolor = palette_idx > 0 && palette_idx < IM_ARRAYSIZE(g_palettes) &&
+        (!ctx || ctx->config.model != GB_MODEL_CGB);
+    uint32_t source_palette[4];
+    if (recolor) {
+        for (int shade = 0; shade < 4; ++shade) {
+            source_palette[shade] = ppu_get_dmg_shade_rgb((uint8_t)shade);
+        }
+    }
+    for (int y = 0; y < GB_SCREEN_HEIGHT; ++y) {
+        const uint32_t* src = framebuffer + y * GB_SCREEN_WIDTH;
+        uint32_t* dst = (uint32_t*)((uint8_t*)pixels + y * pitch);
+        if (!recolor) {
+            memcpy(dst, src, GB_SCREEN_WIDTH * sizeof(uint32_t));
+            continue;
+        }
+        for (int x = 0; x < GB_SCREEN_WIDTH; ++x) {
+            dst[x] = src[x];
+            for (int shade = 0; shade < 4; ++shade) {
+                // Completed frames use the PPU's RGB555-expanded colors;
+                // startup and LCD-off frames can still use the legacy colors.
+                if (src[x] == source_palette[shade] || src[x] == g_palettes[0][shade]) {
+                    dst[x] = g_palettes[palette_idx][shade];
+                    break;
+                }
+            }
+        }
+    }
+}
+
+#ifdef GBRT_ENABLE_TEST_HOOKS
+void gb_platform_test_copy_display_frame(void* pixels, int pitch,
+                                         const uint32_t* framebuffer,
+                                         int palette_idx, const GBContext* ctx) {
+    copy_display_frame(pixels, pitch, framebuffer, palette_idx, ctx);
+}
+#endif
+
 static void render_frame_internal(const uint32_t* framebuffer, bool count_guest_frame) {
     if (!framebuffer) {
         DBG_FRAME("Platform render_frame: SKIPPED (null: texture=%d, renderer=%d, fb=%d)",
@@ -2181,29 +2221,7 @@ static void render_frame_internal(const uint32_t* framebuffer, bool count_guest_
     int pitch;
     SDL_LockTexture(g_texture, NULL, &pixels, &pitch);
 
-    const uint32_t* src = framebuffer;
-    uint32_t* dst = (uint32_t*)pixels;
-
-    if (g_palette_idx == 0) {
-        memcpy(dst, src, GB_SCREEN_WIDTH * GB_SCREEN_HEIGHT * sizeof(uint32_t));
-    } else {
-        uint32_t original_palette[4] = { 0xFFE0F8D0, 0xFF88C070, 0xFF346856, 0xFF081820 };
-
-        for (int i = 0; i < GB_SCREEN_WIDTH * GB_SCREEN_HEIGHT; i++) {
-            uint32_t c = src[i];
-            int color_idx = -1;
-            if (c == original_palette[0]) color_idx = 0;
-            else if (c == original_palette[1]) color_idx = 1;
-            else if (c == original_palette[2]) color_idx = 2;
-            else if (c == original_palette[3]) color_idx = 3;
-
-            if (color_idx >= 0) {
-                dst[i] = g_palettes[g_palette_idx][color_idx];
-            } else {
-                dst[i] = c;
-            }
-        }
-    }
+    copy_display_frame(pixels, pitch, framebuffer, g_palette_idx, g_registered_ctx);
 
     SDL_UnlockTexture(g_texture);
     g_last_timing.upload_ms = sdl_now_ms() - upload_start_ms;
@@ -2328,7 +2346,14 @@ static void render_frame_internal(const uint32_t* framebuffer, bool count_guest_
         } else if (g_max_speed_mode) {
             ImGui::TextDisabled("Max speed shortcut is active.");
         }
+        const bool cgb_colors = g_registered_ctx &&
+            g_registered_ctx->config.model == GB_MODEL_CGB;
+        ImGui::BeginDisabled(cgb_colors);
         ImGui::Combo("Palette", &g_palette_idx, g_palette_names, IM_ARRAYSIZE(g_palette_names));
+        ImGui::EndDisabled();
+        if (cgb_colors) {
+            ImGui::TextDisabled("Game Boy Color uses the game's color palettes.");
+        }
 
         ImGui::Separator();
         ImGui::TextDisabled("Audio");

@@ -395,6 +395,10 @@ if(TARGET gbrt)
     add_test(NAME audio_pcm_is_invariant_to_scheduler_batch_size COMMAND test_audio_chunk_invariance)
 
     if(SDL2_FOUND)
+        add_executable(test_display_palette test_display_palette.cpp)
+        target_link_libraries(test_display_palette PRIVATE gbrt)
+        add_test(NAME display_palette_maps_completed_ppu_frames COMMAND test_display_palette)
+
         add_executable(test_audio_callback_concurrency test_audio_callback_concurrency.cpp)
         target_link_libraries(test_audio_callback_concurrency PRIVATE gbrt)
         add_test(NAME audio_callback_uses_race_free_batched_ring COMMAND test_audio_callback_concurrency)

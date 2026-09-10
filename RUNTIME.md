@@ -34,6 +34,8 @@ Controllers are enabled automatically. The default mapping uses the D-pad or lef
 
 The settings menu can remap keyboard and controller gameplay actions and shortcuts. It also exposes audio output, speed, savestate slots, display smoothing, and diagnostic controls. Preferences are stored in SDL's per-application preference directory.
 
+The Palette selector changes DMG display colors to green, black and white, or amber. It affects the displayed image; diagnostic frame dumps retain the PPU's original colors. CGB games and DMG games running in CGB compatibility mode keep their hardware color palettes, so the selector is disabled in those modes.
+
 ## Saves and savestates
 
 Battery-backed RAM and MBC3 RTC data are loaded and saved by the SDL platform layer. Savestates provide ten slots per game and are checked against the ROM and state-format version before loading.
