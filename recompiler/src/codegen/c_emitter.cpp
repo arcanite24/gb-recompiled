@@ -1241,6 +1241,23 @@ static std::vector<EmittedBody> build_emitted_bodies(
     return bodies;
 }
 
+// Statically bound CALL/JP targets in switchable ROM are only valid while
+// the bank the analyzer resolved is actually mapped. Guard the direct C call
+// with the runtime mapper state; when the guard fails the emitted `return;`
+// hands control to gb_dispatch(), which resolves the bank dynamically.
+static std::string bank_guard_prefix(BankId bank, uint16_t target) {
+    // MBC1 mode 1 can remap the lower window too, including a target that
+    // analysis resolved to bank zero while the mapper was in mode 0.
+    if (bank == UNKNOWN_BANK) {
+        return std::string();
+    }
+    std::ostringstream guard;
+    guard << "if (gb_resolve_rom_bank(ctx, 0x" << std::hex << std::setfill('0')
+          << std::setw(4) << target << ") == " << std::dec << static_cast<int>(bank)
+          << ") ";
+    return guard.str();
+}
+
 static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& instr, 
                                 const ir::Program& program, int indent, 
                                 const GeneratorOptions& options,
@@ -1262,7 +1279,10 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
         for (int i = 0; i < indent; i++) out << "    ";
     };
     auto emit_native_call_marker = [&](BankId bank, uint16_t address, uint16_t return_pc) {
-        out << "gbrt_native_patch_mark_call(ctx, GB_NATIVE_FUNCTION_ID(0x"
+        // A rejected direct call goes back to the dispatcher. Do not leave a
+        // pending native frame for a binding in a bank that was not entered.
+        out << bank_guard_prefix(bank, address)
+            << "gbrt_native_patch_mark_call(ctx, GB_NATIVE_FUNCTION_ID(0x"
             << std::hex << static_cast<unsigned>(bank) << ", 0x" << address
             << "), 0x" << return_pc << std::dec << ");\n";
     };
@@ -1718,7 +1738,8 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
                             
                             emit_indent(); out << "} /* End Inline */\n";
                         } else {
-                            out << emitted_function_name(options, target_func) << "(ctx);\n";
+                            out << bank_guard_prefix(tbank, target)
+                                << emitted_function_name(options, target_func) << "(ctx);\n";
                         }
                         emit_indent();
                         out << "return;\n";
@@ -1832,7 +1853,8 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
 
                         emit_indent(); out << "} /* End Inline */\n";
                     } else {
-                        emit_indent(); out << "    " << emitted_function_name(options, target_func) << "(ctx);\n";
+                        emit_indent(); out << "    " << bank_guard_prefix(tbank, target)
+                                           << emitted_function_name(options, target_func) << "(ctx);\n";
                     }
                     
                     emit_indent(); out << "    return;\n";
@@ -1948,7 +1970,8 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
                     emit_indent(); out << "if (ctx->single_step_mode) return;\n";
                     emit_indent();
                     if (func_exists) {
-                        out << emitted_function_name(options, func_name) << "(ctx);\n";
+                        out << bank_guard_prefix(target_bank, target)
+                            << emitted_function_name(options, func_name) << "(ctx);\n";
                     } else {
                         // Fallback to dispatcher (implicit by return)
                     }
@@ -2042,7 +2065,8 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
                     }
                     emit_indent(); out << "    if (ctx->single_step_mode) return;\n";
                     if (func_exists) {
-                        emit_indent(); out << "    " << emitted_function_name(options, func_name) << "(ctx);\n";
+                        emit_indent(); out << "    " << bank_guard_prefix(target_bank, target)
+                                           << emitted_function_name(options, func_name) << "(ctx);\n";
                     }
                 }
                 emit_indent(); out << "    return;\n";

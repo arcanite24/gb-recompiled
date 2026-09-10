@@ -439,6 +439,29 @@ static MapperAnalysisState mapper_state_for_bank(const ROM& rom, BankId bank) {
     return state;
 }
 
+// Mapper state used to seed analysis of home-bank (0x0000-0x3FFF) code.
+// The selected upper-window bank is unknown until the code performs a
+// mapper write we can see. Assuming bank 1 (the previous behaviour) bound
+// every home-bank CALL/JP into 0x4000-0x7FFF to bank 1 statically, which
+// executed the wrong bank when the game had selected another one.
+// Mode/high bits keep their reset values so the lower window and RST
+// vectors still resolve.
+static MapperAnalysisState home_bank_seed_state(const ROM& rom) {
+    MapperAnalysisState state;
+    const MBCType type = rom.header().mbc_type;
+    if (is_mbc1(type)) {
+        state.mbc1_high = 0;
+        state.mbc1_mode = 0;
+    } else if (is_mbc5(type)) {
+        state.mbc5_high = 0;
+    }
+    return state;
+}
+
+static MapperAnalysisState seed_state_for_entry(const ROM& rom, BankId bank) {
+    return bank > 0 ? mapper_state_for_bank(rom, bank) : home_bank_seed_state(rom);
+}
+
 static BankId physical_bank(const ROM& rom, uint32_t bank) {
     const uint32_t bank_count = rom.bank_count();
     if (bank_count == 0) {
@@ -1003,9 +1026,7 @@ static void find_pointer_entry_points(const ROM& rom,
         result.call_targets.insert(full_addr);
         result.strong_call_targets.insert(full_addr);
         work_queue.push({full_addr, -1, -1, -1, -1, -1, -1, -1, -1,
-                         mapper_state_for_bank(
-                             rom,
-                             target_bank > 0 ? target_bank : static_cast<BankId>(1))});
+                         seed_state_for_entry(rom, target_bank)});
     };
 
     for (BankId bank = 0; bank < rom.bank_count(); ++bank) {
@@ -1130,13 +1151,15 @@ AnalysisResult analyze(const ROM& rom, const AnalyzerOptions& options) {
         result.strong_call_targets.insert(annotation.addr);
     }
 
-    // Initial work queue seeding
+    // Initial work queue seeding. Only the power-on entry point runs with the
+    // mapper in its reset state (bank 1 selected); RST/interrupt vectors,
+    // annotated functions and trace entries can execute with any bank mapped.
     for (uint32_t target : result.call_targets) {
         BankId bank = get_bank(target);
+        const bool is_reset_entry = target == make_address(0, 0x100);
         work_queue.push({target, -1, -1, -1, -1, -1, -1, -1, -1,
-                         mapper_state_for_bank(
-                             rom,
-                             bank > 0 ? bank : static_cast<BankId>(1))});
+                         is_reset_entry ? mapper_state_for_bank(rom, 1)
+                                        : seed_state_for_entry(rom, bank)});
     }
     
     // Manual entry points
@@ -1146,9 +1169,7 @@ AnalysisResult analyze(const ROM& rom, const AnalyzerOptions& options) {
             result.strong_call_targets.insert(target);
             BankId bank = get_bank(target);
             work_queue.push({target, -1, -1, -1, -1, -1, -1, -1, -1,
-                             mapper_state_for_bank(
-                                 rom,
-                                 bank > 0 ? bank : static_cast<BankId>(1))});
+                             seed_state_for_entry(rom, bank)});
         }
     }
     
@@ -1221,7 +1242,7 @@ AnalysisResult analyze(const ROM& rom, const AnalyzerOptions& options) {
         result.call_targets.insert(addr);
         result.strong_call_targets.insert(addr);
         work_queue.push({addr, -1, -1, -1, -1, -1, -1, -1, -1,
-                         mapper_state_for_bank(rom, 1)});
+                         home_bank_seed_state(rom)});
     }
 
     // Add manual entry points
@@ -1242,9 +1263,8 @@ AnalysisResult analyze(const ROM& rom, const AnalyzerOptions& options) {
         result.call_targets.insert(addr);
         result.strong_call_targets.insert(addr);
         BankId bank = get_bank(addr);
-        BankId context = (bank > 0) ? bank : 1;
         work_queue.push({addr, -1, -1, -1, -1, -1, -1, -1, -1,
-                         mapper_state_for_bank(rom, context)});
+                         seed_state_for_entry(rom, bank)});
     }
     
     // Multi-pass analysis
@@ -1565,6 +1585,9 @@ AnalysisResult analyze(const ROM& rom, const AnalyzerOptions& options) {
         } else if (instr.opcode == 0x77) { // LD (HL), A
             mapper_addr = get_before_hl();
             mapper_value = before_a;
+        } else if (instr.opcode == 0x36) { // LD (HL), n
+            mapper_addr = get_before_hl();
+            mapper_value = instr.imm8;
         }
 
         if (mapper_addr >= 0 && mapper_addr < 0x8000 &&
@@ -1677,7 +1700,6 @@ AnalysisResult analyze(const ROM& rom, const AnalyzerOptions& options) {
         } else if (instr.is_call) {
             uint16_t target = instr.imm16;
             BankId tbank = target_bank(target);
-            instr.resolved_target_bank = tbank;
 
             bool target_valid = tbank != UNKNOWN_BANK;
             if (target_valid && annotations.contains_data(tbank, target)) {
@@ -1687,6 +1709,8 @@ AnalysisResult analyze(const ROM& rom, const AnalyzerOptions& options) {
             } else if (target_valid && tbank > 0 && tbank != bank) {
                 target_valid = is_likely_direct_branch_target(rom, tbank, target);
             }
+            // A rejected target must not be bound statically by codegen.
+            instr.resolved_target_bank = target_valid ? tbank : UNKNOWN_BANK;
 
             if (!target_valid) {
                 AnalysisDiagnostic diagnostic;
@@ -1737,7 +1761,6 @@ AnalysisResult analyze(const ROM& rom, const AnalyzerOptions& options) {
             if (instr.type == InstructionType::JP_NN || instr.type == InstructionType::JP_CC_NN) {
                 uint16_t target = instr.imm16;
                 BankId tbank = target_bank(target);
-                instr.resolved_target_bank = tbank;
 
                 bool target_valid = tbank != UNKNOWN_BANK;
                 if (target_valid && annotations.contains_data(tbank, target)) {
@@ -1748,6 +1771,7 @@ AnalysisResult analyze(const ROM& rom, const AnalyzerOptions& options) {
                            tbank > 0 && tbank != bank) {
                     target_valid = is_likely_direct_branch_target(rom, tbank, target);
                 }
+                instr.resolved_target_bank = target_valid ? tbank : UNKNOWN_BANK;
 
                 if (!target_valid) {
                     AnalysisDiagnostic diagnostic;
@@ -2011,9 +2035,8 @@ AnalysisResult analyze(const ROM& rom, const AnalyzerOptions& options) {
                     result.strong_call_targets.insert(entry);
                     
                     // Add to queue
-                    BankId context = (bank > 0) ? bank : 1;
                     work_queue.push({entry, -1, -1, -1, -1, -1, -1, -1, -1,
-                                     mapper_state_for_bank(rom, context)});
+                                     seed_state_for_entry(rom, bank)});
                     found_count++;
                     
                     // Mark region as scanned
