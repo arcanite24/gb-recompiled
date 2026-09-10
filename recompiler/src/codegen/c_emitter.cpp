@@ -1704,6 +1704,11 @@ static void emit_ir_instruction(std::ostream& out, const ir::IRInstruction& inst
                         if (options.emit_cycle_counting && instr.cycles > 0) {
                             out << "gbrt_timed_jump(ctx, 0x" << std::hex << target
                                 << std::dec << ", " << (int)instr.cycles << ");\n";
+                            // The jump can complete a frame, expire the run
+                            // budget, or raise an interrupt. Yield before the
+                            // direct call, including calls back into this body.
+                            emit_indent();
+                            out << "if (gbrt_generated_safepoint(ctx)) return;\n";
                         } else {
                             out << "ctx->pc = 0x" << std::hex << target << std::dec << ";\n";
                         }

@@ -9,6 +9,11 @@ and its linked result reports.
 
 ## P1 — Accuracy and semantic correctness
 
+- [ ] Confirm issue #24 on the reporter's platform after regenerating and
+  rebuilding with the direct-jump safepoint fix. Both tested ROMs now pass
+  local startup; the original SIGSEGV still needs reporter confirmation.
+  See [startup investigation](docs/ISSUE_24_STARTUP_2026-09-10.md).
+
 - [ ] Reproduce German Zelda's post-first-dungeon enemy crash (#11) from a
   nearby save and validate the original CachyOS Castlevania reports (#20).
   Current bounded evidence and remaining gates are in the

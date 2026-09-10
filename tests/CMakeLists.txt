@@ -244,6 +244,12 @@ add_test(NAME generated_dynamic_code_end_to_end
         --gbrecomp "$<TARGET_FILE:gbrecomp>")
 set_tests_properties(generated_dynamic_code_end_to_end PROPERTIES TIMEOUT 240)
 
+add_test(NAME generated_jump_safepoints_end_to_end
+    COMMAND "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_jump_safepoint_e2e.py"
+        --gbrecomp "$<TARGET_FILE:gbrecomp>")
+set_tests_properties(generated_jump_safepoints_end_to_end PROPERTIES TIMEOUT 240)
+
 add_executable(test_rgbds_symbol_parser test_rgbds_symbol_parser.cpp)
 target_link_libraries(test_rgbds_symbol_parser PRIVATE gbrecomp_core)
 add_test(NAME rgbds_symbol_parser_handles_constants_and_aliases
