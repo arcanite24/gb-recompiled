@@ -162,7 +162,40 @@ static int execute_b_counter_hram_dma_helper(GBContext* ctx) {
     return 0;
 }
 
+static int verify_dmg_dma_io_access(void) {
+    const uint8_t sources[] = {0xC0, 0x80};
+    int failed = 0;
+    for (unsigned i = 0; i < sizeof(sources); ++i) {
+        GBContext* ctx = make_context(GB_MODEL_DMG);
+        if (!ctx) return 1;
+        gb_write8(ctx, 0xFF05, 0x31); /* TIMA, with timer disabled. */
+        gb_write8(ctx, 0xFF06, 0x42); /* TMA */
+        gb_write8(ctx, 0xFF0F, 0);
+        gb_write8(ctx, 0xFFFF, 0);
+        failed |= activate_dma(ctx, sources[i]);
+        failed |= gb_read8(ctx, 0xFF05) != 0x31;
+        failed |= gb_read8(ctx, 0xFF06) != 0x42;
+        failed |= (gb_read8(ctx, 0xFF0F) & 0x1F) != 0;
+        failed |= gb_read8(ctx, 0xFFFF) != 0;
+        gb_write8(ctx, 0xFF06, 0x73);
+        gb_write8(ctx, 0xFF0F, 4);
+        gb_write8(ctx, 0xFFFF, 4);
+        failed |= gb_read8(ctx, 0xFF06) != 0x73;
+        failed |= (gb_read8(ctx, 0xFF0F) & 0x1F) != 4 || gb_read8(ctx, 0xFFFF) != 4;
+        gb_write8(ctx, 0xFF0F, 0);
+        gb_write8(ctx, 0xFFFF, 0);
+        ctx->ime = 0;
+        gb_halt(ctx);
+        failed |= !ctx->halted || ctx->halt_bug;
+        failed |= gb_read8(ctx, 0xFE00) != 0xFF;
+        gb_context_destroy(ctx);
+    }
+    if (failed) fputs("DMG DMA blocked internal I/O or falsely triggered the HALT bug\n", stderr);
+    return failed;
+}
+
 int main(void) {
+    if (verify_dmg_dma_io_access()) return 1;
     GBContext* dmg_startup = make_context(GB_MODEL_DMG);
     if (!dmg_startup || verify_dma_startup_and_restart(dmg_startup)) {
         fputs("OAM DMA startup or restart did not preserve the two-M-cycle boundary\n", stderr);

@@ -352,6 +352,10 @@ if(TARGET gbrt)
     target_link_libraries(test_runtime_rom_mapping PRIVATE gbrt)
     add_test(NAME runtime_uses_one_rom_mapping COMMAND test_runtime_rom_mapping)
 
+    add_executable(test_eram_mirroring test_eram_mirroring.c)
+    target_link_libraries(test_eram_mirroring PRIVATE gbrt)
+    add_test(NAME cartridge_ram_mirrors_chip_address_lines COMMAND test_eram_mirroring)
+
     add_executable(test_hdma_timing test_hdma_timing.c)
     target_link_libraries(test_hdma_timing PRIVATE gbrt)
     add_test(NAME hdma_charges_hardware_cycles COMMAND test_hdma_timing)
