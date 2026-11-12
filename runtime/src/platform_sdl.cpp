@@ -3548,6 +3548,7 @@ static std::mutex g_host_mutex;
 static std::vector<std::pair<int, int>> g_host_requests;
 static GBHostState g_host_state = {};
 static int g_host_frames = 0;
+static bool g_host_redraw = false;   /* a display setting changed while paused: show the last frame again */
 static uint64_t g_host_fps_since = 0;
 
 void gb_platform_host_set_menu(bool host_menu) {
@@ -3603,12 +3604,14 @@ static bool host_apply(GBContext* ctx) {
                 if (value >= 0 && value < (int)IM_ARRAYSIZE(g_render_scaling_mode_names)) {
                     g_render_scaling_mode = (GBRenderScalingMode)value;
                     update_game_viewport();
+                    g_host_redraw = true;
                 }
                 break;
             case GB_HOST_SET_FILTER:
                 if (value >= 0 && value < (int)IM_ARRAYSIZE(g_render_filter_names)) {
                     g_render_filter_mode = (GBRenderFilterMode)value;
                     update_render_filter();
+                    g_host_redraw = true;
                 }
                 break;
             case GB_HOST_SET_PALETTE:
@@ -3665,6 +3668,13 @@ bool gb_platform_poll_events(GBContext* ctx) {
                 if (event.type == SDL_QUIT) return false;
             }
             if (!host_apply(ctx)) return false;
+            /* The host's menu previews display changes on the paused game: draw the last frame again */
+            if (g_host_redraw && g_last_guest_framebuffer_valid) {
+                static uint32_t frame[GB_FRAMEBUFFER_SIZE];
+                memcpy(frame, g_last_guest_framebuffer, sizeof frame);
+                gb_platform_present_framebuffer(frame);
+            }
+            g_host_redraw = false;
             SDL_Delay(10);
         }
         refresh_audio_device_pause_state();
