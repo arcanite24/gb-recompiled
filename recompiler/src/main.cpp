@@ -890,8 +890,16 @@ static std::string make_android_jni_src_cmake(const fs::path& output_dir,
     ss << "else()\n";
     ss << "    set(GBRECOMP_SDL_MAIN_TARGET \"\")\n";
     ss << "endif()\n\n";
+    // (the same runtime sources as the desktop project, codegen/c_emitter.cpp: the generated main calls
+    // the data-mod and port APIs on every platform)
     ss << "add_library(gbrt STATIC\n";
     ss << "    ${GBRT_DIR}/src/gbrt.c\n";
+    ss << "    ${GBRT_DIR}/src/gbrt_data_mod.c\n";
+    ss << "    ${GBRT_DIR}/src/gbrt_hash.c\n";
+    ss << "    ${GBRT_DIR}/src/gbrt_host_configuration.c\n";
+    ss << "    ${GBRT_DIR}/src/gbrt_port.c\n";
+    ss << "    ${GBRT_DIR}/src/gbrt_presentation.c\n";
+    ss << "    ${GBRT_DIR}/src/gbrt_semantic.c\n";
     ss << "    ${GBRT_DIR}/src/differential.c\n";
     ss << "    ${GBRT_DIR}/src/ppu.c\n";
     ss << "    ${GBRT_DIR}/src/audio.c\n";
@@ -899,6 +907,7 @@ static std::string make_android_jni_src_cmake(const fs::path& output_dir,
     ss << "    ${GBRT_DIR}/src/interpreter.c\n";
     ss << "    ${GBRT_DIR}/src/platform_sdl.cpp\n";
     if (output.has_native_patch) {
+        ss << "    ${GBRT_DIR}/src/gbrt_gameplay_mutation.c\n";
         ss << "    ${GBRT_DIR}/src/gbrt_native_patch.c\n";
     }
     ss << ")\n\n";
