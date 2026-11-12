@@ -7,6 +7,7 @@
 #define GB_PLATFORM_SDL_H
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -65,6 +66,9 @@ void gb_platform_host_set_menu(bool host_menu);
 void gb_platform_host_pause(bool paused);
 void gb_platform_host_request(int action, int value);
 void gb_platform_host_get_state(GBHostState* out);
+/** Where the picture of a savestate slot is kept: the screen as it was when the state was saved (a 160x144 BMP,
+    written beside the state by GB_HOST_SAVE_STATE). Empty until the game has started. */
+void gb_platform_host_state_image_path(int slot, char* out, size_t size);
 
 typedef enum GBPlatformExitAction {
     GB_PLATFORM_EXIT_QUIT = 0,

@@ -3522,6 +3522,28 @@ static bool handle_runtime_event(const SDL_Event* event, GBContext* ctx) {
 }
 
 /* ---- Host control (platform_sdl.h): requests queued by any thread, applied here on the game thread ---- */
+static void sdl_get_savestate_path(char* buffer, size_t size, const GBContext* ctx, int slot);
+
+void gb_platform_host_state_image_path(int slot, char* out, size_t size) {
+    if (size == 0) return;
+    out[0] = '\0';
+    if (!g_registered_ctx) return;
+    sdl_get_savestate_path(out, size, g_registered_ctx, slot);
+    strncat(out, ".bmp", size - strlen(out) - 1);
+}
+
+/* The screen as the savestate in this slot was saved: the host shows it beside the slot */
+static void host_write_state_image(int slot) {
+    if (!g_last_guest_framebuffer_valid) return;
+    char path[1024];
+    gb_platform_host_state_image_path(slot, path, sizeof(path));
+    if (!path[0]) return;
+    SDL_Surface* image = SDL_CreateRGBSurfaceWithFormatFrom(
+        g_last_guest_framebuffer, GB_SCREEN_WIDTH, GB_SCREEN_HEIGHT, 32, GB_SCREEN_WIDTH * 4, SDL_PIXELFORMAT_ARGB8888);
+    if (!image) return;
+    SDL_SaveBMP(image, path);
+    SDL_FreeSurface(image);
+}
 static std::mutex g_host_mutex;
 static std::vector<std::pair<int, int>> g_host_requests;
 static GBHostState g_host_state = {};
@@ -3570,7 +3592,9 @@ static bool host_apply(GBContext* ctx) {
     bool save_preferences = false;
     for (const auto& [action, value] : requests) {
         switch (action) {
-            case GB_HOST_SAVE_STATE: save_savestate_slot(ctx, value); break;
+            case GB_HOST_SAVE_STATE:
+                if (save_savestate_slot(ctx, value)) host_write_state_image(value);
+                break;
             case GB_HOST_LOAD_STATE: load_savestate_slot(ctx, value); break;
             case GB_HOST_SET_SLOT:
                 if (value >= 0 && value < GB_SAVESTATE_SLOT_COUNT) { g_savestate_slot = value; save_preferences = true; }
