@@ -7,6 +7,7 @@
 #define GB_PLATFORM_SDL_H
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -28,6 +29,46 @@ typedef struct GBPlatformTimingInfo {
     double pacing_ms;
     uint32_t pacing_cycles;
 } GBPlatformTimingInfo;
+
+/* Host control: for an app that runs the game inside itself and draws its own menu and overlay (Zest on Android).
+   Any thread may call these; requests take effect on the game thread at its next gb_platform_poll_events. */
+typedef enum GBHostAction {
+    GB_HOST_SAVE_STATE = 1,      /* value: slot, 0-based */
+    GB_HOST_LOAD_STATE = 2,      /* value: slot */
+    GB_HOST_SET_SLOT = 3,        /* value: slot */
+    GB_HOST_SET_SCALING = 4,     /* value: GBRenderScalingMode (0 pixel perfect, 1 fit, 2 fill, 3 stretch) */
+    GB_HOST_SET_FILTER = 5,      /* value: 0 nearest, 1 linear */
+    GB_HOST_SET_PALETTE = 6,     /* value: DMG palette index (ignored for Game Boy Color games) */
+    GB_HOST_SET_SPEED = 7,       /* value: percent, 10 to 500 */
+    GB_HOST_SET_VOLUME = 8,      /* value: percent, 0 to 200 */
+    GB_HOST_SET_MUTE = 9,        /* value: 0 or 1 */
+    GB_HOST_QUIT = 10,           /* ends the game as its own Quit does (battery saves written) */
+} GBHostAction;
+
+typedef struct GBHostState {
+    int fps_x10;           /* frames shown per second over the last second, times ten */
+    int scaling_mode;
+    int filter_mode;
+    int palette;
+    int speed_percent;
+    int volume_percent;
+    int muted;
+    int slot;              /* the active savestate slot, 0-based */
+    int slot_used_mask;    /* bit n set: slot n holds a savestate */
+    int slot_count;
+    int cgb;               /* 1: a Game Boy Color game, which keeps its own colours (no palette choice) */
+    int paused;
+} GBHostState;
+
+/** true: the runtime's own settings menu never opens (Guide, L3, R3, Back, Escape); the host draws one instead. */
+void gb_platform_host_set_menu(bool host_menu);
+/** Holds the game still (no frames, no audio) until called with false. */
+void gb_platform_host_pause(bool paused);
+void gb_platform_host_request(int action, int value);
+void gb_platform_host_get_state(GBHostState* out);
+/** Where the picture of a savestate slot is kept: the screen as it was when the state was saved (a 160x144 BMP,
+    written beside the state by GB_HOST_SAVE_STATE). Empty until the game has started. */
+void gb_platform_host_state_image_path(int slot, char* out, size_t size);
 
 typedef enum GBPlatformExitAction {
     GB_PLATFORM_EXIT_QUIT = 0,

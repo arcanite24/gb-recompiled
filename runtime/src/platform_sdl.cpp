@@ -29,6 +29,7 @@
 #ifdef GBRT_ENABLE_TEST_HOOKS
 #include <thread>
 #endif
+#include <mutex>
 #include <vector>
 #include "imgui.h"
 #include "backends/imgui_impl_sdl2.h"
@@ -62,6 +63,9 @@ static GBPlatformTimingInfo g_last_timing = {};
 
 /* Menu State */
 static bool g_show_menu = false;
+/* (host control, gb_platform_host_*) */
+static std::atomic<bool> g_host_menu{false};
+static std::atomic<bool> g_host_paused{false};
 static bool g_show_overlay = false;
 static int g_speed_percent = 100;
 static int g_palette_idx = 0;
@@ -1309,7 +1313,7 @@ static void update_runtime_action_state(GBContext* ctx) {
                     break;
 
                 case GB_INPUT_ACTION_TOGGLE_MENU:
-                    g_show_menu = !g_show_menu;
+                    if (!g_host_menu.load()) g_show_menu = !g_show_menu;
                     break;
 
                 case GB_INPUT_ACTION_TOGGLE_PORT_UI:
@@ -3409,7 +3413,7 @@ static bool handle_runtime_event(const SDL_Event* event, GBContext* ctx) {
 
             if (event->cbutton.button == SDL_CONTROLLER_BUTTON_GUIDE) {
                 if (pressed) {
-                    g_show_menu = !g_show_menu;
+                    if (!g_host_menu.load()) g_show_menu = !g_show_menu;
                 }
                 return true;
             }
@@ -3465,7 +3469,7 @@ static bool handle_runtime_event(const SDL_Event* event, GBContext* ctx) {
                 case SDL_SCANCODE_ESCAPE:
                 case SDL_SCANCODE_AC_BACK:
                     if (pressed && event->key.repeat == 0) {
-                        g_show_menu = !g_show_menu;
+                        if (!g_host_menu.load()) g_show_menu = !g_show_menu;
                     }
                     return true;
 
@@ -3517,8 +3521,166 @@ static bool handle_runtime_event(const SDL_Event* event, GBContext* ctx) {
     return true;
 }
 
+/* ---- Host control (platform_sdl.h): requests queued by any thread, applied here on the game thread ---- */
+static void sdl_get_savestate_path(char* buffer, size_t size, const GBContext* ctx, int slot);
+
+void gb_platform_host_state_image_path(int slot, char* out, size_t size) {
+    if (size == 0) return;
+    out[0] = '\0';
+    if (!g_registered_ctx) return;
+    sdl_get_savestate_path(out, size, g_registered_ctx, slot);
+    strncat(out, ".bmp", size - strlen(out) - 1);
+}
+
+/* The screen as the savestate in this slot was saved: the host shows it beside the slot */
+static void host_write_state_image(int slot) {
+    if (!g_last_guest_framebuffer_valid) return;
+    char path[1024];
+    gb_platform_host_state_image_path(slot, path, sizeof(path));
+    if (!path[0]) return;
+    SDL_Surface* image = SDL_CreateRGBSurfaceWithFormatFrom(
+        g_last_guest_framebuffer, GB_SCREEN_WIDTH, GB_SCREEN_HEIGHT, 32, GB_SCREEN_WIDTH * 4, SDL_PIXELFORMAT_ARGB8888);
+    if (!image) return;
+    SDL_SaveBMP(image, path);
+    SDL_FreeSurface(image);
+}
+static std::mutex g_host_mutex;
+static std::vector<std::pair<int, int>> g_host_requests;
+static GBHostState g_host_state = {};
+static int g_host_frames = 0;
+static bool g_host_redraw = false;   /* a display setting changed while paused: show the last frame again */
+static uint64_t g_host_fps_since = 0;
+
+void gb_platform_host_set_menu(bool host_menu) {
+    g_host_menu.store(host_menu);
+    if (host_menu) g_show_menu = false;
+}
+
+void gb_platform_host_pause(bool paused) { g_host_paused.store(paused); }
+
+void gb_platform_host_request(int action, int value) {
+    std::lock_guard<std::mutex> lock(g_host_mutex);
+    g_host_requests.emplace_back(action, value);
+}
+
+void gb_platform_host_get_state(GBHostState* out) {
+    std::lock_guard<std::mutex> lock(g_host_mutex);
+    *out = g_host_state;
+}
+
+/* One frame shown: counted for the frames-per-second figure (called from gb_platform_vsync). */
+static void host_count_frame(void) {
+    const uint64_t now = SDL_GetTicks64();
+    if (g_host_fps_since == 0) g_host_fps_since = now;
+    g_host_frames++;
+    if (now - g_host_fps_since >= 1000) {
+        const int fps_x10 = (int)((uint64_t)g_host_frames * 10000 / (now - g_host_fps_since));
+        g_host_frames = 0;
+        g_host_fps_since = now;
+        std::lock_guard<std::mutex> lock(g_host_mutex);
+        g_host_state.fps_x10 = fps_x10;
+    }
+}
+
+/* Applies the queued requests and refreshes the state the host reads. False when the host asked to quit. */
+static bool host_apply(GBContext* ctx) {
+    std::vector<std::pair<int, int>> requests;
+    {
+        std::lock_guard<std::mutex> lock(g_host_mutex);
+        requests.swap(g_host_requests);
+    }
+    bool keep_running = true;
+    bool save_preferences = false;
+    for (const auto& [action, value] : requests) {
+        switch (action) {
+            case GB_HOST_SAVE_STATE:
+                if (save_savestate_slot(ctx, value)) host_write_state_image(value);
+                break;
+            case GB_HOST_LOAD_STATE: load_savestate_slot(ctx, value); break;
+            case GB_HOST_SET_SLOT:
+                if (value >= 0 && value < GB_SAVESTATE_SLOT_COUNT) { g_savestate_slot = value; save_preferences = true; }
+                break;
+            case GB_HOST_SET_SCALING:
+                if (value >= 0 && value < (int)IM_ARRAYSIZE(g_render_scaling_mode_names)) {
+                    g_render_scaling_mode = (GBRenderScalingMode)value;
+                    update_game_viewport();
+                    g_host_redraw = true;
+                }
+                break;
+            case GB_HOST_SET_FILTER:
+                if (value >= 0 && value < (int)IM_ARRAYSIZE(g_render_filter_names)) {
+                    g_render_filter_mode = (GBRenderFilterMode)value;
+                    update_render_filter();
+                    g_host_redraw = true;
+                }
+                break;
+            case GB_HOST_SET_PALETTE:
+                if (value >= 0 && value < (int)IM_ARRAYSIZE(g_palette_names)) g_palette_idx = value;
+                break;
+            case GB_HOST_SET_SPEED:
+                g_speed_percent = value < 10 ? 10 : value > 500 ? 500 : value;
+                g_max_speed_mode = false;
+                reset_audio_output_buffer(true);
+                break;
+            case GB_HOST_SET_VOLUME:
+                g_audio_volume_percent.store((uint32_t)(value < 0 ? 0 : value > 200 ? 200 : value), std::memory_order_relaxed);
+                save_preferences = true;
+                break;
+            case GB_HOST_SET_MUTE:
+                g_audio_muted.store(value != 0, std::memory_order_relaxed);
+                save_preferences = true;
+                break;
+            case GB_HOST_QUIT: keep_running = false; break;
+            default: break;
+        }
+    }
+    if (save_preferences) save_runtime_preferences();
+
+    int used = 0;
+    for (int slot = 0; slot < GB_SAVESTATE_SLOT_COUNT; slot++) {
+        if (savestate_slot_exists(ctx, slot, NULL)) used |= 1 << slot;
+    }
+    std::lock_guard<std::mutex> lock(g_host_mutex);
+    g_host_state.scaling_mode = (int)g_render_scaling_mode;
+    g_host_state.filter_mode = (int)g_render_filter_mode;
+    g_host_state.palette = g_palette_idx;
+    g_host_state.speed_percent = g_speed_percent;
+    g_host_state.volume_percent = (int)g_audio_volume_percent.load(std::memory_order_relaxed);
+    g_host_state.muted = g_audio_muted.load(std::memory_order_relaxed) ? 1 : 0;
+    g_host_state.slot = g_savestate_slot;
+    g_host_state.slot_used_mask = used;
+    g_host_state.slot_count = GB_SAVESTATE_SLOT_COUNT;
+    g_host_state.cgb = (ctx && ctx->config.model == GB_MODEL_CGB) ? 1 : 0;
+    g_host_state.paused = g_host_paused.load() ? 1 : 0;
+    return keep_running;
+}
+
 bool gb_platform_poll_events(GBContext* ctx) {
     SDL_Event event;
+
+    /* Host control: apply requests; while the host holds the game paused, wait here with audio stopped, still
+       answering SDL's events (the app going away ends the game as usual) */
+    if (!host_apply(ctx)) return false;
+    if (g_host_paused.load()) {
+        if (g_audio_device != 0) SDL_PauseAudioDevice(g_audio_device, 1);
+        while (g_host_paused.load()) {
+            while (SDL_PollEvent(&event)) {
+                if (event.type == SDL_QUIT) return false;
+            }
+            if (!host_apply(ctx)) return false;
+            /* The host's menu previews display changes on the paused game: draw the last frame again */
+            if (g_host_redraw && g_last_guest_framebuffer_valid) {
+                static uint32_t frame[GB_FRAMEBUFFER_SIZE];
+                memcpy(frame, g_last_guest_framebuffer, sizeof frame);
+                gb_platform_present_framebuffer(frame);
+            }
+            g_host_redraw = false;
+            SDL_Delay(10);
+        }
+        refresh_audio_device_pause_state();
+        g_host_fps_since = 0;
+        g_host_frames = 0;
+    }
 
     if (!g_benchmark_mode) {
         while (SDL_PollEvent(&event)) {
@@ -3629,6 +3791,7 @@ uint8_t gb_platform_get_joypad(void) {
 }
 
 void gb_platform_vsync(uint32_t frame_cycles) {
+    host_count_frame();
     if (g_benchmark_mode || g_app_suspended) {
         g_last_timing.pacing_cycles = (frame_cycles > 0) ? frame_cycles : 70224u;
         g_last_timing.pacing_ms = 0.0;
